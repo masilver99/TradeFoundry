@@ -1,0 +1,20 @@
+@page
+@model TradeFoundry.Pages.LoginModel
+@{
+    ViewData["Title"] = "Sign in";
+}
+<div class="auth-shell">
+    <div class="auth-card card-panel">
+        <p class="eyebrow">TRADEFOUNDRY / LOCAL INSTANCE</p>
+        <h1>Welcome back.</h1>
+        <p class="lede">Unlock this journal on the device where it lives.</p>
+        @if (!string.IsNullOrWhiteSpace(Model.FlashMessage)) { <div class="flash success">@Model.FlashMessage</div> }
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="flash error">@Model.ErrorMessage</div> }
+        <form method="post" class="form-stack">
+            <input type="hidden" asp-for="ReturnUrl" />
+            <label>Password<input asp-for="Password" type="password" autocomplete="current-password" required autofocus /></label>
+            <button class="button primary" type="submit">Open TradeFoundry</button>
+        </form>
+        <p class="helper">No cloud account. No vendor journal subscription. This login is only for this installation.</p>
+    </div>
+</div>

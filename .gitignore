@@ -1,0 +1,16 @@
+bin/
+obj/
+.vs/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+Data/*.db
+Data/*.db-shm
+Data/*.db-wal
+.tradefoundry-data/*.db
+.tradefoundry-data/*.db-shm
+.tradefoundry-data/*.db-wal
+.smoke-data*/
+output/playwright/
+*.user
+*.suo

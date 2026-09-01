@@ -1,0 +1,20 @@
+@page
+@model TradeFoundry.Pages.SetupModel
+@{
+    ViewData["Title"] = "Setup";
+}
+<div class="auth-shell">
+    <div class="auth-card card-panel">
+        <p class="eyebrow">TRADEFOUNDRY / FIRST RUN</p>
+        <h1>Forge your local journal.</h1>
+        <p class="lede">Create the one owner account for this self-hosted instance. Your password stays in the local SQLite database as a salted hash.</p>
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="flash error">@Model.ErrorMessage</div> }
+        <form method="post" class="form-stack">
+            <label>Display name<input asp-for="DisplayName" autocomplete="name" required /></label>
+            <label>Password<input asp-for="Password" type="password" autocomplete="new-password" required minlength="8" /></label>
+            <label>Confirm password<input asp-for="ConfirmPassword" type="password" autocomplete="new-password" required minlength="8" /></label>
+            <button class="button primary" type="submit">Create owner account</button>
+        </form>
+        <p class="helper">Phase 1 is intentionally one-owner-per-instance. Multiple journals are created after sign-in.</p>
+    </div>
+</div>

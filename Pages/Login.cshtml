@@ -3,18 +3,18 @@
 @{
     ViewData["Title"] = "Sign in";
 }
-<div class="auth-shell">
-    <div class="auth-card card-panel">
-        <p class="eyebrow">TRADEFOUNDRY / LOCAL INSTANCE</p>
+<div class="card tf-card tf-auth-card">
+    <div class="card-body p-4 p-md-5">
+        <div class="tf-kicker">TRADEFOUNDRY / LOCAL INSTANCE</div>
         <h1>Welcome back.</h1>
-        <p class="lede">Unlock this journal on the device where it lives.</p>
-        @if (!string.IsNullOrWhiteSpace(Model.FlashMessage)) { <div class="flash success">@Model.FlashMessage</div> }
-        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="flash error">@Model.ErrorMessage</div> }
-        <form method="post" class="form-stack">
+        <p class="tf-lede mb-4">Unlock this journal on the device where it lives.</p>
+        @if (!string.IsNullOrWhiteSpace(Model.FlashMessage)) { <div class="alert tf-alert">@Model.FlashMessage</div> }
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="alert tf-alert error">@Model.ErrorMessage</div> }
+        <form method="post" class="row g-3">
             <input type="hidden" asp-for="ReturnUrl" />
-            <label>Password<input asp-for="Password" type="password" autocomplete="current-password" required autofocus /></label>
-            <button class="button primary" type="submit">Open TradeFoundry</button>
+            <div class="col-12"><label class="form-label" for="Password">Password</label><input asp-for="Password" class="form-control" type="password" autocomplete="current-password" required autofocus /></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Open TradeFoundry</button></div>
         </form>
-        <p class="helper">No cloud account. No vendor journal subscription. This login is only for this installation.</p>
+        <p class="tf-helper mt-4 mb-0">No cloud account. No vendor journal subscription. This login is only for this installation.</p>
     </div>
 </div>

@@ -1,0 +1,10 @@
+{
+  "name": "tradefoundry-assets",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pinned local frontend assets for TradeFoundry",
+  "dependencies": {
+    "@tabler/core": "1.4.0",
+    "plotly.js-dist-min": "2.27.0"
+  }
+}

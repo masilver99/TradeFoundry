@@ -1,0 +1,75 @@
+@page "/journal/{journalId:guid}/imports"
+@model TradeFoundry.Pages.ImportsModel
+@using TradeFoundry.Core
+@{
+    ViewData["Title"] = "Imports";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / DATA";
+    ViewData["ActiveNav"] = "imports";
+    var action = $"/journal/{Model.JournalId:D}/imports";
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind == "warning" ? "warning" : Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
+}
+
+<section class="row row-cards mb-3">
+    <div class="col-xl-8">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">INGEST</div><h3 class="tf-card-title">Import records</h3></div></div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" action="@($"{action}?handler=Import")">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="journalId" value="@Model.JournalId" />
+                    <div class="row g-3">
+                        <div class="col-md-5"><label class="tf-import-dropzone" for="import-file"><strong>Drop a CSV or TSV here</strong><span>or choose an export file</span><input id="import-file" asp-for="ImportFile" type="file" accept=".csv,.tsv,.txt" required /></label><pre id="import-preview" class="tf-import-preview" hidden></pre></div>
+                        <div class="col-md-7">
+                            <div class="row g-3">
+                                <div class="col-md-6"><label class="form-label">Format<select asp-for="RequestedType" class="form-select"><option value="auto">Auto-detect</option><option value="sierra">Sierra Chart fills + orders</option><option value="tradingview-account">TradingView account history</option><option value="tradingview-strategy">TradingView Strategy Tester</option><option value="benchmark">Benchmark daily series</option><option value="ohlcv">OHLCV bars</option></select></label></div>
+                                <div class="col-md-6"><label class="form-label">Grouping<select asp-for="GroupingPolicy" class="form-select"><option value="flat_to_flat">Flat-to-flat</option><option value="fifo_lots">FIFO lots (phase 2)</option><option value="source_defined">Source-defined rows</option></select></label></div>
+                                <div class="col-md-6"><label class="form-label">Bar interval<input asp-for="BarInterval" class="form-control" placeholder="source, 1m, 5m…" /></label></div>
+                                <div class="col-md-6"><label class="form-label">Benchmark ticker<input asp-for="BenchmarkSymbol" class="form-control" placeholder="SPY" /></label></div>
+                                <div class="col-12"><button class="btn btn-primary" type="submit">Import &amp; rebuild</button></div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+                <p class="text-secondary small mb-0 mt-3">Imports are deduplicated per journal. Raw rows remain linked to typed fills, order events, balances, benchmark points, and derived trades; Undo removes one batch and rebuilds the affected evidence.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4"><div class="card tf-card tf-phase-card h-100"><div class="card-body"><div class="tf-kicker">WORKSPACE RULE</div><h3 class="tf-card-title mb-3">Evidence stays connected.</h3><p class="text-secondary small mb-0">Sierra fills, order events, TradingView histories, benchmark series, strategy trades, and OHLCV bars remain separate source adapters inside the active journal.</p></div></div></div>
+</section>
+
+<section class="card tf-card">
+    <div class="card-header">
+        <div class="tf-section-heading">
+            <div><div class="tf-kicker">PROVENANCE</div><h3 class="tf-card-title">Import history</h3></div>
+            <form method="get" action="@action" class="d-flex gap-2"><input class="form-control form-control-sm" name="search" value="@Model.Search" placeholder="Search files or sources…" /><button class="btn btn-outline-secondary btn-sm" type="submit">Search</button></form>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        @if (Model.Results.Items.Count == 0)
+        {
+            <div class="tf-empty m-3"><strong>No imports found.</strong>Upload a source export above to create an auditable batch.</div>
+        }
+        else
+        {
+            <div class="table-responsive"><table class="table table-vcenter tf-table"><thead><tr><th>File</th><th>Source</th><th>Imported</th><th>Rows</th><th>Status</th><th></th></tr></thead><tbody>
+            @foreach (var batch in Model.Results.Items)
+            {
+                <tr><td><strong>@batch.FileName</strong><small>@batch.Id</small></td><td>@batch.SourceType</td><td>@batch.ImportedUtc.ToLocalTime().ToString("MMM d, yyyy HH:mm")</td><td>@batch.NewRows new · @batch.DuplicateRows dup<small>@batch.TotalRows total</small></td><td><span class="tf-status tf-status-closed">@batch.Status</span>@if (!string.IsNullOrWhiteSpace(batch.Message)){<small>@batch.Message</small>}</td><td><form method="post" action="@($"{action}?handler=UndoImport")" onsubmit="return confirm('Remove this import batch and rebuild derived trades?');">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><input type="hidden" name="batchId" value="@batch.Id" /><button class="btn btn-sm btn-outline-danger" type="submit">Undo</button></form></td></tr>
+            }
+            </tbody></table></div>
+        }
+    </div>
+    @if (Model.Results.PageCount > 1)
+    {
+        <div class="card-footer"><ul class="pagination mb-0 justify-content-end tf-pagination">
+            @for (var pageNumber = 1; pageNumber <= Model.Results.PageCount; pageNumber++)
+            {
+                <li class="page-item @(pageNumber == Model.Results.Page ? "active" : string.Empty)"><a class="page-link" href="@($"{action}?page={pageNumber}&search={Uri.EscapeDataString(Model.Search)}")">@pageNumber</a></li>
+            }
+        </ul></div>
+    }
+</section>

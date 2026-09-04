@@ -1,0 +1,54 @@
+@page "/journal/{journalId:guid}/trades"
+@model TradeFoundry.Pages.TradesModel
+@using TradeFoundry.Core
+@{
+    ViewData["Title"] = "Trade Ledger";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / LEDGER";
+    ViewData["ActiveNav"] = "trades";
+    var action = $"/journal/{Model.JournalId:D}/trades";
+}
+
+<section class="card tf-card mb-3">
+    <div class="card-body">
+        <form method="get" action="@action" class="tf-toolbar">
+            <div class="tf-toolbar-fields">
+                <div class="tf-filter tf-filter-wide"><label class="tf-filter-label" for="trade-search">Search</label><input id="trade-search" class="form-control form-control-sm" name="search" value="@Model.Search" placeholder="Symbol, account, side…" /></div>
+                <div class="tf-filter"><label class="tf-filter-label" for="trade-symbol">Symbol</label><input id="trade-symbol" class="form-control form-control-sm" name="symbol" value="@Model.Symbol" placeholder="ES, NQ…" /></div>
+                <div class="tf-filter"><label class="tf-filter-label" for="trade-direction">Direction</label><select id="trade-direction" class="form-select form-select-sm" name="direction"><option value="">All sides</option><option value="Long" selected="@(Model.Direction == "Long")">Long</option><option value="Short" selected="@(Model.Direction == "Short")">Short</option></select></div>
+                <div class="tf-filter"><label class="tf-filter-label" for="trade-status">Status</label><select id="trade-status" class="form-select form-select-sm" name="status"><option value="">All statuses</option><option value="closed" selected="@(Model.Status == "closed")">Closed</option><option value="open" selected="@(Model.Status == "open")">Open</option></select></div>
+                <div class="tf-filter"><label class="tf-filter-label" for="trade-sort">Sort</label><select id="trade-sort" class="form-select form-select-sm" name="sort"><option value="entry_desc" selected="@(Model.Sort == "entry_desc")">Newest first</option><option value="entry_asc" selected="@(Model.Sort == "entry_asc")">Oldest first</option><option value="pnl_desc" selected="@(Model.Sort == "pnl_desc")">P&amp;L high to low</option><option value="pnl_asc" selected="@(Model.Sort == "pnl_asc")">P&amp;L low to high</option></select></div>
+            </div>
+            <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" type="submit">Apply filters</button><a class="btn btn-outline-secondary btn-sm" href="@action">Clear</a></div>
+        </form>
+    </div>
+</section>
+
+<section class="card tf-card">
+    <div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">@Model.Journal?.Name</div><h3 class="tf-card-title">Trade ledger</h3></div><span class="text-secondary">@Model.Results.TotalCount.ToString("N0") matching trade(s)</span></div></div>
+    <div class="card-body p-0">
+        @if (Model.Results.Items.Count == 0)
+        {
+            <div class="tf-empty m-3"><strong>No matching trades.</strong>Adjust the filters or import a new record set.</div>
+        }
+        else
+        {
+            <div class="tf-table-wrap"><table class="table table-vcenter tf-table"><thead><tr><th>Entry</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>Points</th><th>Net P&amp;L</th><th>MAE / MFE</th><th>Status</th></tr></thead><tbody>
+            @foreach (var trade in Model.Results.Items)
+            {
+                <tr><td><a class="row-link" href="@($"/journal/{trade.JournalId:D}/trades/{trade.Id:D}")">@trade.EntryUtc.ToLocalTime().ToString("MMM d, HH:mm")</a><small>@trade.EntryUtc.ToLocalTime().ToString("yyyy")</small></td><td><strong>@trade.Symbol</strong><small>@trade.Account</small></td><td><span class="tf-side @(trade.Direction.Equals("Short", StringComparison.OrdinalIgnoreCase) ? "tf-side-short" : "tf-side-long")">@trade.Direction</span></td><td>@trade.ClosedQuantity/@trade.Quantity</td><td>@trade.EntryPrice.ToString("0.########")</td><td>@(trade.ExitPrice?.ToString("0.########") ?? "—")</td><td class="@(trade.AveragePoints >= 0 ? "positive" : "negative")">@trade.AveragePoints.ToString("0.##")</td><td class="@(trade.NetPnl >= 0 ? "positive" : "negative")">@trade.NetPnl.ToString("C2")</td><td>@(trade.MaePoints?.ToString("0.##") ?? "—") / @(trade.MfePoints?.ToString("0.##") ?? "—")</td><td><span class="tf-status @(trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase) ? "tf-status-closed" : "tf-status-open")">@trade.Status</span></td></tr>
+            }
+            </tbody></table></div>
+        }
+    </div>
+    @if (Model.Results.PageCount > 1)
+    {
+        <div class="card-footer"><ul class="pagination mb-0 justify-content-end tf-pagination">
+            <li class="page-item @(Model.Results.Page <= 1 ? "disabled" : string.Empty)"><a class="page-link" href="@($"{action}?page={Model.Results.Page - 1}&search={Uri.EscapeDataString(Model.Search)}&symbol={Uri.EscapeDataString(Model.Symbol)}&direction={Uri.EscapeDataString(Model.Direction)}&status={Uri.EscapeDataString(Model.Status)}&sort={Uri.EscapeDataString(Model.Sort)}")">Previous</a></li>
+            @for (var pageNumber = 1; pageNumber <= Model.Results.PageCount; pageNumber++)
+            {
+                <li class="page-item @(pageNumber == Model.Results.Page ? "active" : string.Empty)"><a class="page-link" href="@($"{action}?page={pageNumber}&search={Uri.EscapeDataString(Model.Search)}&symbol={Uri.EscapeDataString(Model.Symbol)}&direction={Uri.EscapeDataString(Model.Direction)}&status={Uri.EscapeDataString(Model.Status)}&sort={Uri.EscapeDataString(Model.Sort)}")">@pageNumber</a></li>
+            }
+            <li class="page-item @(Model.Results.Page >= Model.Results.PageCount ? "disabled" : string.Empty)"><a class="page-link" href="@($"{action}?page={Model.Results.Page + 1}&search={Uri.EscapeDataString(Model.Search)}&symbol={Uri.EscapeDataString(Model.Symbol)}&direction={Uri.EscapeDataString(Model.Direction)}&status={Uri.EscapeDataString(Model.Status)}&sort={Uri.EscapeDataString(Model.Sort)}")">Next</a></li>
+        </ul></div>
+    }
+</section>

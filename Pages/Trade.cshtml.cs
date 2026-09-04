@@ -19,9 +19,12 @@ public class TradeModel : PageModel
     public IReadOnlyList<Bar> Bars { get; private set; } = Array.Empty<Bar>();
     public string CandleChart => Trade is null ? string.Empty : ChartRenderer.Candles(Trade, Bars);
 
-    public IActionResult OnGet(Guid id)
+    [BindProperty(SupportsGet = true)] public Guid? JournalId { get; set; }
+
+    public IActionResult OnGet(Guid id, Guid? journalId = null)
     {
-        Trade = _database.GetTrade(id);
+        JournalId = journalId ?? JournalId;
+        Trade = JournalId.HasValue ? _database.GetTrade(JournalId.Value, id) : _database.GetTrade(id);
         if (Trade is null) return NotFound();
         Journal = _database.GetJournal(Trade.JournalId);
         if (Journal is null) return NotFound();

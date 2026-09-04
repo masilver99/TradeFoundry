@@ -23,11 +23,11 @@ public class IndexModel : PageModel
     public Guid? JournalId { get; set; }
 
     public IReadOnlyList<Journal> Journals { get; private set; } = Array.Empty<Journal>();
-    public JournalSnapshot? Snapshot { get; private set; }
+    public JournalOverview? Overview { get; private set; }
     public string? FlashMessage { get; private set; }
     public string? FlashKind { get; private set; }
-    public string EquityChart => Snapshot is null ? string.Empty : ChartRenderer.Equity(Snapshot.Trades);
-    public string DailyChart => Snapshot is null ? string.Empty : ChartRenderer.Daily(Snapshot.DailyPnl);
+    public string EquityChart => Overview is null ? string.Empty : ChartRenderer.Equity(Overview.Equity);
+    public string DailyChart => Overview is null ? string.Empty : ChartRenderer.Daily(Overview.DailyPnl);
 
     [BindProperty] public string NewJournalName { get; set; } = string.Empty;
     [BindProperty] public string NewExecutionContext { get; set; } = "live";
@@ -35,6 +35,7 @@ public class IndexModel : PageModel
     [BindProperty] public string NewTimeZone { get; set; } = "UTC";
     [BindProperty] public string NewCurrency { get; set; } = "USD";
     [BindProperty] public string NewGroupingPolicy { get; set; } = "flat_to_flat";
+    [BindProperty] public decimal? NewStartingEquity { get; set; }
     [BindProperty] public IFormFile? ImportFile { get; set; }
     [BindProperty] public string RequestedType { get; set; } = "auto";
     [BindProperty] public string GroupingPolicy { get; set; } = "flat_to_flat";
@@ -51,10 +52,10 @@ public class IndexModel : PageModel
 
     public IActionResult OnPostCreateJournal()
     {
-        var journal = _database.CreateJournal(NewJournalName, NewExecutionContext, NewLabels, NewTimeZone, NewCurrency, NewGroupingPolicy);
+        var journal = _database.CreateJournal(NewJournalName, NewExecutionContext, NewLabels, NewTimeZone, NewCurrency, NewGroupingPolicy, NewStartingEquity);
         TempData["FlashMessage"] = $"Created {journal.Name}.";
         TempData["FlashKind"] = "success";
-        return RedirectToPage(new { journalId = journal.Id });
+        return Redirect($"/journal/{journal.Id:D}/overview");
     }
 
     public async Task<IActionResult> OnPostImportAsync(Guid journalId, CancellationToken cancellationToken)
@@ -78,17 +79,17 @@ public class IndexModel : PageModel
             TempData["FlashMessage"] = $"Import stopped: {ex.Message}";
             TempData["FlashKind"] = "error";
         }
-        return RedirectToPage(new { journalId });
+        return Redirect($"/journal/{journalId:D}/overview");
     }
 
     public IActionResult OnPostUndoImport(Guid journalId, Guid batchId)
     {
         if (_database.GetJournal(journalId) is null) return NotFound();
-        if (_database.GetSnapshot(journalId).Imports.All(x => x.Id != batchId)) return NotFound();
+        if (!_database.HasImportBatch(journalId, batchId)) return NotFound();
         _database.RemoveImportBatch(batchId);
         TempData["FlashMessage"] = "The import was removed and derived trades were rebuilt.";
         TempData["FlashKind"] = "success";
-        return RedirectToPage(new { journalId });
+        return Redirect($"/journal/{journalId:D}/overview");
     }
 
     private void Load()
@@ -98,8 +99,8 @@ public class IndexModel : PageModel
         if (selected.HasValue)
         {
             JournalId = selected.Value;
-            Snapshot = _database.GetSnapshot(selected.Value);
-            GroupingPolicy = Snapshot.Journal.GroupingPolicy;
+            Overview = _database.GetOverview(selected.Value);
+            GroupingPolicy = Overview.Journal.GroupingPolicy;
         }
     }
 }

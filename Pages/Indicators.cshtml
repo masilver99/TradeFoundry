@@ -1,0 +1,106 @@
+@page "/journal/{journalId:guid}/indicators"
+@model TradeFoundry.Pages.IndicatorsModel
+@{
+    ViewData["Title"] = "Indicators";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / INDICATORS";
+    ViewData["ActiveNav"] = "indicators";
+    ViewData["UsesPlotly"] = false;
+}
+
+@if (Model.Overview is not null)
+{
+    var overview = Model.Overview;
+    <nav class="tf-chart-index tf-analysis-index tf-indicator-page-index" data-indicator-index aria-label="Indicator sections">
+        <a href="#indicator-key" data-indicator-target="indicator-key">Key</a>
+        @foreach (var group in Model.Indicators.Groups)
+        {
+            var navLabel = group.Title switch
+            {
+                "Core performance" => "Core",
+                "Drawdown and risk-adjusted returns" => "Risk & Stability",
+                "Duration, excursions, and direction" => "Trade Dynamics",
+                "Consistency and position sizing" => "Consistency & Sizing",
+                "Risk-normalized trade results" => "R-Multiple",
+                "Execution quality" => "Execution",
+                "Benchmark comparison" => "Benchmark",
+                _ => group.Title
+            };
+            <a href="#@group.Id" data-indicator-target="@group.Id">@navLabel</a>
+        }
+    </nav>
+
+    <section id="indicator-key" class="tf-chart-section tf-key-indicators mb-3" aria-labelledby="indicator-key-heading">
+        <div class="tf-analysis-section-heading">
+            <div><div class="tf-kicker">AT A GLANCE</div><h2 id="indicator-key-heading">Key</h2></div>
+            <span>@overview.Journal.Name · current journal</span>
+        </div>
+        <div class="tf-indicator-grid tf-indicator-grid-key">
+            @for (var indicatorIndex = 0; indicatorIndex < Model.Indicators.Key.Count; indicatorIndex++)
+            {
+                var indicator = Model.Indicators.Key[indicatorIndex];
+                var helpId = $"indicator-help-key-{indicatorIndex}";
+                <article class="tf-indicator-card tf-indicator-card-key">
+                    <div class="tf-indicator-label-row">
+                        <div class="tf-indicator-label">@indicator.Label</div>
+                        @if (!string.IsNullOrWhiteSpace(indicator.Help))
+                        {
+                            <span class="tf-indicator-help">
+                                <button type="button" class="tf-indicator-help-button" title="@indicator.Help" aria-label="More information about @indicator.Label" aria-describedby="@helpId">?</button>
+                                <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">@indicator.Help</span>
+                            </span>
+                        }
+                    </div>
+                    <div class="tf-indicator-value @indicator.Tone">@indicator.Value</div>
+                    <div class="tf-indicator-note">@indicator.Note</div>
+                    @if (indicator.Scale is { } scale)
+                    {
+                        <div class="tf-indicator-scale" role="img" aria-label="@indicator.Label quality: @scale.Tier">
+                            <div class="tf-indicator-scale-marker-row"><span class="tf-indicator-scale-marker" style="left:@scale.MarkerPosition%;"></span></div>
+                            <div class="tf-indicator-scale-bar @scale.CssClass"></div>
+                            <div class="tf-indicator-scale-tier">@scale.Tier</div>
+                        </div>
+                    }
+                </article>
+            }
+        </div>
+    </section>
+
+    @foreach (var group in Model.Indicators.Groups)
+    {
+        <section id="@group.Id" class="tf-indicator-group" aria-labelledby="@($"{group.Id}-heading")">
+            <div class="tf-indicator-group-heading">
+                <div><div class="tf-kicker">@group.Kicker</div><h3 id="@($"{group.Id}-heading")">@group.Title</h3></div>
+                <span>@group.Description</span>
+            </div>
+            <div class="tf-indicator-grid">
+                @for (var indicatorIndex = 0; indicatorIndex < group.Indicators.Count; indicatorIndex++)
+                {
+                    var indicator = group.Indicators[indicatorIndex];
+                    var helpId = $"indicator-help-{group.Id}-{indicatorIndex}";
+                    <article class="tf-indicator-card">
+                        <div class="tf-indicator-label-row">
+                            <div class="tf-indicator-label">@indicator.Label</div>
+                            @if (!string.IsNullOrWhiteSpace(indicator.Help))
+                            {
+                                <span class="tf-indicator-help">
+                                    <button type="button" class="tf-indicator-help-button" title="@indicator.Help" aria-label="More information about @indicator.Label" aria-describedby="@helpId">?</button>
+                                    <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">@indicator.Help</span>
+                                </span>
+                            }
+                        </div>
+                        <div class="tf-indicator-value @indicator.Tone">@indicator.Value</div>
+                        <div class="tf-indicator-note">@indicator.Note</div>
+                        @if (indicator.Scale is { } scale)
+                        {
+                            <div class="tf-indicator-scale" role="img" aria-label="@indicator.Label quality: @scale.Tier">
+                                <div class="tf-indicator-scale-marker-row"><span class="tf-indicator-scale-marker" style="left:@scale.MarkerPosition%;"></span></div>
+                                <div class="tf-indicator-scale-bar @scale.CssClass"></div>
+                                <div class="tf-indicator-scale-tier">@scale.Tier</div>
+                            </div>
+                        }
+                    </article>
+                }
+            </div>
+        </section>
+    }
+}

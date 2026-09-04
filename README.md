@@ -1,6 +1,6 @@
 # TradeFoundry
 
-TradeFoundry is a local-first futures trading journal. It imports Sierra Chart Trade Activity fills, TradingView account or Strategy Tester exports, and OHLCV bars for chart snippets. The phase 1 ledger is intentionally read-only: raw rows stay linked to normalized fills and deterministic flat-to-flat trades.
+TradeFoundry is a local-first futures trading journal. It imports Sierra Chart Trade Activity fills and order events, TradingView account or Strategy Tester exports, benchmark daily series, and OHLCV bars for chart snippets. The phase 1 ledger is intentionally read-only: raw rows stay linked to typed source evidence and deterministic flat-to-flat trades.
 
 ## Run locally
 
@@ -23,12 +23,13 @@ The host `data/` directory is mounted into the container. Back up the database w
 
 ## Imports
 
-* Sierra Chart: export the Trade Activity Log as the tab-delimited file containing `ActivityType`, `Quantity`, `BuySell`, `FillPrice`, `TradeAccount`, and `FillExecutionServiceID`. Only `Fills` rows become executions; order/status rows remain in raw provenance. Some Sierra simulator exports encode prices as fixed-point values (for example, `764725` for `7647.25`); TradeFoundry detects that representation from `OrderActionSource` and stores the normalized price while preserving the original row.
+* Sierra Chart: export the Trade Activity Log as the tab-delimited file containing `ActivityType`, `DateTime`, `TransDateTime`, `OrderActionSource`, `Symbol`, `InternalOrderID`, `ServiceOrderID`, `ParentInternalOrderID`, `OrderType`, `OrderStatus`, `Quantity`, `FilledQuantity`, `BuySell`, `Price`, `Price2`, `FillPrice`, `TradeAccount`, `OpenClose`, `PositionQuantity`, `FillExecutionServiceID`, `ExchangeOrderID`, `HighDuringPosition`, `LowDuringPosition`, `AccountBalance`, and `Note`. `Fills` rows become executions, `Orders` rows become immutable order-lifecycle events, and `Account Balance` rows become balance events. Some Sierra simulator exports encode prices as fixed-point values (for example, `764725` for `7647.25`); TradeFoundry detects that representation from `OrderActionSource` and stores normalized prices while preserving the original row.
 * TradingView account history: a generic CSV with symbol, side/action, quantity, execution price, timestamp, and an optional ID/status/fee column.
 * TradingView Strategy Tester: rows grouped by `Trade #`/`Trade Number`, with entry/exit prices and times where supplied.
+* Benchmark daily series: choose `Benchmark daily series` and import a CSV/TSV with a date or timestamp plus `Close`, `Adj Close`, or `Total Return` (and an optional `Symbol`/`Ticker`). The ticker defaults to `SPY` when it is not present.
 * OHLCV bars: a CSV/TSV containing symbol, timestamp/date, and `Open`, `High`, `Low`, `Close` (optional `Volume`). Choose an interval such as `1m` or `5m` so the trade detail page can select the matching series.
 
-Imports are scoped to the selected journal. The service uses `FillExecutionServiceID` when Sierra provides it and a deterministic SHA-256 row fingerprint otherwise. Re-importing a file is safe. The **Undo** action removes a batch and rebuilds derived fill-based trades. Phase 1 derives fill sources flat-to-flat; the FIFO-lots choice is reserved for phase 2 while the schema already preserves the fill allocations needed for it.
+Imports are scoped to the selected journal. Sierra rows use a deterministic SHA-256 fingerprint of the complete row, so fills and order events that share an execution id remain distinct while exact duplicate rows still deduplicate safely. Re-importing a file is safe. The **Undo** action removes a batch and rebuilds derived fill-based trades. Derived trades retain point value, initial target/stop intent, initial risk, R-multiple, exit classification, entry/exit order prices, chase points, and UTC entry/exit times; `TimeInTrade` is calculated from those timestamps. Phase 1 derives fill sources flat-to-flat; the FIFO-lots choice is reserved for phase 2 while the schema already preserves the fill allocations needed for it.
 
 ## Storage and boundaries
 

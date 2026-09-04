@@ -1,0 +1,59 @@
+@page "/journal/{journalId:guid}/settings"
+@model TradeFoundry.Pages.SettingsModel
+@{
+    ViewData["Title"] = "Settings";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / INSTANCE";
+    ViewData["ActiveNav"] = "settings";
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
+}
+
+<section class="row row-cards">
+    <div class="col-xl-8">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">ACTIVE JOURNAL</div><h3 class="tf-card-title">Journal settings</h3></div></div>
+            <div class="card-body">
+                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=Save")" class="row g-3">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" asp-for="JournalId" />
+                    <div class="col-md-8"><label class="form-label">Name<input asp-for="Name" class="form-control" required /></label></div>
+                    <div class="col-md-4"><label class="form-label">Execution context<select asp-for="ExecutionContext" class="form-select"><option value="live">Live</option><option value="paper">Paper</option><option value="replay">Replay</option><option value="backtest">Backtest</option><option value="other">Other</option></select></label></div>
+                    <div class="col-md-6"><label class="form-label">Labels<input asp-for="Labels" class="form-control" placeholder="algo, ORB, experimental" /></label></div>
+                    <div class="col-md-3"><label class="form-label">Timezone<input asp-for="TimeZone" class="form-control" required /></label></div>
+                    <div class="col-md-3"><label class="form-label">Currency<input asp-for="Currency" class="form-control" required /></label></div>
+                    <div class="col-md-3"><label class="form-label">Starting equity <span class="text-secondary">(optional)</span><input asp-for="StartingEquity" class="form-control" type="number" step="0.01" min="0" placeholder="Auto from balance" /></label></div>
+                    <div class="col-md-3"><label class="form-label">Grouping policy<select asp-for="GroupingPolicy" class="form-select"><option value="flat_to_flat">Flat-to-flat</option><option value="fifo_lots">FIFO lots (phase 2)</option><option value="source_defined">Source-defined rows</option></select></label></div>
+                    <div class="col-12"><button class="btn btn-primary" type="submit">Save settings</button></div>
+                </form>
+            </div>
+        </div>
+        <div class="card tf-card tf-phase-card">
+            <div class="card-header"><div><div class="tf-kicker">LOCAL INSTANCE</div><h3 class="tf-card-title">Storage</h3></div></div>
+            <div class="card-body"><dl class="tf-definition-list"><dt>Database size</dt><dd>@Model.DatabaseSize</dd><dt>Location</dt><dd class="text-break">@Model.DatabasePath</dd></dl></div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">WORKSPACE</div><h3 class="tf-card-title">Create another journal</h3></div></div>
+            <div class="card-body">
+                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=CreateJournal")" class="row g-3">
+                    @Html.AntiForgeryToken()
+                    <div class="col-12"><label class="form-label">Name<input asp-for="NewJournalName" class="form-control" placeholder="e.g. NQ Replay" required /></label></div>
+                    <div class="col-12"><label class="form-label">Execution context<select asp-for="NewExecutionContext" class="form-select"><option value="live">Live</option><option value="paper">Paper</option><option value="replay">Replay</option><option value="backtest">Backtest</option><option value="other">Other</option></select></label></div>
+                    <div class="col-12"><label class="form-label">Labels<input asp-for="NewLabels" class="form-control" placeholder="algo, study" /></label></div>
+                    <div class="col-12"><button class="btn btn-outline-secondary" type="submit">Create journal</button></div>
+                </form>
+            </div>
+        </div>
+        @if (Model.Journals.Count > 1)
+        {
+            <div class="card tf-card border-danger">
+                <div class="card-header"><div><div class="tf-kicker text-danger">LIFECYCLE</div><h3 class="tf-card-title">Archive this journal</h3></div></div>
+                <div class="card-body"><p class="text-secondary small">Archived journals disappear from the active selector but their data remains in the database.</p><form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=Archive")" onsubmit="return confirm('Archive this journal?');">@Html.AntiForgeryToken()<input type="hidden" asp-for="JournalId" /><button class="btn btn-outline-danger" type="submit">Archive @Model.Journal?.Name</button></form></div>
+            </div>
+        }
+    </div>
+</section>

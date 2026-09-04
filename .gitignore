@@ -1,5 +1,8 @@
 bin/
 obj/
+.codex-build/
+.playwright-cli/
+node_modules/
 .vs/
 data/*.db
 data/*.db-shm

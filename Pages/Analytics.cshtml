@@ -1,0 +1,668 @@
+@page "/journal/{journalId:guid}/analytics"
+@using System.Globalization
+@model TradeFoundry.Pages.AnalyticsModel
+@{
+    ViewData["Title"] = "Analysis";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / ANALYSIS";
+    ViewData["ActiveNav"] = "analysis";
+    ViewData["UsesPlotly"] = Model.Trades.Count > 0 || Model.OrderEvents.Count > 0 || Model.AccountBalances.Count > 0 || Model.BenchmarkPoints.Count > 0;
+
+    string FormatPeriodCurrency(decimal? value) => value.HasValue ? value.Value.ToString("C2") : "—";
+    string FormatPeriodFees(decimal? value) => value.HasValue ? $"-{Math.Abs(value.Value).ToString("C2")}" : "—";
+    string FormatPeriodPercent(decimal? value) => value.HasValue ? $"{value.Value * 100m:0.0}%" : "—";
+    string FormatPeriodRatio(decimal? value) => value.HasValue ? value.Value.ToString("0.00") : "—";
+    string FormatPeriodDuration(double? seconds)
+    {
+        if (!seconds.HasValue) return "—";
+        var totalSeconds = Math.Max(0, (int)Math.Round(seconds.Value));
+        var hours = totalSeconds / 3600;
+        var minutes = totalSeconds % 3600 / 60;
+        var remainingSeconds = totalSeconds % 60;
+        return hours > 0 ? $"{hours}:{minutes:00}:{remainingSeconds:00}" : $"{minutes}:{remainingSeconds:00}";
+    }
+    string PeriodTone(decimal value) => value > 0m ? "positive" : value < 0m ? "negative" : "neutral";
+}
+
+@if (Model.Overview is not null)
+{
+    <nav class="tf-chart-index tf-analysis-index" data-analysis-index aria-label="Analysis sections">
+        <a href="#sc-trade-statistics" data-analysis-target="sc-trade-statistics">SC Trade Statistics</a>
+        <a href="#period-summary" data-analysis-target="period-summary">Period Summary</a>
+        <a href="#period-breakdown" data-analysis-target="period-breakdown">Period Breakdown</a>
+        <a href="#performance" data-analysis-target="performance">Performance</a>
+        <a href="#risk" data-analysis-target="risk">Risk &amp; stability</a>
+        <a href="#trade-quality" data-analysis-target="trade-quality">Trade quality</a>
+        <a href="#timing-sizing" data-analysis-target="timing-sizing">Timing &amp; sizing</a>
+        <a href="#execution" data-analysis-target="execution">Execution</a>
+    </nav>
+
+    <section id="sc-trade-statistics" class="tf-chart-section tf-sc-statistics-section" aria-labelledby="sc-trade-statistics-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">SC TRADE STATISTICS</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="sc-trade-statistics-heading">SC Trade Statistics</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="SC Trade Statistics" aria-expanded="false" aria-controls="sc-trade-statistics-description" aria-label="Show explanation for SC Trade Statistics"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="sc-trade-statistics-description" class="tf-section-info" hidden>Sierra Chart-style flat-to-flat trade statistics, split across all, long, short, and daily results so you can compare the journal's core outcomes from several useful views.</p>
+            </div>
+            <span>net P&amp;L · flat-to-flat results</span>
+        </div>
+        <div class="tf-sc-statistics-table-wrap">
+            <table class="tf-sc-statistics-table">
+                <caption class="visually-hidden">Sierra Chart-style trade statistics split by all, long, short, and latest-day trades.</caption>
+                <thead>
+                    <tr>
+                        <th scope="col"></th>
+                        @foreach (var column in Model.Indicators.ScTradeStatistics.Columns)
+                        {
+                            <th scope="col">@column</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var scSection in Model.Indicators.ScTradeStatistics.Sections)
+                    {
+                        <tr class="tf-sc-statistics-group">
+                            <th colspan="@(Model.Indicators.ScTradeStatistics.Columns.Count + 1)" scope="colgroup">@scSection.Title</th>
+                        </tr>
+                        @foreach (var row in scSection.Rows)
+                        {
+                            <tr>
+                                <th scope="row">@row.Label</th>
+                                @foreach (var cell in row.Cells)
+                                {
+                                    <td class="@cell.Tone">@cell.Value</td>
+                                }
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section id="period-summary" class="tf-chart-section tf-period-summary-section" aria-labelledby="period-summary-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">PERIOD SUMMARY</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="period-summary-heading">Period Summary</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Period Summary" aria-expanded="false" aria-controls="period-summary-description" aria-label="Show explanation for Period Summary"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="period-summary-description" class="tf-section-info" hidden>Completed trades are grouped by localized exit date from year through day. Expand the hierarchy to compare profit, consistency, costs, and holding time across calendar periods.</p>
+            </div>
+            <span>@Model.PeriodSummary.YearCount year(s) · @Model.PeriodSummary.MonthCount month(s)</span>
+        </div>
+        @if (Model.PeriodSummary.Rows.Count == 0)
+        {
+            <div class="chart-empty">No completed-trade period data is available yet.</div>
+        }
+        else
+        {
+            <p class="tf-period-summary-intro">@Model.PeriodSummary.YearCount year(s), @Model.PeriodSummary.QuarterCount quarter(s), and @Model.PeriodSummary.MonthCount month(s) of trading data. Expand a year to inspect quarters, months, weeks, and days.</p>
+            <div class="tf-period-summary-toolbar">
+                <label for="period-summary-tax-rate">Tax rate (%) <input id="period-summary-tax-rate" type="number" min="0" step="0.1" value="@((Model.PeriodSummary.DefaultTaxRate * 100m).ToString("0.#", CultureInfo.InvariantCulture))" /></label>
+                <span>Futures estimate uses @((Model.PeriodSummary.LongTermShare * 100m).ToString("0.#", CultureInfo.InvariantCulture))% at @((Model.PeriodSummary.LongTermRate * 100m).ToString("0.#", CultureInfo.InvariantCulture))% and @((Model.PeriodSummary.ShortTermShare * 100m).ToString("0.#", CultureInfo.InvariantCulture))% at the entered rate. Effective rate: <strong data-period-summary-effective-rate></strong></span>
+            </div>
+            <div class="tf-period-summary-table-wrap">
+                <table class="tf-period-summary-table" data-period-summary data-period-summary-currency="@Model.Journal?.Currency" data-period-summary-long-term-share="@Model.PeriodSummary.LongTermShare.ToString("0.####", CultureInfo.InvariantCulture)" data-period-summary-long-term-rate="@Model.PeriodSummary.LongTermRate.ToString("0.####", CultureInfo.InvariantCulture)" data-period-summary-short-term-share="@Model.PeriodSummary.ShortTermShare.ToString("0.####", CultureInfo.InvariantCulture)">
+                    <caption class="visually-hidden">Hierarchical period summary from year through day.</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Period</th>
+                            <th scope="col">Profit</th>
+                            <th scope="col">Estimated Taxes</th>
+                            <th scope="col">Trades</th>
+                            <th scope="col">Days</th>
+                            <th scope="col">Avg / Day</th>
+                            <th scope="col">Avg / Trade</th>
+                            <th scope="col">Win %</th>
+                            <th scope="col">Profit Factor</th>
+                            <th scope="col">Fees</th>
+                            <th scope="col">Avg Hold</th>
+                            <th scope="col">Best Trade</th>
+                            <th scope="col">Worst Trade</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var periodRow in Model.PeriodSummary.Rows)
+                        {
+                            var periodTone = PeriodTone(periodRow.NetPnl);
+                            <tr id="period-summary-row-@periodRow.Id" class="tf-period-summary-row tf-period-summary-row-@periodRow.Level @(periodRow.ParentId is not null ? "tf-period-summary-hidden" : string.Empty)" data-period-summary-row="@periodRow.Id" data-period-summary-parent-id="@periodRow.ParentId" data-net-pnl="@periodRow.NetPnl.ToString("0.00", CultureInfo.InvariantCulture)" data-expanded="false">
+                                <th scope="row">
+                                    <div class="tf-period-summary-label">
+                                        @if (periodRow.HasChildren)
+                                        {
+                                            <button type="button" class="tf-period-summary-toggle" data-period-summary-toggle="@periodRow.Id" aria-expanded="false" aria-label="Expand @periodRow.Label">&#9654;</button>
+                                        }
+                                        else
+                                        {
+                                            <span class="tf-period-summary-toggle-spacer" aria-hidden="true"></span>
+                                        }
+                                        <span>@periodRow.Label</span>
+                                        @if (periodRow.Level is "year" or "quarter" or "month")
+                                        {
+                                            <small>@periodRow.StartDate@(periodRow.StartDate != periodRow.EndDate ? $" - {periodRow.EndDate}" : string.Empty)</small>
+                                        }
+                                    </div>
+                                </th>
+                                <td class="@periodTone">@FormatPeriodCurrency(periodRow.NetPnl)</td>
+                                <td class="tf-period-summary-tax-cell @(periodRow.EstimatedTaxes > 0m ? "negative" : string.Empty)">@FormatPeriodCurrency(periodRow.EstimatedTaxes)</td>
+                                <td>@periodRow.TradeCount.ToString("N0", CultureInfo.CurrentCulture)</td>
+                                <td>@periodRow.DayCount.ToString("N0", CultureInfo.CurrentCulture)</td>
+                                <td class="@(periodRow.AveragePnlPerDay.HasValue ? PeriodTone(periodRow.AveragePnlPerDay.Value) : "muted")">@FormatPeriodCurrency(periodRow.AveragePnlPerDay)</td>
+                                <td class="@(periodRow.AveragePnlPerTrade.HasValue ? PeriodTone(periodRow.AveragePnlPerTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.AveragePnlPerTrade)</td>
+                                <td>@FormatPeriodPercent(periodRow.WinRate)</td>
+                                <td>@FormatPeriodRatio(periodRow.ProfitFactor)</td>
+                                <td class="negative">@FormatPeriodFees(periodRow.TotalFees)</td>
+                                <td>@FormatPeriodDuration(periodRow.AverageHoldSeconds)</td>
+                                <td class="@(periodRow.BestTrade.HasValue ? PeriodTone(periodRow.BestTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.BestTrade)</td>
+                                <td class="@(periodRow.WorstTrade.HasValue ? PeriodTone(periodRow.WorstTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.WorstTrade)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section id="period-breakdown" class="tf-chart-section tf-period-breakdown-section" aria-labelledby="period-breakdown-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">PERIOD BREAKDOWN</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="period-breakdown-heading">Period Breakdown</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Period Breakdown" aria-expanded="false" aria-controls="period-breakdown-description" aria-label="Show explanation for Period Breakdown"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="period-breakdown-description" class="tf-section-info" hidden>Results are split by day of week, entry hour, exit week, and exit month. Use these views to find the trading rhythms where the edge is strongest or weakest.</p>
+            </div>
+            <span>gross P&amp;L by trading rhythm</span>
+        </div>
+        <div class="tf-period-breakdown-grid">
+            <article class="card tf-card tf-period-breakdown-card">
+                <div class="card-header"><div><div class="tf-kicker">EXIT DATE</div><h3 class="tf-card-title">By Day of Week</h3></div><span>Monday through Friday</span></div>
+                <div class="card-body">
+                    @if (Model.PeriodBreakdown.ByDayOfWeek.Count == 0)
+                    {
+                        <div class="chart-empty">No day-of-week data is available yet.</div>
+                    }
+                    else
+                    {
+                        <div class="tf-period-breakdown-table-wrap"><table class="tf-period-breakdown-table"><thead><tr><th scope="col">Day</th><th scope="col">N</th><th scope="col">Gross P&amp;L</th><th scope="col">Win%</th><th scope="col">Expectancy</th></tr></thead><tbody>
+                            @foreach (var breakdownRow in Model.PeriodBreakdown.ByDayOfWeek)
+                            {
+                                <tr><th scope="row">@breakdownRow.Label</th><td>@breakdownRow.TradeCount.ToString("N0", CultureInfo.CurrentCulture)</td><td class="@PeriodTone(breakdownRow.GrossPnl)">@FormatPeriodCurrency(breakdownRow.GrossPnl)</td><td>@FormatPeriodPercent(breakdownRow.WinRate)</td><td class="@(breakdownRow.Expectancy.HasValue ? PeriodTone(breakdownRow.Expectancy.Value) : "muted")">@FormatPeriodCurrency(breakdownRow.Expectancy)</td></tr>
+                            }
+                        </tbody></table></div>
+                    }
+                </div>
+            </article>
+            <article class="card tf-card tf-period-breakdown-card">
+                <div class="card-header"><div><div class="tf-kicker">ENTRY TIME</div><h3 class="tf-card-title">By Entry Hour</h3></div><span>local journal time</span></div>
+                <div class="card-body">
+                    @if (Model.PeriodBreakdown.ByEntryHour.Count == 0)
+                    {
+                        <div class="chart-empty">No entry-hour data is available yet.</div>
+                    }
+                    else
+                    {
+                        <div class="tf-period-breakdown-table-wrap"><table class="tf-period-breakdown-table"><thead><tr><th scope="col">Hour</th><th scope="col">N</th><th scope="col">Gross P&amp;L</th><th scope="col">Win%</th><th scope="col">Expectancy</th></tr></thead><tbody>
+                            @foreach (var breakdownRow in Model.PeriodBreakdown.ByEntryHour)
+                            {
+                                <tr><th scope="row">@breakdownRow.Label</th><td>@breakdownRow.TradeCount.ToString("N0", CultureInfo.CurrentCulture)</td><td class="@PeriodTone(breakdownRow.GrossPnl)">@FormatPeriodCurrency(breakdownRow.GrossPnl)</td><td>@FormatPeriodPercent(breakdownRow.WinRate)</td><td class="@(breakdownRow.Expectancy.HasValue ? PeriodTone(breakdownRow.Expectancy.Value) : "muted")">@FormatPeriodCurrency(breakdownRow.Expectancy)</td></tr>
+                            }
+                        </tbody></table></div>
+                    }
+                </div>
+            </article>
+            <article class="card tf-card tf-period-breakdown-card">
+                <div class="card-header"><div><div class="tf-kicker">WEEKLY CADENCE</div><h3 class="tf-card-title">Weekly P&amp;L</h3></div><span>exit week</span></div>
+                <div class="card-body">
+                    @if (Model.PeriodBreakdown.ByWeek.Count == 0)
+                    {
+                        <div class="chart-empty">No weekly data is available yet.</div>
+                    }
+                    else
+                    {
+                        <div class="tf-period-breakdown-table-wrap"><table class="tf-period-breakdown-table"><thead><tr><th scope="col">Week</th><th scope="col">N</th><th scope="col">Gross P&amp;L</th><th scope="col">Win%</th></tr></thead><tbody>
+                            @foreach (var breakdownRow in Model.PeriodBreakdown.ByWeek)
+                            {
+                                <tr><th scope="row">@breakdownRow.Label</th><td>@breakdownRow.TradeCount.ToString("N0", CultureInfo.CurrentCulture)</td><td class="@PeriodTone(breakdownRow.GrossPnl)">@FormatPeriodCurrency(breakdownRow.GrossPnl)</td><td>@FormatPeriodPercent(breakdownRow.WinRate)</td></tr>
+                            }
+                        </tbody></table></div>
+                    }
+                </div>
+            </article>
+            <article class="card tf-card tf-period-breakdown-card">
+                <div class="card-header"><div><div class="tf-kicker">MONTHLY CADENCE</div><h3 class="tf-card-title">Monthly P&amp;L</h3></div><span>exit month</span></div>
+                <div class="card-body">
+                    @if (Model.PeriodBreakdown.ByMonth.Count == 0)
+                    {
+                        <div class="chart-empty">No monthly data is available yet.</div>
+                    }
+                    else
+                    {
+                        <div class="tf-period-breakdown-table-wrap"><table class="tf-period-breakdown-table"><thead><tr><th scope="col">Month</th><th scope="col">N</th><th scope="col">Gross P&amp;L</th><th scope="col">Win%</th></tr></thead><tbody>
+                            @foreach (var breakdownRow in Model.PeriodBreakdown.ByMonth)
+                            {
+                                <tr><th scope="row">@breakdownRow.Label</th><td>@breakdownRow.TradeCount.ToString("N0", CultureInfo.CurrentCulture)</td><td class="@PeriodTone(breakdownRow.GrossPnl)">@FormatPeriodCurrency(breakdownRow.GrossPnl)</td><td>@FormatPeriodPercent(breakdownRow.WinRate)</td></tr>
+                            }
+                        </tbody></table></div>
+                    }
+                </div>
+            </article>
+        </div>
+    </section>
+
+    <section id="performance" class="tf-chart-section" aria-labelledby="performance-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">PERFORMANCE</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="performance-heading">How the journal compounds</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Performance" aria-expanded="false" aria-controls="performance-description" aria-label="Show explanation for Performance"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="performance-description" class="tf-section-info" hidden>This section follows the account and trade paths, the effect of fees, periodic returns, benchmark comparisons, and simulated outcomes to show whether the journal produces a positive and repeatable return.</p>
+            </div>
+            <span>results over completed trades</span>
+        </div>
+        <nav class="tf-subsection-index" aria-label="Performance subsections">
+            <a href="#performance-equity">Equity &amp; P&amp;L</a>
+            <a href="#performance-costs">Costs</a>
+            <a href="#performance-periodic">Periodic returns</a>
+            <a href="#performance-benchmark">Benchmark &amp; robustness</a>
+        </nav>
+
+        <div id="performance-equity" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">EQUITY &amp; P&amp;L</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Equity and P&amp;L" aria-expanded="false" aria-controls="performance-equity-description" aria-label="Show explanation for Equity and P&amp;L"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Account path and trade path</h3>
+                    <p id="performance-equity-description" class="tf-section-info" hidden>This subsection shows the account and trade paths together, so you can see how balance evolves and how each completed trade contributes to the result.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EQUITY</div><h4 class="tf-card-title">Adjusted and raw balance</h4></div><span class="text-secondary">account history when available</span></div><div class="card-body">@Html.Raw(Model.EquityChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">TRADE PATH</div><h4 class="tf-card-title">Trade P&amp;L waterfall</h4></div><span class="text-secondary">one bar per completed trade</span></div><div class="card-body">@Html.Raw(Model.WaterfallChart)</div></article>
+            </div>
+        </div>
+
+        <div id="performance-costs" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">COSTS</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Costs" aria-expanded="false" aria-controls="performance-costs-description" aria-label="Show explanation for Costs"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>What friction takes from the edge</h3>
+                    <p id="performance-costs-description" class="tf-section-info" hidden>This subsection isolates fee drag, comparing gross and net results to show how much execution friction removes from the edge.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">FEE DRAG</div><h4 class="tf-card-title">Gross, net, and cumulative fees</h4></div></div><div class="card-body">@Html.Raw(Model.FeeDragChart)</div></article>
+            </div>
+        </div>
+
+        <div id="performance-periodic" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">PERIODIC RETURNS</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Periodic returns" aria-expanded="false" aria-controls="performance-periodic-description" aria-label="Show explanation for Periodic returns"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Results across days, months, and years</h3>
+                    <p id="performance-periodic-description" class="tf-section-info" hidden>This subsection groups results across daily, monthly, and annual horizons to reveal rhythm, seasonality, and changes in return shape.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RHYTHM</div><h4 class="tf-card-title">Daily gross P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DailyChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">SEASONALITY</div><h4 class="tf-card-title">Monthly net P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">P&amp;L CALENDAR</div><h4 class="tf-card-title">Monthly net P&amp;L by day</h4></div><span>@Model.Journal?.TimeZone · completed trades</span></div><div class="card-body">
+                    <div class="tf-pnl-calendar" data-pnl-calendar data-pnl-currency="@Model.PnlCalendarCurrency">
+                        <div class="tf-pnl-calendar-toolbar">
+                            <div><div class="tf-kicker" data-pnl-calendar-kicker>MONTHLY</div><h5 class="tf-pnl-calendar-title" data-pnl-calendar-title aria-live="polite">Monthly net P&amp;L</h5></div>
+                            <button type="button" class="tf-pnl-calendar-back" data-pnl-calendar-back hidden>Back to months</button>
+                        </div>
+                        @if (Model.PnlCalendarMonths.Count == 0)
+                        {
+                            <div class="chart-empty">No completed-trade P&amp;L data is available yet.</div>
+                        }
+                        else
+                        {
+                            <div data-pnl-calendar-monthly>
+                                @foreach (var year in Model.PnlCalendarMonths.GroupBy(month => month.Year))
+                                {
+                                    <section class="tf-pnl-calendar-year" aria-labelledby="pnl-calendar-year-@year.Key">
+                                        <div class="tf-pnl-calendar-year-heading"><h5 id="pnl-calendar-year-@year.Key">@year.Key</h5><span>@year.Sum(month => month.TradeCount) completed trades</span></div>
+                                        <div class="tf-pnl-month-grid">
+                                            @foreach (var month in year)
+                                            {
+                                                var tone = month.NetPnl > 0m ? "positive" : month.NetPnl < 0m ? "negative" : "flat";
+                                                var tradeLabel = month.TradeCount == 1 ? "trade" : "trades";
+                                                <button type="button" class="tf-pnl-month" data-pnl-month="@month.Key" data-tone="@tone" aria-label="@month.Label: @month.NetPnl.ToString("C2") net P&amp;L, @month.TradeCount @tradeLabel">
+                                                    <span class="tf-pnl-month-label">@month.Label</span>
+                                                    <strong class="tf-pnl-month-value @tone">@month.NetPnl.ToString("C2")</strong>
+                                                    <small class="tf-pnl-month-meta">@month.TradeCount @tradeLabel</small>
+                                                </button>
+                                            }
+                                        </div>
+                                    </section>
+                                }
+                            </div>
+                        }
+                        <div class="tf-pnl-calendar-daily" data-pnl-calendar-daily hidden aria-live="polite">
+                            <div class="tf-pnl-calendar-summary" data-pnl-calendar-summary></div>
+                            <div class="tf-pnl-calendar-weekdays" aria-hidden="true">
+                                @foreach (var weekday in new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" })
+                                {
+                                    <span class="tf-pnl-calendar-weekday">@weekday</span>
+                                }
+                            </div>
+                            <div class="tf-pnl-calendar-days" data-pnl-calendar-days></div>
+                        </div>
+                        <script type="application/json" data-pnl-calendar-data>@Html.Raw(Model.PnlCalendarJson)</script>
+                    </div>
+                </div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">ANNUAL RETURNS</div><h4 class="tf-card-title">Yearly strategy vs benchmark</h4></div></div><div class="card-body">@Html.Raw(Model.AnnualReturnsChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RETURN SHAPE</div><h4 class="tf-card-title">Distribution of monthly returns</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyReturnsDistributionChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">ALPHA</div><h4 class="tf-card-title">Daily active returns</h4></div></div><div class="card-body">@Html.Raw(Model.DailyActiveReturnsChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">SEASONALITY</div><h4 class="tf-card-title">Monthly return heatmap</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyHeatmapChart)</div></article>
+            </div>
+        </div>
+
+        <div id="performance-benchmark" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">BENCHMARK &amp; ROBUSTNESS</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Benchmark and robustness" aria-expanded="false" aria-controls="performance-benchmark-description" aria-label="Show explanation for Benchmark and robustness"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Relative performance and repeatability</h3>
+                    <p id="performance-benchmark-description" class="tf-section-info" hidden>This subsection compares the journal with a benchmark and resamples its trade history to test whether the observed path is repeatable.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">BENCHMARK</div><h4 class="tf-card-title">Strategy vs benchmark returns</h4></div><span class="text-secondary">@Model.Overview?.StartingEquity?.ToString("C2") starting equity</span></div><div class="card-body">@Html.Raw(Model.ReturnsChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ROBUSTNESS</div><h4 class="tf-card-title">Monte Carlo simulated paths</h4></div><span class="text-secondary">bootstrap resampling</span></div><div class="card-body">@Html.Raw(Model.MonteCarloChart)</div></article>
+            </div>
+        </div>
+    </section>
+
+    <section id="risk" class="tf-chart-section" aria-labelledby="risk-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">RISK &amp; STABILITY</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="risk-heading">Where the equity curve takes heat</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Risk and stability" aria-expanded="false" aria-controls="risk-description" aria-label="Show explanation for Risk and stability"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="risk-description" class="tf-section-info" hidden>This section measures the depth, duration, and recovery of drawdowns, then tests consistency through rolling risk, return distributions, and profit concentration.</p>
+            </div>
+            <span>drawdown, distributions, and repeatability</span>
+        </div>
+        <nav class="tf-subsection-index" aria-label="Risk and stability subsections">
+            <a href="#risk-drawdown">Drawdown &amp; recovery</a>
+            <a href="#risk-rolling">Rolling risk</a>
+            <a href="#risk-distributions">Distributions &amp; concentration</a>
+        </nav>
+
+        <div id="risk-drawdown" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">DRAWDOWN &amp; RECOVERY</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Drawdown and recovery" aria-expanded="false" aria-controls="risk-drawdown-description" aria-label="Show explanation for Drawdown and recovery"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Depth, duration, and repair</h3>
+                    <p id="risk-drawdown-description" class="tf-section-info" hidden>This subsection maps underwater equity, highlights the deepest drawdown episodes, and shows how long recovery takes.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">DRAWDOWN</div><h4 class="tf-card-title">Underwater net P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DrawdownChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">DRAWDOWN EPISODES</div><h4 class="tf-card-title">Worst five drawdown periods</h4></div></div><div class="card-body">@Html.Raw(Model.WorstDrawdownChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RECOVERY</div><h4 class="tf-card-title">Drawdown duration and recovery</h4></div></div><div class="card-body">@Html.Raw(Model.DrawdownRecoveryChart)</div></article>
+            </div>
+        </div>
+
+        <div id="risk-rolling" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">ROLLING RISK</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Rolling risk" aria-expanded="false" aria-controls="risk-rolling-description" aria-label="Show explanation for Rolling risk"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Consistency through changing conditions</h3>
+                    <p id="risk-rolling-description" class="tf-section-info" hidden>This subsection tracks rolling expectancy, win rate, volatility, Sharpe, and Sortino to show whether the edge persists as conditions change.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ROLLING EDGE</div><h4 class="tf-card-title">Expectancy, win rate, and Sharpe</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RollingAnalyticsChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">VOLATILITY</div><h4 class="tf-card-title">Rolling six-month volatility</h4></div></div><div class="card-body">@Html.Raw(Model.RollingVolatilityChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RISK-ADJUSTED</div><h4 class="tf-card-title">Rolling six-month Sharpe</h4></div></div><div class="card-body">@Html.Raw(Model.RollingSharpeChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">DOWNSIDE RISK</div><h4 class="tf-card-title">Rolling six-month Sortino</h4></div></div><div class="card-body">@Html.Raw(Model.RollingSortinoChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">WIN RATE</div><h4 class="tf-card-title">Win rate over time</h4></div><span class="text-secondary">monthly</span></div><div class="card-body">@Html.Raw(Model.WinRateChart)</div></article>
+            </div>
+        </div>
+
+        <div id="risk-distributions" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">DISTRIBUTIONS &amp; CONCENTRATION</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Distributions and concentration" aria-expanded="false" aria-controls="risk-distributions-description" aria-label="Show explanation for Distributions and concentration"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>How variable and concentrated the results are</h3>
+                    <p id="risk-distributions-description" class="tf-section-info" hidden>This subsection shows the spread of daily and trade outcomes, winner and loser sizes, R-multiples, and how dependent results are on a small set of winners.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">DAILY RISK</div><h4 class="tf-card-title">Daily P&amp;L distribution</h4></div></div><div class="card-body">@Html.Raw(Model.DailyDistributionChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">OUTCOMES</div><h4 class="tf-card-title">Trade P&amp;L distribution</h4></div></div><div class="card-body">@Html.Raw(Model.PnlDistributionChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">ROBUSTNESS</div><h4 class="tf-card-title">Winner vs loser sizes</h4></div></div><div class="card-body">@Html.Raw(Model.WinnersLosersChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">CONCENTRATION</div><h4 class="tf-card-title">Winner profit concentration</h4></div></div><div class="card-body">@Html.Raw(Model.ConcentrationChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RISK UNITS</div><h4 class="tf-card-title">R-multiple distribution</h4></div></div><div class="card-body">@Html.Raw(Model.RMultipleChart)</div></article>
+            </div>
+        </div>
+    </section>
+
+    <span id="behavior" class="tf-chart-anchor-alias" aria-hidden="true"></span>
+    <section id="trade-quality" class="tf-chart-section" aria-labelledby="trade-quality-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">TRADE QUALITY</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="trade-quality-heading">How trades move before they close</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Trade quality" aria-expanded="false" aria-controls="trade-quality-description" aria-label="Show explanation for Trade quality"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="trade-quality-description" class="tf-section-info" hidden>This section examines the path of each trade: the heat it took, the opportunity it captured, how long it was held, how it was exited, and whether outcomes repeat across streaks.</p>
+            </div>
+            <span>excursion, efficiency, and outcomes</span>
+        </div>
+        <nav class="tf-subsection-index" aria-label="Trade quality subsections">
+            <a href="#quality-excursion">Excursion &amp; payoff</a>
+            <a href="#quality-holding">Holding &amp; exit efficiency</a>
+            <a href="#quality-process">Streaks &amp; outcomes</a>
+        </nav>
+
+        <div id="quality-excursion" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">EXCURSION &amp; PAYOFF</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Excursion and payoff" aria-expanded="false" aria-controls="quality-excursion-description" aria-label="Show explanation for Excursion and payoff"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Heat taken and opportunity captured</h3>
+                    <p id="quality-excursion-description" class="tf-section-info" hidden>This subsection compares maximum adverse and favorable excursion to show the heat trades take and the opportunity they capture.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">EXCURSION</div><h4 class="tf-card-title">MAE vs MFE</h4></div></div><div class="card-body">@Html.Raw(Model.MfeMaeChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">MAE</div><h4 class="tf-card-title">Heat taken by winning trades</h4></div></div><div class="card-body">@Html.Raw(Model.MaeWinnersChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EXCURSION PROFILE</div><h4 class="tf-card-title">MAE and MFE percentile profile</h4></div></div><div class="card-body">@Html.Raw(Model.ExcursionPercentileChart)</div></article>
+            </div>
+        </div>
+
+        <div id="quality-holding" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">HOLDING &amp; EXIT EFFICIENCY</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Holding and exit efficiency" aria-expanded="false" aria-controls="quality-holding-description" aria-label="Show explanation for Holding and exit efficiency"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Time in trade and exit decisions</h3>
+                    <p id="quality-holding-description" class="tf-section-info" hidden>This subsection relates holding time and exit behavior to results, including how much of each trade’s available move was captured.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">DURATION</div><h4 class="tf-card-title">Time in trade vs gross P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DurationProfitChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EFFICIENCY</div><h4 class="tf-card-title">Expectancy, win rate, and MFE capture</h4></div></div><div class="card-body">@Html.Raw(Model.HoldingEfficiencyChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EXIT EFFICIENCY</div><h4 class="tf-card-title">MFE capture and profit left on table</h4></div></div><div class="card-body">@Html.Raw(Model.ExitEfficiencyChart)</div></article>
+            </div>
+        </div>
+
+        <div id="quality-process" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">STREAKS &amp; OUTCOMES</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Streaks and outcomes" aria-expanded="false" aria-controls="quality-process-description" aria-label="Show explanation for Streaks and outcomes"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Repeatability of the decision process</h3>
+                    <p id="quality-process-description" class="tf-section-info" hidden>This subsection tests what follows wins and losses and summarizes outcome mix to make repeatability visible.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">STREAKS</div><h4 class="tf-card-title">Next-trade expectancy and win rate</h4></div></div><div class="card-body">@Html.Raw(Model.StreakStateChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">OUTCOME</div><h4 class="tf-card-title">Outcome mix</h4></div></div><div class="card-body">@Html.Raw(Model.OutcomeMixChart)</div></article>
+            </div>
+        </div>
+    </section>
+
+    <span id="timing" class="tf-chart-anchor-alias" aria-hidden="true"></span>
+    <section id="timing-sizing" class="tf-chart-section" aria-labelledby="timing-sizing-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">TIMING &amp; SIZING</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="timing-sizing-heading">When and how large the edge is</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Timing and sizing" aria-expanded="false" aria-controls="timing-sizing-description" aria-label="Show explanation for Timing and sizing"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="timing-sizing-description" class="tf-section-info" hidden>This section looks for the time windows, directions, sessions, and position sizes where the strategy performs best, while making low-sample and size-related changes visible.</p>
+            </div>
+            <span>@Model.Journal?.TimeZone · entry time</span>
+        </div>
+        <nav class="tf-subsection-index" aria-label="Timing and sizing subsections">
+            <a href="#timing-entry">Entry timing</a>
+            <a href="#timing-context">Direction &amp; session</a>
+            <a href="#timing-size">Position size</a>
+        </nav>
+
+        <div id="timing-entry" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">ENTRY TIMING</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Entry timing" aria-expanded="false" aria-controls="timing-entry-description" aria-label="Show explanation for Entry timing"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>When entries work best</h3>
+                    <p id="timing-entry-description" class="tf-section-info" hidden>This subsection finds the entry days, hours, and sessions where expectancy is strongest or weakest.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">TIMING</div><h4 class="tf-card-title">Average P&amp;L by entry day and hour</h4></div></div><div class="card-body">@Html.Raw(Model.TimingChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">TIME BUCKETS</div><h4 class="tf-card-title">Expectancy by session, day, and hour</h4></div></div><div class="card-body">@Html.Raw(Model.TimeBucketChart)</div></article>
+            </div>
+        </div>
+
+        <div id="timing-context" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">DIRECTION &amp; SESSION</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Direction and session" aria-expanded="false" aria-controls="timing-context-description" aria-label="Show explanation for Direction and session"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>What the journal is actually trading</h3>
+                    <p id="timing-context-description" class="tf-section-info" hidden>This subsection shows whether the journal’s results are driven by long or short trades and by particular trading sessions.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">DIRECTION</div><h4 class="tf-card-title">Direction mix</h4></div></div><div class="card-body">@Html.Raw(Model.DirectionMixChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">SESSION</div><h4 class="tf-card-title">Session mix</h4></div></div><div class="card-body">@Html.Raw(Model.SessionMixChart)</div></article>
+            </div>
+        </div>
+
+        <div id="timing-size" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">POSITION SIZE</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Position size" aria-expanded="false" aria-controls="timing-size-description" aria-label="Show explanation for Position size"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Expectancy at different sizes</h3>
+                    <p id="timing-size-description" class="tf-section-info" hidden>This subsection tests expectancy and win rate across contract sizes so size-related changes are visible.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">POSITION SIZE</div><h4 class="tf-card-title">Expectancy and win rate by contracts</h4></div></div><div class="card-body">@Html.Raw(Model.PositionSizeChart)</div></article>
+            </div>
+        </div>
+    </section>
+
+    <section id="execution" class="tf-chart-section" aria-labelledby="execution-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">EXECUTION</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="execution-heading">How the plan is expressed</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Execution" aria-expanded="false" aria-controls="execution-description" aria-label="Show explanation for Execution"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="execution-description" class="tf-section-info" hidden>This section evaluates how the plan becomes orders, including fill, cancel, modify, and partial-fill behavior, plus the way completed positions are classified at exit.</p>
+            </div>
+            <span>order lifecycle and exit classification</span>
+        </div>
+        <nav class="tf-subsection-index" aria-label="Execution subsections">
+            <a href="#execution-orders">Order lifecycle</a>
+            <a href="#execution-exits">Exit classification</a>
+        </nav>
+
+        <div id="execution-orders" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">ORDER LIFECYCLE</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Order lifecycle" aria-expanded="false" aria-controls="execution-orders-description" aria-label="Show explanation for Order lifecycle"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>Fill, cancel, modify, and partial-fill behavior</h3>
+                    <p id="execution-orders-description" class="tf-section-info" hidden>This subsection measures how orders become fills, including fill, cancel, modify, and partial-fill behavior.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ORDER LIFECYCLE</div><h4 class="tf-card-title">Order execution rates</h4></div><span class="text-secondary">fill, cancel, modify, partial fill</span></div><div class="card-body">@Html.Raw(Model.OrderExecutionChart)</div></article>
+            </div>
+        </div>
+
+        <div id="execution-exits" class="tf-chart-subsection">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">EXIT CLASSIFICATION</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Exit classification" aria-expanded="false" aria-controls="execution-exits-description" aria-label="Show explanation for Exit classification"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3>How positions are being closed</h3>
+                    <p id="execution-exits-description" class="tf-section-info" hidden>This subsection groups completed positions by exit type to show how the plan is being closed and how each exit behaves.</p>
+                </div>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EXIT CLASSIFICATION</div><h4 class="tf-card-title">Average P&amp;L and win rate by exit type</h4></div></div><div class="card-body">@Html.Raw(Model.ExitTypeChart)</div></article>
+            </div>
+        </div>
+    </section>
+
+    <section class="card tf-card tf-chart-boundary mt-3">
+        <div class="card-body"><div class="tf-kicker">DATA BOUNDARY</div><p class="mb-0 text-secondary">Benchmark comparisons require a starting-equity value and an imported daily benchmark series. R-multiple values require an initial stop order; order execution requires Sierra order rows. Missing source evidence remains an explicit empty state.</p></div>
+    </section>
+}

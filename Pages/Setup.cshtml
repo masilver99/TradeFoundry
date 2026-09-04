@@ -3,18 +3,18 @@
 @{
     ViewData["Title"] = "Setup";
 }
-<div class="auth-shell">
-    <div class="auth-card card-panel">
-        <p class="eyebrow">TRADEFOUNDRY / FIRST RUN</p>
+<div class="card tf-card tf-auth-card">
+    <div class="card-body p-4 p-md-5">
+        <div class="tf-kicker">TRADEFOUNDRY / FIRST RUN</div>
         <h1>Forge your local journal.</h1>
-        <p class="lede">Create the one owner account for this self-hosted instance. Your password stays in the local SQLite database as a salted hash.</p>
-        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="flash error">@Model.ErrorMessage</div> }
-        <form method="post" class="form-stack">
-            <label>Display name<input asp-for="DisplayName" autocomplete="name" required /></label>
-            <label>Password<input asp-for="Password" type="password" autocomplete="new-password" required minlength="8" /></label>
-            <label>Confirm password<input asp-for="ConfirmPassword" type="password" autocomplete="new-password" required minlength="8" /></label>
-            <button class="button primary" type="submit">Create owner account</button>
+        <p class="tf-lede mb-4">Create the one owner account for this self-hosted instance. Your password stays in the local SQLite database as a salted hash.</p>
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="alert tf-alert error">@Model.ErrorMessage</div> }
+        <form method="post" class="row g-3">
+            <div class="col-12"><label class="form-label" for="DisplayName">Display name</label><input asp-for="DisplayName" class="form-control" autocomplete="name" required /></div>
+            <div class="col-12"><label class="form-label" for="Password">Password</label><input asp-for="Password" class="form-control" type="password" autocomplete="new-password" required minlength="8" /></div>
+            <div class="col-12"><label class="form-label" for="ConfirmPassword">Confirm password</label><input asp-for="ConfirmPassword" class="form-control" type="password" autocomplete="new-password" required minlength="8" /></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Create owner account</button></div>
         </form>
-        <p class="helper">Phase 1 is intentionally one-owner-per-instance. Multiple journals are created after sign-in.</p>
+        <p class="tf-helper mt-4 mb-0">Phase 1 is intentionally one-owner-per-instance. Multiple journals are created after sign-in.</p>
     </div>
 </div>

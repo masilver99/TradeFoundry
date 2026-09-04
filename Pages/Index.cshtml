@@ -2,96 +2,67 @@
 @model TradeFoundry.Pages.IndexModel
 @using TradeFoundry.Core
 @{
-    ViewData["Title"] = "Journal";
+    ViewData["Title"] = "Overview";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / WORKSPACE";
+    ViewData["ActiveNav"] = "overview";
+    ViewData["UsesPlotly"] = Model.Overview is not null;
 }
 
-<div class="page-shell">
-    <section class="hero-row">
-        <div>
-            <p class="eyebrow">TRADEFOUNDRY / PHASE 1</p>
-            <h1>Turn every fill into <span>evidence.</span></h1>
-            <p class="lede">A local-first futures journal that keeps the raw import, the normalized fill, and the derived trade connected.</p>
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind == "warning" ? "warning" : Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
+}
+
+@if (Model.Overview is null)
+{
+    <div class="row justify-content-center">
+        <div class="col-xl-8">
+            <section class="card tf-card tf-auth-card">
+                <div class="card-body p-4 p-md-5">
+                    <div class="tf-kicker">FIRST JOURNAL</div>
+                    <h1 class="tf-hero-title">Start with a clean ledger.</h1>
+                    <p class="tf-lede mb-4">Create a journal, then import Sierra Chart, TradingView, or OHLCV evidence into this local workspace.</p>
+                    <form method="post" action="/?handler=CreateJournal" class="row g-3">
+                        @Html.AntiForgeryToken()
+                        <div class="col-md-6"><label class="form-label">Name<input asp-for="NewJournalName" class="form-control" placeholder="e.g. ES Opening Range" required /></label></div>
+                        <div class="col-md-6"><label class="form-label">Execution context<select asp-for="NewExecutionContext" class="form-select"><option value="live">Live</option><option value="paper">Paper</option><option value="replay">Replay</option><option value="backtest">Backtest</option><option value="other">Other</option></select></label></div>
+                        <div class="col-md-6"><label class="form-label">Labels<input asp-for="NewLabels" class="form-control" placeholder="algo, ORB, experimental" /></label></div>
+                        <div class="col-md-6"><label class="form-label">Timezone<input asp-for="NewTimeZone" class="form-control" /></label></div>
+                        <div class="col-md-6"><label class="form-label">Currency<input asp-for="NewCurrency" class="form-control" /></label></div>
+                        <div class="col-md-6"><label class="form-label">Grouping<select asp-for="NewGroupingPolicy" class="form-select"><option value="flat_to_flat">Flat-to-flat</option><option value="fifo_lots">FIFO lots (phase 2)</option></select></label></div>
+                        <div class="col-md-6"><label class="form-label">Starting equity <span class="text-secondary">(optional)</span><input asp-for="NewStartingEquity" class="form-control" type="number" step="0.01" min="0" placeholder="e.g. 18000" /></label></div>
+                        <div class="col-12"><button class="btn btn-primary" type="submit">Create journal</button></div>
+                    </form>
+                </div>
+            </section>
         </div>
-        <div class="hero-mark" aria-hidden="true"><span>TF</span><i></i><i></i><i></i></div>
+    </div>
+}
+else
+{
+    var overview = Model.Overview;
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <a class="btn btn-primary" href="@($"/journal/{overview.Journal.Id:D}/imports")">Import records</a>
+        <a class="btn btn-outline-secondary" href="@($"/journal/{overview.Journal.Id:D}/trades")">Open trade ledger</a>
+        <a class="btn btn-outline-secondary" href="@($"/journal/{overview.Journal.Id:D}/settings")">Journal settings</a>
+    </div>
+
+    <section class="row row-cards mb-3" aria-label="Journal metrics">
+        <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric tf-metric-accent"><div class="card-body"><div class="tf-metric-label">Net P&amp;L</div><div class="tf-metric-value @(overview.NetPnl >= 0 ? "positive" : "negative")">@overview.NetPnl.ToString("C2")</div><div class="tf-metric-note">All imported trades</div></div></div></div>
+        <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Points</div><div class="tf-metric-value">@overview.Points.ToString("0.##")</div><div class="tf-metric-note">Direction-adjusted</div></div></div></div>
+        <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Closed trades</div><div class="tf-metric-value">@overview.ClosedTradeCount</div><div class="tf-metric-note">@overview.OpenTradeCount open</div></div></div></div>
+        <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Win rate</div><div class="tf-metric-value">@overview.WinRate.ToString("0.0")%</div><div class="tf-metric-note">@overview.WinningTrades wins · @overview.LosingTrades losses</div></div></div></div>
+        <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Profit factor</div><div class="tf-metric-value">@(overview.ProfitFactor == decimal.MaxValue ? "∞" : overview.ProfitFactor.ToString("0.00"))</div><div class="tf-metric-note">Winners ÷ losers</div></div></div></div>
+        <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Fees</div><div class="tf-metric-value">@overview.Fees.ToString("C2")</div><div class="tf-metric-note">Imported when available</div></div></div></div>
     </section>
 
-    @if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
-    {
-        <div class="flash @Model.FlashKind" role="status">@Model.FlashMessage</div>
-    }
-
-    <section class="toolbar card-panel">
-        <div class="journal-picker">
-            <label for="journal-select">Active journal</label>
-            @if (Model.Journals.Count > 0)
-            {
-                <select id="journal-select" onchange="if(this.value) window.location='/?journalId='+this.value">
-                    @foreach (var journal in Model.Journals)
-                    {
-                        <option value="@journal.Id" selected="@(journal.Id == Model.JournalId)">@journal.Name</option>
-                    }
-                </select>
-            }
-            else
-            {
-                <span class="muted">Create your first journal below.</span>
-            }
-        </div>
-        @if (Model.Snapshot is not null)
-        {
-            <div class="journal-meta"><span class="context-chip">@Model.Snapshot.Journal.ExecutionContext</span><span class="muted">@Model.Snapshot.Journal.TimeZone · @Model.Snapshot.Journal.Currency</span>@if (!string.IsNullOrWhiteSpace(Model.Snapshot.Journal.Labels)){<span class="muted">@Model.Snapshot.Journal.Labels</span>}</div>
-        }
+    <section class="row row-cards mb-3">
+        <div class="col-lg-6"><div class="card tf-card tf-chart-card"><div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">EQUITY</div><h3 class="tf-card-title">Cumulative net P&amp;L</h3></div><span class="text-secondary">closed trades</span></div></div><div class="card-body">@Html.Raw(Model.EquityChart)</div></div></div>
+        <div class="col-lg-6"><div class="card tf-card tf-chart-card"><div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">RHYTHM</div><h3 class="tf-card-title">Daily result</h3></div><span class="text-secondary">last 180 days</span></div></div><div class="card-body">@Html.Raw(Model.DailyChart)</div></div></div>
     </section>
 
-    @if (Model.Snapshot is not null)
-    {
-        var snapshot = Model.Snapshot;
-        <section class="metric-grid">
-            <div class="metric-card accent"><span>Net P&amp;L</span><strong class="@(snapshot.NetPnl >= 0 ? "positive" : "negative")">@snapshot.NetPnl.ToString("C2")</strong><small>includes realized open-trade P&amp;L</small></div>
-            <div class="metric-card"><span>Contract-points</span><strong>@snapshot.Points.ToString("0.##")</strong><small>direction-adjusted points × contracts</small></div>
-            <div class="metric-card"><span>Closed trades</span><strong>@snapshot.TradeCount</strong><small>@snapshot.OpenTrades.Count open</small></div>
-            <div class="metric-card"><span>Win rate</span><strong>@snapshot.WinRate.ToString("0.0")%</strong><small>@snapshot.WinningTrades wins · @snapshot.LosingTrades losses</small></div>
-            <div class="metric-card"><span>Profit factor</span><strong>@(snapshot.ProfitFactor == decimal.MaxValue ? "∞" : snapshot.ProfitFactor.ToString("0.00"))</strong><small>net winners ÷ net losers</small></div>
-            <div class="metric-card"><span>Fees</span><strong>@snapshot.Fees.ToString("C2")</strong><small>imported when available</small></div>
-        </section>
-
-        <section class="chart-grid">
-            <article class="card-panel chart-card"><div class="section-heading"><div><p class="eyebrow">EQUITY</p><h2>Cumulative net P&amp;L</h2></div><span class="muted">closed trades</span></div>@Html.Raw(Model.EquityChart)</article>
-            <article class="card-panel chart-card"><div class="section-heading"><div><p class="eyebrow">RHYTHM</p><h2>Daily result</h2></div><span class="muted">UTC date</span></div>@Html.Raw(Model.DailyChart)</article>
-        </section>
-
-        <section class="card-panel import-panel">
-            <div class="section-heading"><div><p class="eyebrow">INGEST</p><h2>Import records</h2></div><span class="muted">deduplicated per journal</span></div>
-            <form method="post" enctype="multipart/form-data" asp-page-handler="Import" class="import-form">
-                <input type="hidden" name="journalId" value="@snapshot.Journal.Id" />
-                <div class="drop-column"><label class="drop-zone" for="import-file"><strong>Drop a CSV/TSV here</strong><span>or choose an export file</span><input id="import-file" asp-for="ImportFile" type="file" accept=".csv,.tsv,.txt" required /></label><pre id="import-preview" class="import-preview" hidden></pre></div>
-                <div class="form-stack"><label>Format<select asp-for="RequestedType"><option value="auto">Auto-detect</option><option value="sierra">Sierra Chart fills</option><option value="tradingview-account">TradingView account history</option><option value="tradingview-strategy">TradingView Strategy Tester</option><option value="ohlcv">OHLCV bars for snippets</option></select></label><label>Grouping<select asp-for="GroupingPolicy"><option value="flat_to_flat">Flat-to-flat (recommended)</option><option value="fifo_lots">FIFO lots (phase 2)</option><option value="source_defined">Source-defined trade rows</option></select></label><label>Bar interval<input asp-for="BarInterval" placeholder="source, 1m, 5m…" /></label><button class="button primary" type="submit">Import &amp; rebuild</button></div>
-            </form>
-            <p class="helper">Sierra fills use the execution service ID when present. Re-importing the same file is safe; “Undo” removes one batch and rebuilds derived trades.</p>
-        </section>
-
-        <section class="card-panel table-panel">
-            <div class="section-heading"><div><p class="eyebrow">LEDGER</p><h2>Trades</h2></div><div class="table-tools"><input id="trade-filter" type="search" placeholder="Filter symbol, side, account…" aria-label="Filter trades"/><span class="muted">read-only in phase 1</span></div></div>
-            @if (snapshot.Trades.Count == 0)
-            {
-                <div class="empty-state"><strong>No trades yet.</strong><span>Import a Sierra or TradingView export to start the ledger.</span></div>
-            }
-            else
-            {
-                <div class="table-scroll"><table id="trade-table"><thead><tr><th>Entry</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>Points</th><th>Net P&amp;L</th><th>MAE / MFE</th><th>Status</th></tr></thead><tbody>
-                @foreach (var trade in snapshot.Trades.OrderByDescending(x => x.EntryUtc))
-                {
-                    <tr><td><a class="row-link" asp-page="/Trade" asp-route-id="@trade.Id">@trade.EntryUtc.ToLocalTime().ToString("MMM d, HH:mm")</a></td><td><strong>@trade.Symbol</strong><small>@trade.Account</small></td><td><span class="side @trade.Direction.ToLowerInvariant()">@trade.Direction</span></td><td>@trade.ClosedQuantity/@trade.Quantity</td><td>@trade.EntryPrice.ToString("0.########")</td><td>@(trade.ExitPrice?.ToString("0.########") ?? "—")</td><td class="@(trade.AveragePoints >= 0 ? "positive" : "negative")">@trade.AveragePoints.ToString("0.##")</td><td class="pnl @(trade.NetPnl >= 0 ? "positive" : "negative")">@trade.NetPnl.ToString("C2")</td><td>@(trade.MaePoints?.ToString("0.##") ?? "—") / @(trade.MfePoints?.ToString("0.##") ?? "—")</td><td><span class="status @trade.Status">@trade.Status</span></td></tr>
-                }
-                </tbody></table></div>
-            }
-        </section>
-
-        <section class="card-panel imports-panel"><div class="section-heading"><div><p class="eyebrow">PROVENANCE</p><h2>Recent imports</h2></div><span class="muted">raw rows remain linked</span></div>@if (snapshot.Imports.Count == 0){<p class="muted">No imports yet.</p>}else{<div class="import-list">@foreach(var batch in snapshot.Imports){<div class="import-row"><div><strong>@batch.FileName</strong><small>@batch.SourceType · @batch.ImportedUtc.ToLocalTime().ToString("MMM d, yyyy HH:mm")</small></div><span>@batch.NewRows new · @batch.DuplicateRows dup</span><form method="post" asp-page-handler="UndoImport"><input type="hidden" name="journalId" value="@snapshot.Journal.Id"/><input type="hidden" name="batchId" value="@batch.Id"/><button class="button ghost danger" type="submit">Undo</button></form></div>}</div>}</section>
-    }
-
-    <section class="split-grid">
-        <article class="card-panel"><div class="section-heading"><div><p class="eyebrow">SEPARATE JOURNAL</p><h2>Create another journal</h2></div></div><form method="post" asp-page-handler="CreateJournal" class="form-grid"><label>Name<input asp-for="NewJournalName" placeholder="e.g. ES Opening Range" required /></label><label>Execution context<select asp-for="NewExecutionContext"><option value="live">Live</option><option value="paper">Paper</option><option value="replay">Replay</option><option value="backtest">Backtest</option><option value="other">Other</option></select></label><label>Labels<input asp-for="NewLabels" placeholder="algo, ORB, experimental" /></label><label>Timezone<input asp-for="NewTimeZone" /></label><label>Currency<input asp-for="NewCurrency" /></label><label>Grouping<select asp-for="NewGroupingPolicy"><option value="flat_to_flat">Flat-to-flat</option><option value="fifo_lots">FIFO lots (phase 2)</option></select></label><button class="button secondary" type="submit">Create journal</button></form></article>
-        <article class="card-panel phase-note"><p class="eyebrow">WHAT’S NEXT</p><h2>Phase 1 keeps the evidence intact.</h2><p>Imports, normalized fills, derived trades, points, fees, MAE/MFE, daily metrics, and candle-ready bars are in place. Manual edits, setup scorecards, notes, and the read-only “Ask this journal” assistant are intentionally staged for phase 2.</p><div class="mini-rule"></div><p class="muted">SQLite WAL · one local instance · journals partitioned by <code>journal_id</code></p></article>
+    <section class="row row-cards">
+        <div class="col-xl-8"><div class="card tf-card"><div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">LEDGER</div><h3 class="tf-card-title">Recent trades</h3></div><a class="btn btn-sm btn-outline-secondary" href="@($"/journal/{overview.Journal.Id:D}/trades")">View all</a></div></div><div class="card-body p-0"><div class="tf-table-wrap">@if (overview.RecentTrades.Count == 0){<div class="tf-empty m-3"><strong>No trades yet.</strong>Import an export to start the ledger.</div>}else{<table class="table table-vcenter tf-table"><thead><tr><th>Entry</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Net P&amp;L</th><th>Status</th></tr></thead><tbody>@foreach (var trade in overview.RecentTrades){<tr><td><a class="row-link" href="@($"/journal/{trade.JournalId:D}/trades/{trade.Id:D}")">@trade.EntryUtc.ToLocalTime().ToString("MMM d, HH:mm")</a></td><td><strong>@trade.Symbol</strong><small>@trade.Account</small></td><td><span class="tf-side @(trade.Direction.Equals("Short", StringComparison.OrdinalIgnoreCase) ? "tf-side-short" : "tf-side-long")">@trade.Direction</span></td><td>@trade.ClosedQuantity/@trade.Quantity</td><td class="@(trade.NetPnl >= 0 ? "positive" : "negative")">@trade.NetPnl.ToString("C2")</td><td><span class="tf-status @(trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase) ? "tf-status-closed" : "tf-status-open")">@trade.Status</span></td></tr>}</tbody></table>}</div></div></div></div>
+        <div class="col-xl-4"><div class="card tf-card"><div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">PROVENANCE</div><h3 class="tf-card-title">Recent imports</h3></div><a class="btn btn-sm btn-outline-secondary" href="@($"/journal/{overview.Journal.Id:D}/imports")">View all</a></div></div><div class="card-body">@if (overview.RecentImports.Count == 0){<div class="tf-empty"><strong>No imports yet.</strong>Your import history will appear here.</div>}else{foreach (var batch in overview.RecentImports){<div class="tf-import-row"><div><strong>@batch.FileName</strong><small>@batch.SourceType · @batch.ImportedUtc.ToLocalTime().ToString("MMM d, yyyy HH:mm")</small></div><div class="tf-import-count">@batch.NewRows new<br />@batch.DuplicateRows dup</div></div>}}</div></div></div>
     </section>
-</div>
+}

@@ -1,0 +1,24 @@
+@page "/journal/{journalId:guid}/review"
+@model TradeFoundry.Pages.ReviewModel
+@{
+    ViewData["Title"] = "Review";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / REVIEW";
+    ViewData["ActiveNav"] = "review";
+}
+
+<section class="row justify-content-center">
+    <div class="col-xl-8">
+        <div class="card tf-card tf-phase-card">
+            <div class="card-body p-4 p-md-5">
+                <div class="tf-kicker">NEXT WORKSPACE LAYER</div>
+                <h1 class="tf-hero-title">Review the decisions behind the numbers.</h1>
+                <p class="tf-lede mb-4">Notes, screenshots, setups, planned risk, and scorecards will attach to imported evidence here without changing the source record.</p>
+                <div class="row g-3">
+                    <div class="col-md-4"><div class="tf-review-tile"><strong>Notes</strong><span>Capture the why.</span></div></div>
+                    <div class="col-md-4"><div class="tf-review-tile"><strong>Setups</strong><span>Organize repeatable context.</span></div></div>
+                    <div class="col-md-4"><div class="tf-review-tile"><strong>Scorecards</strong><span>Review execution consistently.</span></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

@@ -2,17 +2,20 @@
 @model TradeFoundry.Pages.TradeModel
 @{
     ViewData["Title"] = "Trade detail";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / LEDGER";
+    ViewData["ActiveNav"] = "trades";
+    ViewData["UsesPlotly"] = Model.Bars.Count > 0;
     var trade = Model.Trade!;
 }
-<div class="page-shell detail-shell">
-    <a class="back-link" asp-page="/Index" asp-route-journalId="@trade.JournalId">← Back to @Model.Journal?.Name</a>
-    <section class="detail-heading">
-        <div><p class="eyebrow">TRADE DETAIL / @trade.Status.ToUpperInvariant()</p><h1>@trade.Direction @trade.Symbol <span class="muted">× @trade.ClosedQuantity</span></h1><p class="lede">@trade.EntryUtc.ToLocalTime().ToString("dddd, MMMM d, yyyy · HH:mm") @(trade.ExitUtc.HasValue ? $"→ {trade.ExitUtc.Value.ToLocalTime():HH:mm}" : "· still open")</p></div>
-        <div class="detail-pnl @(trade.NetPnl >= 0 ? "positive" : "negative")">@trade.NetPnl.ToString("C2")<small>net result</small></div>
+<div class="tf-detail-shell">
+    <a class="tf-back-link" href="@($"/journal/{trade.JournalId:D}/trades")">← Back to Trade Ledger</a>
+    <section class="tf-detail-heading">
+        <div><div class="tf-kicker">TRADE DETAIL / @trade.Status.ToUpperInvariant()</div><h1>@trade.Direction @trade.Symbol <span class="text-secondary">× @trade.ClosedQuantity</span></h1><p class="tf-lede">@trade.EntryUtc.ToLocalTime().ToString("dddd, MMMM d, yyyy · HH:mm") @(trade.ExitUtc.HasValue ? $"→ {trade.ExitUtc.Value.ToLocalTime():HH:mm}" : "· still open")</p></div>
+        <div class="tf-detail-pnl @(trade.NetPnl >= 0 ? "positive" : "negative")">@trade.NetPnl.ToString("C2")<small>net result</small></div>
     </section>
-    <section class="detail-stats">
-        <div><span>Entry</span><strong>@trade.EntryPrice.ToString("0.########")</strong></div><div><span>Exit</span><strong>@(trade.ExitPrice?.ToString("0.########") ?? "—")</strong></div><div><span>Avg points</span><strong>@trade.AveragePoints.ToString("0.##")</strong></div><div><span>Contract-points</span><strong>@trade.GrossPoints.ToString("0.##")</strong></div><div><span>MAE / MFE</span><strong>@(trade.MaePoints?.ToString("0.##") ?? "—") / @(trade.MfePoints?.ToString("0.##") ?? "—")</strong></div><div><span>Duration</span><strong>@(trade.Duration?.ToString("hh\\:mm\\:ss") ?? "—")</strong></div>
+    <section class="tf-stat-strip mb-3">
+        <div><span>Entry</span><strong>@trade.EntryPrice.ToString("0.########")</strong></div><div><span>Exit</span><strong>@(trade.ExitPrice?.ToString("0.########") ?? "—")</strong></div><div><span>Avg points</span><strong>@trade.AveragePoints.ToString("0.##")</strong></div><div><span>Contract-points</span><strong>@trade.GrossPoints.ToString("0.##")</strong></div><div><span>MAE / MFE</span><strong>@(trade.MaePoints?.ToString("0.##") ?? "—") / @(trade.MfePoints?.ToString("0.##") ?? "—")</strong></div><div><span>Time in trade</span><strong>@(trade.TimeInTrade?.ToString("hh\\:mm\\:ss") ?? "—")</strong></div>
     </section>
-    <section class="card-panel chart-card trade-chart"><div class="section-heading"><div><p class="eyebrow">CONTEXT</p><h2>Price action around the trade</h2></div><span class="muted">@Model.Bars.Count bars · entry/exit markers</span></div>@Html.Raw(Model.CandleChart)</section>
-    <section class="split-grid"><article class="card-panel"><p class="eyebrow">PROVENANCE</p><h2>How this row was made</h2><dl class="definition-list"><dt>Source</dt><dd>@trade.SourceType</dd><dt>Grouping</dt><dd>@trade.GroupingPolicy</dd><dt>Account</dt><dd>@trade.Account</dd><dt>Import batch</dt><dd>@(trade.ImportBatchId?.ToString() ?? "manual / source-defined")</dd><dt>Note</dt><dd>@(string.IsNullOrWhiteSpace(trade.Note) ? "No source note" : trade.Note)</dd></dl></article><article class="card-panel phase-note"><p class="eyebrow">PHASE 2 PLACEHOLDER</p><h2>Review this trade.</h2><p>Manual notes, screenshots, setups, planned risk, and user-defined scorecards will attach here in the next stage. Phase 1 keeps this detail read-only so imported evidence remains auditable.</p></article></section>
+    <section class="card tf-card tf-chart-card mb-3"><div class="card-header"><div><div class="tf-kicker">CONTEXT</div><h3 class="tf-card-title">Price action around the trade</h3></div><span class="text-secondary">@Model.Bars.Count bars · entry/exit markers</span></div><div class="card-body">@Html.Raw(Model.CandleChart)</div></section>
+    <section class="row row-cards"><div class="col-lg-6"><article class="card tf-card h-100"><div class="card-header"><div><div class="tf-kicker">PROVENANCE</div><h3 class="tf-card-title">How this row was made</h3></div></div><div class="card-body"><dl class="tf-definition-list"><dt>Source</dt><dd>@trade.SourceType</dd><dt>Grouping</dt><dd>@trade.GroupingPolicy</dd><dt>Account</dt><dd>@trade.Account</dd><dt>Import batch</dt><dd>@(trade.ImportBatchId?.ToString() ?? "manual / source-defined")</dd><dt>Note</dt><dd>@(string.IsNullOrWhiteSpace(trade.Note) ? "No source note" : trade.Note)</dd></dl></div></article></div><div class="col-lg-6"><article class="card tf-card tf-phase-card h-100"><div class="card-header"><div><div class="tf-kicker">PHASE 2 PLACEHOLDER</div><h3 class="tf-card-title">Review this trade.</h3></div></div><div class="card-body"><p class="text-secondary mb-0">Manual notes, screenshots, setups, planned risk, and user-defined scorecards will attach here in the next stage. Phase 1 keeps this detail read-only so imported evidence remains auditable.</p></div></article></div></section>
 </div>

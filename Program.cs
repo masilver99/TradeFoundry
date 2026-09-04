@@ -18,7 +18,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.ExpireTimeSpan = TimeSpan.FromDays(30);
     });
 builder.Services.AddAuthorization();
-builder.Services.AddRazorPages();
+builder.Services.AddRazorPages(options =>
+{
+    options.Conventions.AddPageRoute("/Index", "/journal/{journalId:guid}/overview");
+    options.Conventions.AddPageRoute("/Trade", "/journal/{journalId:guid}/trades/{id:guid}");
+});
 
 var app = builder.Build();
 

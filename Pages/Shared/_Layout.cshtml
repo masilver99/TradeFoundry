@@ -1,24 +1,113 @@
-<!DOCTYPE html>
-<html lang="en">
+@using TradeFoundry.Core
+@using TradeFoundry.Data
+@inject TradeFoundryDb Database
+@{
+    var authenticated = User.Identity?.IsAuthenticated == true;
+    var journals = authenticated ? Database.GetJournals() : Array.Empty<Journal>();
+    var requestedJournal = Context.Request.RouteValues["journalId"]?.ToString() ?? Context.Request.Query["journalId"].ToString();
+    Guid.TryParse(requestedJournal, out var requestedJournalId);
+    var activeJournal = journals.FirstOrDefault(x => x.Id == requestedJournalId) ?? journals.FirstOrDefault();
+    var activeNav = ViewData["ActiveNav"]?.ToString() ?? string.Empty;
+    var pageTitle = ViewData["Title"]?.ToString() ?? "Workspace";
+    var pageKicker = ViewData["PageKicker"]?.ToString() ?? "TRADEFOUNDRY / WORKSPACE";
+    var usesPlotly = ViewData["UsesPlotly"] as bool? == true;
+    string JournalPath(string page) => activeJournal is null ? "/" : $"/journal/{activeJournal.Id:D}/{page}";
+    string AnalysisPath(string section) => $"{JournalPath("analytics")}#{section}";
+    string IndicatorsPath(string section) => $"{JournalPath("indicators")}#{section}";
+    var brandPath = activeJournal is null ? "/" : JournalPath("overview");
+}
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] · TradeFoundry</title>
+    <title>@pageTitle · TradeFoundry</title>
+    <link rel="stylesheet" href="~/lib/tabler/tabler.min.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
-<body>
-    <header class="site-header">
-        <div class="header-inner">
-            <a class="brand" asp-page="/Index"><span class="brand-glyph">TF</span><span>TradeFoundry</span></a>
-            @if (User.Identity?.IsAuthenticated == true)
-            {
-                <div class="header-actions"><span class="owner-label">@User.Identity.Name</span><form method="post" asp-page="/Login" asp-page-handler="Logout"><button class="button ghost" type="submit">Lock</button></form></div>
-            }
+<body class="@(authenticated ? "tf-app" : "tf-public")">
+@if (authenticated)
+{
+    <div class="page">
+        <aside class="navbar navbar-vertical navbar-expand-lg tf-sidebar" data-bs-theme="dark">
+            <div class="container-fluid">
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#workspace-sidebar-menu" aria-controls="workspace-sidebar-menu" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <h1 class="navbar-brand navbar-brand-autodark tf-brand">
+                    <a href="@brandPath"><span class="tf-brand-mark">TF</span><span>TradeFoundry</span></a>
+                </h1>
+                <div class="tf-journal-context">
+                    <div class="tf-sidebar-label">ACTIVE JOURNAL</div>
+                    @if (journals.Count > 0)
+                    {
+                        <select id="journal-select" class="form-select form-select-sm" aria-label="Active journal" onchange="if (this.value) window.location.href = this.value">
+                            @foreach (var journal in journals)
+                            {
+                                <option value="@($"/journal/{journal.Id:D}/overview")" selected="@(activeJournal?.Id == journal.Id)">@journal.Name</option>
+                            }
+                        </select>
+                        <div class="tf-context-meta">@activeJournal?.ExecutionContext · @activeJournal?.Currency</div>
+                    }
+                    else
+                    {
+                        <span class="text-secondary small">Create your first journal in Settings.</span>
+                    }
+                </div>
+                <div class="collapse navbar-collapse" id="workspace-sidebar-menu">
+                    <ul class="navbar-nav pt-lg-3">
+                        <li class="nav-item tf-nav-heading">WORKSPACE</li>
+                        <li class="nav-item"><a class="nav-link @(activeNav == "overview" ? "active" : string.Empty)" href="@JournalPath("overview")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13h4v7H4z"/><path d="M10 4h4v16h-4z"/><path d="M16 9h4v11h-4z"/></svg><span class="nav-link-title">Overview</span></a></li>
+                        <li class="nav-item"><a class="nav-link @(activeNav == "trades" ? "active" : string.Empty)" href="@JournalPath("trades")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19l4-4 3 3 6-7 3 3"/><path d="M15 8h5v5"/></svg><span class="nav-link-title">Trade Ledger</span></a></li>
+                        <li class="nav-item tf-nav-heading mt-4">ANALYSIS</li>
+                        <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="sc-trade-statistics" href="@AnalysisPath("sc-trade-statistics")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16M12 13h2M16 13h2M12 16h2M16 16h2"/></svg><span class="nav-link-title">SC Trade Statistics</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="period-summary" href="@AnalysisPath("period-summary")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/><path d="M17 15h.01"/></svg><span class="nav-link-title">Period Summary</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="period-breakdown" href="@AnalysisPath("period-breakdown")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5M12 16V7M16 16v-8"/></svg><span class="nav-link-title">Period Breakdown</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="performance" href="@AnalysisPath("performance")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-7"/></svg><span class="nav-link-title">Performance</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="risk" href="@AnalysisPath("risk")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 4.8-3.4 7.8-8 9-4.6-1.2-8-4.2-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg><span class="nav-link-title">Risk &amp; Stability</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="trade-quality" href="@AnalysisPath("trade-quality")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.5 5.1 5.5.8-4 4 1 5.5-5-2.6-5 2.6 1-5.5-4-4 5.5-.8L12 3z"/></svg><span class="nav-link-title">Trade Quality</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="timing-sizing" href="@AnalysisPath("timing-sizing")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><span class="nav-link-title">Timing &amp; Sizing</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="execution" href="@AnalysisPath("execution")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg><span class="nav-link-title">Execution</span></a></li>
+                        <li class="nav-item tf-nav-heading mt-4">INDICATORS</li>
+                        <li class="nav-item"><a class="nav-link @(activeNav == "indicators" ? "active" : string.Empty) tf-indicator-nav-link" data-indicator-sidebar-link="indicator-key" href="@IndicatorsPath("indicator-key")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 15h5l2-7 3 11 2-6h4"/></svg><span class="nav-link-title">Key</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-indicator-nav-link" data-indicator-sidebar-link="indicators-performance" href="@IndicatorsPath("indicators-performance")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-7"/></svg><span class="nav-link-title">Core</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-indicator-nav-link" data-indicator-sidebar-link="indicators-risk" href="@IndicatorsPath("indicators-risk")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 4.8-3.4 7.8-8 9-4.6-1.2-8-4.2-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg><span class="nav-link-title">Risk &amp; Stability</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-indicator-nav-link" data-indicator-sidebar-link="indicators-trade-dynamics" href="@IndicatorsPath("indicators-trade-dynamics")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-5 4 4 7-8"/><path d="M16 8h4v4"/></svg><span class="nav-link-title">Trade Dynamics</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-indicator-nav-link" data-indicator-sidebar-link="indicators-calendar" href="@IndicatorsPath("indicators-calendar")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/><path d="M8 14h2M14 14h2M8 17h2"/></svg><span class="nav-link-title">Consistency &amp; Sizing</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-indicator-nav-link" data-indicator-sidebar-link="indicators-r-multiple" href="@IndicatorsPath("indicators-r-multiple")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9 10.5h4a2 2 0 1 1 0 4H9"/></svg><span class="nav-link-title">R-Multiple</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-indicator-nav-link" data-indicator-sidebar-link="indicators-execution" href="@IndicatorsPath("indicators-execution")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg><span class="nav-link-title">Execution</span></a></li>
+                        <li class="nav-item"><a class="nav-link tf-indicator-nav-link" data-indicator-sidebar-link="indicators-benchmark" href="@IndicatorsPath("indicators-benchmark")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19l5-5 3 3 7-9"/><path d="M15 8h4v4"/></svg><span class="nav-link-title">Benchmark</span></a></li>
+                        <li class="nav-item"><a class="nav-link @(activeNav == "review" ? "active" : string.Empty)" href="@JournalPath("review")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span class="nav-link-title">Review</span><span class="badge bg-secondary-lt ms-auto">Soon</span></a></li>
+                        <li class="nav-item tf-nav-heading mt-4">DATA</li>
+                        <li class="nav-item"><a class="nav-link @(activeNav == "imports" ? "active" : string.Empty)" href="@JournalPath("imports")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M5 21h14"/><path d="M5 18h14"/></svg><span class="nav-link-title">Imports</span></a></li>
+                        <li class="nav-item tf-nav-heading mt-4">INSTANCE</li>
+                        <li class="nav-item"><a class="nav-link @(activeNav == "settings" ? "active" : string.Empty)" href="@JournalPath("settings")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-2.6V20a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1-1.8-1.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H6v-2.6h.2a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-1.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1.9-.3l.1-.1 1.8 1.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v2.6H21a1.7 1.7 0 0 0-1.6 1z"/></svg><span class="nav-link-title">Settings</span></a></li>
+                    </ul>
+                    <div class="mt-auto tf-sidebar-footer">
+                        <div class="tf-owner-row"><span class="avatar avatar-sm bg-yellow-lt">@((User.Identity?.Name ?? "Owner").FirstOrDefault())</span><div><strong>@User.Identity?.Name</strong><span>Local owner</span></div></div>
+                        <form method="post" action="/Login?handler=Logout">@Html.AntiForgeryToken()<button type="submit" class="btn btn-ghost-secondary w-100">Lock workspace</button></form>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        <div class="page-wrapper">
+            <header class="navbar navbar-expand-md d-print-none tf-header"><div class="container-xl"><div class="navbar-nav flex-row order-md-last align-items-center gap-2">@if (activeJournal is not null){<span class="badge bg-blue-lt">@activeJournal.ExecutionContext</span><span class="text-secondary small d-none d-sm-inline">@activeJournal.Name</span>}</div><div class="navbar-nav"><span class="tf-header-label">LOCAL-FIRST FUTURES JOURNAL</span></div></div></header>
+            <div class="page-header d-print-none"><div class="container-xl"><div class="row align-items-center"><div class="col"><div class="page-pretitle">@pageKicker</div><h2 class="page-title">@pageTitle</h2></div>@if (activeJournal is not null){<div class="col-auto"><span class="tf-page-context">@activeJournal.Name <span>·</span> @activeJournal.TimeZone</span></div>}</div></div></div>
+            <div class="page-body"><div class="container-xl">@RenderBody()</div></div>
+            <footer class="footer footer-transparent d-print-none"><div class="container-xl"><div class="row text-center align-items-center"><div class="col-12 col-lg-auto mt-3 mt-lg-0">TradeFoundry · local-first futures journaling</div><div class="col-lg-auto ms-lg-auto">SQLite · auditable imports · one local owner</div></div></div></footer>
         </div>
-    </header>
-    <main role="main">@RenderBody()</main>
-    <footer class="site-footer"><span>TradeFoundry · local-first futures journaling</span><span>Phase 1 · imports are auditable</span></footer>
-    <script src="~/js/site.js" asp-append-version="true"></script>
-    @await RenderSectionAsync("Scripts", required: false)
+    </div>
+}
+else
+{
+    <div class="tf-public-frame"><header class="tf-public-header"><a class="tf-public-brand" href="/"><span class="tf-brand-mark">TF</span><span>TradeFoundry</span></a></header><main class="tf-public-main">@RenderBody()</main><footer class="tf-public-footer">Local-first futures journaling · no cloud account required</footer></div>
+}
+<script src="~/lib/tabler/tabler.min.js" asp-append-version="true"></script>
+@if (usesPlotly)
+{
+    <script src="~/lib/plotly/plotly.min.js" asp-append-version="true"></script>
+}
+<script src="~/js/site.js" asp-append-version="true"></script>
+@await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

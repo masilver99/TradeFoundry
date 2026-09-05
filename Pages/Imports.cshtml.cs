@@ -26,7 +26,7 @@ public class ImportsModel : PageModel
     [BindProperty] public string RequestedType { get; set; } = "auto";
     [BindProperty] public string GroupingPolicy { get; set; } = "flat_to_flat";
     [BindProperty] public string BarInterval { get; set; } = "source";
-    [BindProperty] public string BenchmarkSymbol { get; set; } = "SPY";
+    [BindProperty] public string BenchmarkSymbol { get; set; } = "^GSPC";
 
     public Journal? Journal { get; private set; }
     public PagedResult<ImportBatch> Results { get; private set; } = new();

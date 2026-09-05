@@ -6,8 +6,16 @@ using TradeFoundry.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
+builder.Services.Configure<BenchmarkOptions>(builder.Configuration.GetSection("Benchmark"));
 builder.Services.AddSingleton<TradeFoundryDb>();
 builder.Services.AddSingleton<ImportService>();
+builder.Services.AddHttpClient<YahooFinanceBenchmarkProvider>(client =>
+{
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("TradeFoundry/1.0 local benchmark refresh");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+});
+builder.Services.AddScoped<IBenchmarkDataProvider>(services => services.GetRequiredService<YahooFinanceBenchmarkProvider>());
+builder.Services.AddScoped<BenchmarkRefreshService>();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {

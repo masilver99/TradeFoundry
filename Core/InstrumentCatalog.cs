@@ -26,6 +26,8 @@ public static class InstrumentCatalog
         new() { Root = "6E", TickSize = 0.00005m, PointValue = 125_000m }
     ];
 
+    public static IReadOnlyList<InstrumentSpec> Defaults => Specs;
+
     public static InstrumentSpec Resolve(string symbol)
     {
         var root = ExtractRoot(symbol);

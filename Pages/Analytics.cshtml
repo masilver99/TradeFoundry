@@ -21,6 +21,22 @@
         return hours > 0 ? $"{hours}:{minutes:00}:{remainingSeconds:00}" : $"{minutes}:{remainingSeconds:00}";
     }
     string PeriodTone(decimal value) => value > 0m ? "positive" : value < 0m ? "negative" : "neutral";
+    string BenchmarkSummary()
+    {
+        if (Model.BenchmarkStatus is not { } status || status.PointCount == 0)
+            return $"Automatic {Model.BenchmarkSymbol} data";
+
+        var source = status.IsAutomatic ? "Yahoo Finance" : "manual import";
+        var updated = status.LastFetchedUtc.HasValue
+            ? $"updated {status.LastFetchedUtc.Value.ToLocalTime():MMM d, yyyy HH:mm}"
+            : "manual import";
+        return $"{status.Symbol} · {status.PointCount:N0} daily points · {source} · {updated}";
+    }
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.BenchmarkRefreshMessage))
+{
+    <div class="alert tf-alert @(Model.BenchmarkRefreshMessageKind == "success" ? string.Empty : Model.BenchmarkRefreshMessageKind == "error" ? "error" : "warning")" role="status">@Model.BenchmarkRefreshMessage</div>
 }
 
 @if (Model.Overview is not null)
@@ -39,14 +55,12 @@
     <section id="sc-trade-statistics" class="tf-chart-section tf-sc-statistics-section" aria-labelledby="sc-trade-statistics-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">SC TRADE STATISTICS</div>
                 <div class="tf-chart-section-title-row">
                     <h2 id="sc-trade-statistics-heading">SC Trade Statistics</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="SC Trade Statistics" aria-expanded="false" aria-controls="sc-trade-statistics-description" aria-label="Show explanation for SC Trade Statistics"><span aria-hidden="true">i</span></button>
                 </div>
                 <p id="sc-trade-statistics-description" class="tf-section-info" hidden>Sierra Chart-style flat-to-flat trade statistics, split across all, long, short, and daily results so you can compare the journal's core outcomes from several useful views.</p>
             </div>
-            <span>net P&amp;L · flat-to-flat results</span>
         </div>
         <div class="tf-sc-statistics-table-wrap">
             <table class="tf-sc-statistics-table">
@@ -170,18 +184,16 @@
     <section id="period-breakdown" class="tf-chart-section tf-period-breakdown-section" aria-labelledby="period-breakdown-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">PERIOD BREAKDOWN</div>
                 <div class="tf-chart-section-title-row">
                     <h2 id="period-breakdown-heading">Period Breakdown</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Period Breakdown" aria-expanded="false" aria-controls="period-breakdown-description" aria-label="Show explanation for Period Breakdown"><span aria-hidden="true">i</span></button>
                 </div>
                 <p id="period-breakdown-description" class="tf-section-info" hidden>Results are split by day of week, entry hour, exit week, and exit month. Use these views to find the trading rhythms where the edge is strongest or weakest.</p>
             </div>
-            <span>gross P&amp;L by trading rhythm</span>
         </div>
         <div class="tf-period-breakdown-grid">
             <article class="card tf-card tf-period-breakdown-card">
-                <div class="card-header"><div><div class="tf-kicker">EXIT DATE</div><h3 class="tf-card-title">By Day of Week</h3></div><span>Monday through Friday</span></div>
+                <div class="card-header"><div><h3 class="tf-card-title">By Day of Week</h3></div></div>
                 <div class="card-body">
                     @if (Model.PeriodBreakdown.ByDayOfWeek.Count == 0)
                     {
@@ -199,7 +211,7 @@
                 </div>
             </article>
             <article class="card tf-card tf-period-breakdown-card">
-                <div class="card-header"><div><div class="tf-kicker">ENTRY TIME</div><h3 class="tf-card-title">By Entry Hour</h3></div><span>local journal time</span></div>
+                <div class="card-header"><div><h3 class="tf-card-title">By Entry Hour</h3></div><span>local journal time</span></div>
                 <div class="card-body">
                     @if (Model.PeriodBreakdown.ByEntryHour.Count == 0)
                     {
@@ -217,7 +229,7 @@
                 </div>
             </article>
             <article class="card tf-card tf-period-breakdown-card">
-                <div class="card-header"><div><div class="tf-kicker">WEEKLY CADENCE</div><h3 class="tf-card-title">Weekly P&amp;L</h3></div><span>exit week</span></div>
+                <div class="card-header"><div><h3 class="tf-card-title">Weekly P&amp;L</h3></div></div>
                 <div class="card-body">
                     @if (Model.PeriodBreakdown.ByWeek.Count == 0)
                     {
@@ -235,7 +247,7 @@
                 </div>
             </article>
             <article class="card tf-card tf-period-breakdown-card">
-                <div class="card-header"><div><div class="tf-kicker">MONTHLY CADENCE</div><h3 class="tf-card-title">Monthly P&amp;L</h3></div><span>exit month</span></div>
+                <div class="card-header"><div><h3 class="tf-card-title">Monthly P&amp;L</h3></div><span>exit month</span></div>
                 <div class="card-body">
                     @if (Model.PeriodBreakdown.ByMonth.Count == 0)
                     {
@@ -255,18 +267,7 @@
         </div>
     </section>
 
-    <section id="performance" class="tf-chart-section" aria-labelledby="performance-heading">
-        <div class="tf-chart-section-heading">
-            <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">PERFORMANCE</div>
-                <div class="tf-chart-section-title-row">
-                    <h2 id="performance-heading">How the journal compounds</h2>
-                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Performance" aria-expanded="false" aria-controls="performance-description" aria-label="Show explanation for Performance"><span aria-hidden="true">i</span></button>
-                </div>
-                <p id="performance-description" class="tf-section-info" hidden>This section follows the account and trade paths, the effect of fees, periodic returns, benchmark comparisons, and simulated outcomes to show whether the journal produces a positive and repeatable return.</p>
-            </div>
-            <span>results over completed trades</span>
-        </div>
+    <section id="performance" class="tf-chart-section" aria-label="Performance">
         <nav class="tf-subsection-index" aria-label="Performance subsections">
             <a href="#performance-equity">Equity &amp; P&amp;L</a>
             <a href="#performance-costs">Costs</a>
@@ -274,17 +275,7 @@
             <a href="#performance-benchmark">Benchmark &amp; robustness</a>
         </nav>
 
-        <div id="performance-equity" class="tf-chart-subsection">
-            <div class="tf-chart-subsection-heading">
-                <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">EQUITY &amp; P&amp;L</div>
-                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Equity and P&amp;L" aria-expanded="false" aria-controls="performance-equity-description" aria-label="Show explanation for Equity and P&amp;L"><span aria-hidden="true">i</span></button>
-                    </div>
-                    <h3>Account path and trade path</h3>
-                    <p id="performance-equity-description" class="tf-section-info" hidden>This subsection shows the account and trade paths together, so you can see how balance evolves and how each completed trade contributes to the result.</p>
-                </div>
-            </div>
+        <div id="performance-equity" class="tf-chart-subsection" aria-label="Equity &amp; P&amp;L">
             <div class="tf-chart-grid">
                 <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EQUITY</div><h4 class="tf-card-title">Adjusted and raw balance</h4></div><span class="text-secondary">account history when available</span></div><div class="card-body">@Html.Raw(Model.EquityChart)</div></article>
                 <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">TRADE PATH</div><h4 class="tf-card-title">Trade P&amp;L waterfall</h4></div><span class="text-secondary">one bar per completed trade</span></div><div class="card-body">@Html.Raw(Model.WaterfallChart)</div></article>
@@ -386,7 +377,7 @@
                 </div>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">BENCHMARK</div><h4 class="tf-card-title">Strategy vs benchmark returns</h4></div><span class="text-secondary">@Model.Overview?.StartingEquity?.ToString("C2") starting equity</span></div><div class="card-body">@Html.Raw(Model.ReturnsChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">BENCHMARK</div><h4 class="tf-card-title">Strategy vs benchmark returns</h4></div><div class="tf-benchmark-actions"><span class="text-secondary">@BenchmarkSummary()</span><form method="post" action="@($"/journal/{Model.JournalId:D}/analytics?handler=RefreshBenchmark")">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><button class="btn btn-sm btn-outline-secondary" type="submit">Refresh data</button></form></div></div><div class="card-body">@Html.Raw(Model.ReturnsChart)</div></article>
                 <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ROBUSTNESS</div><h4 class="tf-card-title">Monte Carlo simulated paths</h4></div><span class="text-secondary">bootstrap resampling</span></div><div class="card-body">@Html.Raw(Model.MonteCarloChart)</div></article>
             </div>
         </div>
@@ -663,6 +654,6 @@
     </section>
 
     <section class="card tf-card tf-chart-boundary mt-3">
-        <div class="card-body"><div class="tf-kicker">DATA BOUNDARY</div><p class="mb-0 text-secondary">Benchmark comparisons require a starting-equity value and an imported daily benchmark series. R-multiple values require an initial stop order; order execution requires Sierra order rows. Missing source evidence remains an explicit empty state.</p></div>
+        <div class="card-body"><div class="tf-kicker">DATA BOUNDARY</div><p class="mb-0 text-secondary">Benchmark comparisons require a starting-equity value and a daily benchmark series. The default S&amp;P 500 series is refreshed automatically from Yahoo Finance when completed trades exist; manual CSV/TSV benchmark imports remain available. R-multiple values require an initial stop order; order execution requires Sierra order rows. Missing source evidence remains an explicit empty state.</p></div>
     </section>
 }

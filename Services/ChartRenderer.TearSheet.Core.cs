@@ -64,8 +64,10 @@ public static partial class ChartRenderer
         var daily = DailyEquity(source, balanceSource, startingEquity);
         if (daily.Count < 2) return Empty("Returns appear after at least two equity observations.");
 
-        var startBalance = daily[0].AdjustedBalance;
-        if (startBalance == 0m) return Empty("Set starting equity or import account balances to compare percentage returns.");
+        if (!HasReturnBaseline(daily)) return Empty("Set starting equity or import account balances to compare percentage returns.");
+
+        var startBalance = daily[0].RawBalance!.Value;
+        if (startBalance <= 0m) return Empty("Set starting equity or import account balances to compare percentage returns.");
 
         var lastDate = daily[^1].Date;
         var layout = CartesianLayout("x unified");
@@ -215,8 +217,8 @@ public static partial class ChartRenderer
         if (daily.Count < 2) return Empty("Worst drawdown periods need at least two equity observations.");
 
         var episodes = DrawdownEpisodes(daily).OrderBy(x => x.MaxDepth).Take(5).ToArray();
-        var baseBalance = daily[0].AdjustedBalance;
-        var isReturn = baseBalance != 0m;
+        var isReturn = HasReturnBaseline(daily) && daily[0].AdjustedBalance > 0m;
+        var baseBalance = isReturn ? daily[0].AdjustedBalance : 0m;
         var values = daily.Select(x => isReturn ? (x.AdjustedBalance / baseBalance - 1m) * 100m : x.AdjustedBalance - baseBalance).ToArray();
         var shapes = episodes.Select(episode => new
         {
@@ -334,7 +336,10 @@ public static partial class ChartRenderer
         IEnumerable<BenchmarkPoint> benchmarkSource,
         decimal? startingEquity)
     {
-        var returns = DailyReturns(DailyEquity(source, balanceSource, startingEquity));
+        var daily = DailyEquity(source, balanceSource, startingEquity);
+        if (!HasReturnBaseline(daily)) return Empty("Set starting equity or import account balances to calculate percentage volatility.");
+
+        var returns = DailyReturns(daily);
         if (returns.Count < 10) return Empty("Rolling volatility needs at least ten daily return observations.");
 
         var rolling = RollingStatistic(returns, TearSheetDailyWindow, values => SampleStd(values) * (decimal)Math.Sqrt(252));
@@ -375,7 +380,10 @@ public static partial class ChartRenderer
         IEnumerable<AccountBalanceEvent> balanceSource,
         decimal? startingEquity)
     {
-        var returns = DailyReturns(DailyEquity(source, balanceSource, startingEquity));
+        var daily = DailyEquity(source, balanceSource, startingEquity);
+        if (!HasReturnBaseline(daily)) return Empty("Set starting equity or import account balances to calculate return ratios.");
+
+        var returns = DailyReturns(daily);
         var rolling = RollingStatistic(returns, TearSheetDailyWindow, values =>
         {
             var mean = values.Average();
@@ -391,7 +399,10 @@ public static partial class ChartRenderer
         IEnumerable<AccountBalanceEvent> balanceSource,
         decimal? startingEquity)
     {
-        var returns = DailyReturns(DailyEquity(source, balanceSource, startingEquity));
+        var daily = DailyEquity(source, balanceSource, startingEquity);
+        if (!HasReturnBaseline(daily)) return Empty("Set starting equity or import account balances to calculate return ratios.");
+
+        var returns = DailyReturns(daily);
         var rolling = RollingStatistic(returns, TearSheetDailyWindow, values =>
         {
             var mean = values.Average();
@@ -448,6 +459,7 @@ public static partial class ChartRenderer
     {
         var daily = DailyEquity(source, balanceSource, startingEquity);
         if (daily.Count < 2) return Empty("Annual returns need equity history.");
+        if (!HasReturnBaseline(daily)) return Empty("Set starting equity or import account balances to compare percentage returns.");
 
         var strategy = PeriodReturns(daily, x => x.Year);
         var benchmark = BenchmarkPeriodReturns(benchmarkSource, x => x.Year);
@@ -486,6 +498,8 @@ public static partial class ChartRenderer
         decimal? startingEquity)
     {
         var daily = DailyEquity(source, balanceSource, startingEquity);
+        if (!HasReturnBaseline(daily)) return Empty("Set starting equity or import account balances to compare percentage returns.");
+
         var strategy = PeriodReturns(daily, x => x.Year * 100 + x.Month).Values.ToArray();
         if (strategy.Length == 0) return Empty("Monthly return distribution needs equity history.");
         var benchmark = BenchmarkPeriodReturns(benchmarkSource, x => x.Year * 100 + x.Month).Values.ToArray();
@@ -507,7 +521,10 @@ public static partial class ChartRenderer
         IEnumerable<BenchmarkPoint> benchmarkSource,
         decimal? startingEquity)
     {
-        var strategy = DailyReturns(DailyEquity(source, balanceSource, startingEquity));
+        var daily = DailyEquity(source, balanceSource, startingEquity);
+        if (!HasReturnBaseline(daily)) return Empty("Set starting equity or import account balances to compare percentage returns.");
+
+        var strategy = DailyReturns(daily);
         var benchmark = BenchmarkDailyReturns(benchmarkSource);
         var points = strategy.Where(x => benchmark.ContainsKey(x.Date)).Select(x => (x.Date, Value: (decimal)(x.Return - (double)benchmark[x.Date]) * 100m)).ToArray();
         if (points.Length == 0) return Empty("Active returns require overlapping strategy and benchmark daily data.");
@@ -557,6 +574,9 @@ public static partial class ChartRenderer
         }
         return result;
     }
+
+    private static bool HasReturnBaseline(IReadOnlyList<DailyEquityPoint> daily) =>
+        daily.Count > 0 && daily[0].RawBalance is > 0m;
 
     private static IReadOnlyList<(DateOnly Date, double Return)> DailyReturns(IReadOnlyList<DailyEquityPoint> daily)
     {

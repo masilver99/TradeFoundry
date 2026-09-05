@@ -36,8 +36,8 @@ button, input, select, textarea { font: inherit; }
 .tf-sidebar { background: var(--tf-surface); border-color: var(--tf-line); }
 .tf-sidebar .container-fluid { min-height: 100vh; }
 .tf-brand { margin: .9rem 0 1rem; padding: 0; }
-.tf-brand a, .tf-public-brand { display: inline-flex; align-items: center; gap: .6rem; color: var(--tf-blue); text-decoration: none; font-size: 1rem; font-weight: 600; }
-.tf-brand-mark { display: inline-grid; place-items: center; width: 1.8rem; height: 1.8rem; border: 1px solid var(--tf-blue); border-radius: 4px; color: var(--tf-blue); font: 600 11px/1 'Segoe UI', system-ui, sans-serif; }
+.tf-brand a, .tf-public-brand { display: inline-flex; align-items: center; color: var(--tf-blue); text-decoration: none; }
+.tf-brand-logo { display: block; width: min(190px, 100%); height: auto; }
 .tf-journal-context { padding: 10px 12px; background: var(--tf-bg); border: 1px solid var(--tf-line); border-radius: 6px; }
 .tf-sidebar-label, .tf-nav-heading, .tf-header-label, .page-pretitle, .tf-kicker, .tf-filter-label { color: var(--tf-muted); font: 600 11px/1.2 'Segoe UI', system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
 .tf-sidebar .form-select { margin-top: 7px; border-color: var(--tf-line); background-color: var(--tf-bg); color: var(--tf-ink); }
@@ -60,6 +60,15 @@ button, input, select, textarea { font: inherit; }
 .tf-header-label { font-size: 11px; }
 .tf-page-context { color: var(--tf-muted); font-size: 11px; text-transform: uppercase; }
 .tf-page-context span { color: var(--tf-line); padding: 0 5px; }
+.tf-page-header-tools { display: flex; align-items: center; gap: 12px; }
+.tf-chart-export-options { position: relative; }
+.tf-chart-export-options > summary { list-style: none; }
+.tf-chart-export-options > summary::-webkit-details-marker { display: none; }
+.tf-chart-export-options > summary::marker { content: ""; }
+.tf-chart-export-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 1030; width: 240px; padding: 12px; border: 1px solid var(--tf-line); border-radius: 6px; background: var(--tf-surface-raised); box-shadow: 0 10px 24px rgba(0,0,0,.28); }
+.tf-chart-export-note { margin: 7px 0 10px; color: var(--tf-muted); font-size: 11px; line-height: 1.4; }
+.tf-chart-export-option { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--tf-ink); font-size: 12px; cursor: pointer; }
+.tf-chart-export-option input { margin: 0; accent-color: var(--tf-blue); }
 .page-header { border-bottom: 1px solid var(--tf-line); background: var(--tf-bg); }
 .page-header .container-xl { padding-top: 16px; padding-bottom: 12px; }
 .page-pretitle { color: var(--tf-muted); }
@@ -232,6 +241,7 @@ button, input, select, textarea { font: inherit; }
 .tf-period-summary-table { width: 100%; min-width: 1220px; border-collapse: collapse; font-size: 12px; }
 .tf-period-summary-table thead th { padding: 6px 10px; border-bottom: 1px solid var(--tf-line); background: var(--tf-surface); color: var(--tf-muted); font-size: 11px; font-weight: 500; text-align: right; white-space: nowrap; }
 .tf-period-summary-table thead th:first-child { width: 24%; text-align: left; }
+.tf-period-summary-table tbody tr:nth-child(even) { background: rgba(255,255,255,.03); }
 .tf-period-summary-table tbody th[scope="row"], .tf-period-summary-table tbody td { padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,.04); text-align: right; white-space: nowrap; }
 .tf-period-summary-table tbody th[scope="row"] { color: var(--tf-ink); font-size: 12px; font-weight: 500; text-align: left; }
 .tf-period-summary-table tbody td { color: var(--tf-ink); }
@@ -244,13 +254,13 @@ button, input, select, textarea { font: inherit; }
 .tf-period-summary-toggle, .tf-period-summary-toggle-spacer { display: inline-grid; width: 18px; height: 18px; flex: 0 0 18px; place-items: center; }
 .tf-period-summary-toggle { padding: 0; border: 1px solid var(--tf-line); border-radius: 4px; background: transparent; color: var(--tf-muted); cursor: pointer; font-size: 10px; line-height: 1; }
 .tf-period-summary-toggle:hover, .tf-period-summary-toggle:focus-visible { color: var(--tf-ink); outline: 0; }
-.tf-period-summary-row-year th, .tf-period-summary-row-year td { background: rgba(var(--tf-blue-rgb), .12); font-weight: 600; }
-.tf-period-summary-row-quarter th, .tf-period-summary-row-quarter td { background: rgba(var(--tf-blue-rgb), .08); }
-.tf-period-summary-row-month th, .tf-period-summary-row-month td { background: rgba(var(--tf-blue-rgb), .04); }
-.tf-period-summary-row-quarter th[scope="row"] { padding-left: 1.2rem; }
-.tf-period-summary-row-month th[scope="row"] { padding-left: 2rem; }
-.tf-period-summary-row-week th[scope="row"] { padding-left: 3rem; }
-.tf-period-summary-row-day th[scope="row"] { padding-left: 4rem; }
+.tf-period-summary-row-year th, .tf-period-summary-row-year td { background: rgba(var(--tf-blue-rgb), .12); font-weight: 700; }
+.tf-period-summary-row-quarter th, .tf-period-summary-row-quarter td { background: rgba(var(--tf-blue-rgb), .08); font-weight: 600; }
+.tf-period-summary-row-month th, .tf-period-summary-row-month td { background: rgba(var(--tf-blue-rgb), .04); font-weight: 600; }
+.tf-period-summary-table tbody tr.tf-period-summary-row-quarter th[scope="row"] { padding-left: 20px; }
+.tf-period-summary-table tbody tr.tf-period-summary-row-month th[scope="row"] { padding-left: 40px; }
+.tf-period-summary-table tbody tr.tf-period-summary-row-week th[scope="row"] { padding-left: 64px; }
+.tf-period-summary-table tbody tr.tf-period-summary-row-day th[scope="row"] { padding-left: 88px; }
 .tf-period-summary-hidden { display: none; }
 .tf-period-breakdown-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .tf-period-breakdown-card { min-width: 0; margin: 0; }
@@ -333,6 +343,8 @@ button, input, select, textarea { font: inherit; }
 .tf-library-chart-wide { grid-column: span 2; }
 .tf-library-chart .card-header { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
 .tf-library-chart .card-header > span { color: var(--tf-muted); font-size: 11px; text-align: right; }
+.tf-benchmark-actions { display: flex; align-items: end; justify-content: flex-end; gap: .75rem; }
+.tf-benchmark-actions > span { color: var(--tf-muted); font-size: 11px; text-align: right; }
 .tf-library-chart .card-body { min-height: 280px; }
 .tf-chart-boundary { border-color: var(--tf-line); }
 .tf-pnl-calendar { min-width: 0; }
@@ -383,6 +395,8 @@ button, input, select, textarea { font: inherit; }
   .page-body > .container-xl { padding-top: 1rem; }
   .tf-header-label { display: none; }
   .tf-page-context { display: none; }
+  .tf-page-header-tools { align-items: flex-start; }
+  .tf-chart-export-panel { right: auto; left: 0; }
   .tf-hero { align-items: flex-start; }
   .tf-hero-mark { display: none; }
   .tf-toolbar { align-items: stretch; flex-direction: column; }
@@ -404,6 +418,8 @@ button, input, select, textarea { font: inherit; }
   .tf-subsection-index a { flex: 0 0 auto; }
   .tf-chart-grid { grid-template-columns: minmax(0,1fr); }
   .tf-library-chart-wide { grid-column: auto; }
+  .tf-benchmark-actions { align-items: flex-start; flex-direction: column; width: 100%; }
+  .tf-benchmark-actions > span { text-align: left; }
   .tf-period-breakdown-grid { grid-template-columns: minmax(0, 1fr); }
   .tf-period-summary-toolbar { align-items: flex-start; flex-direction: column; }
   .tf-indicator-grid, .tf-indicator-grid-key { grid-template-columns: repeat(2, minmax(0, 1fr)); }

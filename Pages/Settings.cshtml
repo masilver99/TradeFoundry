@@ -1,5 +1,7 @@
 @page "/journal/{journalId:guid}/settings"
 @model TradeFoundry.Pages.SettingsModel
+@using System.Globalization
+@using TradeFoundry.Core
 @{
     ViewData["Title"] = "Settings";
     ViewData["PageKicker"] = "TRADEFOUNDRY / INSTANCE";
@@ -31,6 +33,94 @@
             </div>
         </div>
         <div class="card tf-card tf-phase-card">
+            <div class="card-header"><div><div class="tf-kicker">INSTRUMENTS</div><h3 class="tf-card-title">Instrument definitions</h3></div></div>
+            <div class="card-body">
+                <p class="text-secondary small">These values are stored with normalized fills and trades. Commission is per contract; leave it blank to retain a fee reported by the import when one is available.</p>
+                <div class="table-responsive">
+                    <table class="table table-vcenter tf-table">
+                        <thead><tr><th>Instrument</th><th>Default commission / contract</th><th>Point value</th><th>Tick size</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var instrument in Model.Instruments)
+                        {
+                            <tr>
+                                <td colspan="5">
+                                    <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=SaveInstrument")" class="row g-2 align-items-end">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="journalId" value="@Model.JournalId" />
+                                        <input type="hidden" name="instrumentId" value="@instrument.Id" />
+                                        <div class="col-sm-3"><label class="form-label">Code<input class="form-control form-control-sm" name="code" value="@instrument.Code" required maxlength="32" /></label></div>
+                                        <div class="col-sm-3"><label class="form-label">Commission<input class="form-control form-control-sm" name="defaultCommission" type="number" step="0.01" min="0" value="@(instrument.DefaultCommission?.ToString("0.########", CultureInfo.InvariantCulture))" placeholder="Imported fee" /></label></div>
+                                        <div class="col-sm-2"><label class="form-label">$/point<input class="form-control form-control-sm" name="pointValue" type="number" step="0.000001" min="0.000001" value="@instrument.PointValue.ToString("0.########", CultureInfo.InvariantCulture)" required /></label></div>
+                                        <div class="col-sm-2"><label class="form-label">Tick size<input class="form-control form-control-sm" name="tickSize" type="number" step="0.000001" min="0" value="@instrument.TickSize.ToString("0.########", CultureInfo.InvariantCulture)" /></label></div>
+                                        <div class="col-sm-2 d-flex gap-2"><button class="btn btn-sm btn-primary" type="submit">Save</button><button class="btn btn-sm btn-outline-danger" type="submit" formaction="@($"/journal/{Model.JournalId:D}/settings?handler=DeleteInstrument")" formmethod="post" name="instrumentId" value="@instrument.Id" onclick="return confirm('Remove this instrument?');">Remove</button></div>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                        <tr>
+                            <td colspan="5">
+                                <div class="tf-kicker mb-2">ADD INSTRUMENT</div>
+                                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=SaveInstrument")" class="row g-2 align-items-end">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="journalId" value="@Model.JournalId" />
+                                    <div class="col-sm-3"><label class="form-label">Code<input class="form-control form-control-sm" name="code" placeholder="e.g. ZB" required maxlength="32" /></label></div>
+                                    <div class="col-sm-3"><label class="form-label">Commission<input class="form-control form-control-sm" name="defaultCommission" type="number" step="0.01" min="0" placeholder="Optional" /></label></div>
+                                    <div class="col-sm-2"><label class="form-label">$/point<input class="form-control form-control-sm" name="pointValue" type="number" step="0.000001" min="0.000001" placeholder="e.g. 31.25" required /></label></div>
+                                    <div class="col-sm-2"><label class="form-label">Tick size<input class="form-control form-control-sm" name="tickSize" type="number" step="0.000001" min="0" placeholder="Optional" /></label></div>
+                                    <div class="col-sm-2"><button class="btn btn-sm btn-outline-primary" type="submit">Add instrument</button></div>
+                                </form>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="card tf-card tf-phase-card">
+            <div class="card-header"><div><div class="tf-kicker">IMPORT APPLICATION</div><h3 class="tf-card-title">Sierra Chart</h3></div><span class="badge bg-blue-lt">sierra_chart</span></div>
+            <div class="card-body">
+                <p class="text-secondary small">Map the imported Sierra Chart <code>Symbol</code> to an instrument. Mappings are checked from top to bottom; a commission override is per contract and takes precedence over the instrument default.</p>
+                <div class="table-responsive">
+                    <table class="table table-vcenter tf-table">
+                        <thead><tr><th>Match regex</th><th>Instrument</th><th>Commission override / contract</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var mapping in Model.SierraChartMappings)
+                        {
+                            <tr>
+                                <td colspan="4">
+                                    <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=SaveSierraMapping")" class="row g-2 align-items-end">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="journalId" value="@Model.JournalId" />
+                                        <input type="hidden" name="mappingId" value="@mapping.Id" />
+                                        <input type="hidden" name="position" value="@mapping.Position" />
+                                        <div class="col-md-5"><label class="form-label">Regex<input class="form-control form-control-sm font-monospace" name="matchRegex" value="@mapping.MatchRegex" required maxlength="512" /></label></div>
+                                        <div class="col-md-3"><label class="form-label">Instrument<select class="form-select form-select-sm" name="instrumentCode" required>@foreach (var instrument in Model.Instruments){<option value="@instrument.Code" selected="@(instrument.Code.Equals(mapping.InstrumentCode, StringComparison.OrdinalIgnoreCase))">@instrument.Code</option>}</select></label></div>
+                                        <div class="col-md-3"><label class="form-label">Override<input class="form-control form-control-sm" name="commissionOverride" type="number" step="0.01" min="0" value="@(mapping.CommissionOverride?.ToString("0.########", CultureInfo.InvariantCulture))" placeholder="Use instrument default" /></label></div>
+                                        <div class="col-md-1 d-flex gap-2"><button class="btn btn-sm btn-primary" type="submit">Save</button><button class="btn btn-sm btn-outline-danger" type="submit" formaction="@($"/journal/{Model.JournalId:D}/settings?handler=DeleteSierraMapping")" formmethod="post" name="mappingId" value="@mapping.Id" onclick="return confirm('Remove this mapping?');">×</button></div>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                        <tr>
+                            <td colspan="4">
+                                <div class="tf-kicker mb-2">ADD MAPPING</div>
+                                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=SaveSierraMapping")" class="row g-2 align-items-end">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="journalId" value="@Model.JournalId" />
+                                    <input type="hidden" name="position" value="@Model.SierraChartMappings.Count" />
+                                    <div class="col-md-5"><label class="form-label">Regex<input class="form-control form-control-sm font-monospace" name="matchRegex" placeholder="e.g. (?&lt;!\w)MES" required maxlength="512" /></label></div>
+                                    <div class="col-md-3"><label class="form-label">Instrument<select class="form-select form-select-sm" name="instrumentCode" required>@foreach (var instrument in Model.Instruments){<option value="@instrument.Code">@instrument.Code</option>}</select></label></div>
+                                    <div class="col-md-3"><label class="form-label">Override<input class="form-control form-control-sm" name="commissionOverride" type="number" step="0.01" min="0" placeholder="Optional" /></label></div>
+                                    <div class="col-md-1"><button class="btn btn-sm btn-outline-primary" type="submit">Add</button></div>
+                                </form>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="card tf-card tf-phase-card">
             <div class="card-header"><div><div class="tf-kicker">LOCAL INSTANCE</div><h3 class="tf-card-title">Storage</h3></div></div>
             <div class="card-body"><dl class="tf-definition-list"><dt>Database size</dt><dd>@Model.DatabaseSize</dd><dt>Location</dt><dd class="text-break">@Model.DatabasePath</dd></dl></div>
         </div>
@@ -45,6 +135,20 @@
                     <div class="col-12"><label class="form-label">Execution context<select asp-for="NewExecutionContext" class="form-select"><option value="live">Live</option><option value="paper">Paper</option><option value="replay">Replay</option><option value="backtest">Backtest</option><option value="other">Other</option></select></label></div>
                     <div class="col-12"><label class="form-label">Labels<input asp-for="NewLabels" class="form-control" placeholder="algo, study" /></label></div>
                     <div class="col-12"><button class="btn btn-outline-secondary" type="submit">Create journal</button></div>
+                </form>
+            </div>
+        </div>
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">LOCAL INSTANCE</div><h3 class="tf-card-title">Change password</h3></div></div>
+            <div class="card-body">
+                <p class="text-secondary small">Use an empty new password if you prefer passwordless access on this local instance.</p>
+                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=ChangePassword")" class="row g-3">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="journalId" value="@Model.JournalId" />
+                    <div class="col-12"><label class="form-label">Current password<input class="form-control" name="CurrentPassword" type="password" autocomplete="current-password" /></label></div>
+                    <div class="col-12"><label class="form-label">New password<input class="form-control" name="NewPassword" type="password" autocomplete="new-password" /></label></div>
+                    <div class="col-12"><label class="form-label">Confirm new password<input class="form-control" name="ConfirmNewPassword" type="password" autocomplete="new-password" /></label></div>
+                    <div class="col-12"><button class="btn btn-outline-primary" type="submit">Change password</button></div>
                 </form>
             </div>
         </div>

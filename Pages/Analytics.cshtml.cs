@@ -14,8 +14,13 @@ public class AnalyticsModel : PageModel
 {
     private static readonly JsonSerializerOptions PnlCalendarJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly TradeFoundryDb _database;
+    private readonly BenchmarkRefreshService _benchmarkRefresh;
 
-    public AnalyticsModel(TradeFoundryDb database) => _database = database;
+    public AnalyticsModel(TradeFoundryDb database, BenchmarkRefreshService benchmarkRefresh)
+    {
+        _database = database;
+        _benchmarkRefresh = benchmarkRefresh;
+    }
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
     public Journal? Journal { get; private set; }
@@ -27,7 +32,11 @@ public class AnalyticsModel : PageModel
     public IReadOnlyList<OrderEvent> OrderEvents { get; private set; } = Array.Empty<OrderEvent>();
     public IReadOnlyList<AccountBalanceEvent> AccountBalances { get; private set; } = Array.Empty<AccountBalanceEvent>();
     public IReadOnlyList<BenchmarkPoint> BenchmarkPoints { get; private set; } = Array.Empty<BenchmarkPoint>();
+    public BenchmarkSeriesStatus? BenchmarkStatus { get; private set; }
     public IReadOnlyList<PnlCalendarMonth> PnlCalendarMonths { get; private set; } = Array.Empty<PnlCalendarMonth>();
+    public string BenchmarkSymbol => _benchmarkRefresh.DefaultSymbol;
+    public string? BenchmarkRefreshMessage { get; private set; }
+    public string BenchmarkRefreshMessageKind { get; private set; } = "warning";
     public string PnlCalendarCurrency => Journal?.Currency ?? "USD";
     public string PnlCalendarJson => JsonSerializer.Serialize(PnlCalendarMonths, PnlCalendarJsonOptions);
 
@@ -82,22 +91,52 @@ public class AnalyticsModel : PageModel
         int TradeCount,
         IReadOnlyList<PnlCalendarDay> Days);
 
-    public IActionResult OnGet()
+    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
         Journal = _database.GetJournal(JournalId);
         if (Journal is null) return NotFound();
 
         Overview = _database.GetOverview(JournalId);
         Trades = _database.GetAllTrades(JournalId);
+        var refresh = await _benchmarkRefresh.RefreshAsync(JournalId, Trades, force: false, cancellationToken: cancellationToken);
+        if (refresh.Failed)
+        {
+            BenchmarkRefreshMessage = $"{refresh.Message} Existing cached benchmark data was kept.";
+            BenchmarkRefreshMessageKind = "warning";
+        }
+
         OrderEvents = _database.GetOrderEvents(JournalId);
         AccountBalances = _database.GetAccountBalanceEvents(JournalId);
-        BenchmarkPoints = _database.GetBenchmarkPoints(JournalId);
+        LoadBenchmarkPoints();
+        BenchmarkStatus = _database.GetBenchmarkSeriesStatus(JournalId, BenchmarkSymbol);
         Indicators = TearSheetMetrics.Build(Trades, OrderEvents, AccountBalances, BenchmarkPoints, Overview?.StartingEquity, Journal.TimeZone, Journal.Currency);
         var periodData = TearSheetPeriods.Build(Trades, Journal.TimeZone);
         PeriodSummary = periodData.Summary;
         PeriodBreakdown = periodData.Breakdown;
         BuildPnlCalendar();
+
+        if (TempData["BenchmarkFlashMessage"] is string flashMessage && !string.IsNullOrWhiteSpace(flashMessage))
+        {
+            BenchmarkRefreshMessage = flashMessage;
+            BenchmarkRefreshMessageKind = TempData["BenchmarkFlashKind"] as string ?? "warning";
+        }
         return Page();
+    }
+
+    public async Task<IActionResult> OnPostRefreshBenchmarkAsync(CancellationToken cancellationToken)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        var trades = _database.GetAllTrades(JournalId);
+        var refresh = await _benchmarkRefresh.RefreshAsync(JournalId, trades, force: true, cancellationToken);
+        TempData["BenchmarkFlashMessage"] = refresh.Message;
+        TempData["BenchmarkFlashKind"] = refresh.Succeeded ? "success" : "warning";
+        return Redirect($"/journal/{JournalId:D}/analytics#performance-benchmark");
+    }
+
+    private void LoadBenchmarkPoints()
+    {
+        BenchmarkPoints = _database.GetBenchmarkPoints(JournalId, BenchmarkSymbol);
+        if (BenchmarkPoints.Count == 0) BenchmarkPoints = _database.GetBenchmarkPoints(JournalId);
     }
 
     private void BuildPnlCalendar()

@@ -19,12 +19,13 @@ public sealed class ImportService
         await content.CopyToAsync(memory, cancellationToken);
         var text = Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF');
         var journalTimeZone = _database.GetJournal(journalId)?.TimeZone ?? "UTC";
-        var parsed = Parse(text, requestedType, interval, journalTimeZone, benchmarkSymbol);
+        var parsed = Parse(text, requestedType, interval, journalTimeZone, benchmarkSymbol, _database.GetInstrumentConfiguration());
         return _database.CommitImport(journalId, fileName, parsed, groupingPolicy, interval);
     }
 
-    public ParsedImport Parse(string text, string requestedType = "auto", string interval = "source", string timeZone = "UTC", string benchmarkSymbol = "SPY")
+    public ParsedImport Parse(string text, string requestedType = "auto", string interval = "source", string timeZone = "UTC", string benchmarkSymbol = "SPY", InstrumentConfiguration? configuration = null)
     {
+        configuration ??= InstrumentConfiguration.Empty;
         var result = new ParsedImport();
         var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
         var headerLine = lines.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
@@ -39,16 +40,16 @@ public sealed class ImportService
         var source = DetectSource(headers, requestedType);
         result = source switch
         {
-            ImportSource.Sierra => ParseSierra(lines, headerLine, headers, delimiter, timeZone),
-            ImportSource.TradingViewAccount => ParseTradingViewAccount(lines, headerLine, headers, delimiter, timeZone),
-            ImportSource.TradingViewStrategy => ParseTradingViewStrategy(lines, headerLine, headers, delimiter, timeZone),
+            ImportSource.Sierra => ParseSierra(lines, headerLine, headers, delimiter, timeZone, configuration),
+            ImportSource.TradingViewAccount => ParseTradingViewAccount(lines, headerLine, headers, delimiter, timeZone, configuration),
+            ImportSource.TradingViewStrategy => ParseTradingViewStrategy(lines, headerLine, headers, delimiter, timeZone, configuration),
             ImportSource.Benchmark => ParseBenchmark(lines, headerLine, headers, delimiter, timeZone, benchmarkSymbol),
             _ => ParseBars(lines, headerLine, headers, delimiter, interval, timeZone)
         };
         return result;
     }
 
-    private static ParsedImport ParseSierra(string[] lines, string headerLine, string[] headers, char delimiter, string timeZone)
+    private static ParsedImport ParseSierra(string[] lines, string headerLine, string[] headers, char delimiter, string timeZone, InstrumentConfiguration configuration)
     {
         var result = NewResult(TradeFoundryConstants.SierraFills);
         foreach (var (row, rowNumber) in Rows(lines, headerLine, headers, delimiter))
@@ -71,6 +72,7 @@ public sealed class ImportService
             var orderActionSource = Value(row, headers, "orderactionsource");
             var rawPrice = DecimalOrNull(Value(row, headers, "fillprice", "price"));
             var scale = SierraPriceNormalizer.DetermineScale(rawPrice ?? 0m, symbol, orderActionSource);
+            var resolution = configuration.Resolve(TradeFoundryConstants.SierraChart, symbol);
 
             if (activity.Equals("fills", StringComparison.OrdinalIgnoreCase) || activity.Contains("fill", StringComparison.OrdinalIgnoreCase))
             {
@@ -100,7 +102,7 @@ public sealed class ImportService
                             fill = new FillDraft
                             {
                                 SourceType = result.SourceType, SourceKey = sourceKey, ActivityType = activity, OrderActionSource = orderActionSource, EventUtc = eventUtc, TransactionUtc = transactionUtc, SourceTimeText = eventText,
-                                Symbol = symbol, Account = Value(row, headers, "tradeaccount", "account"),
+                                Symbol = symbol, Instrument = resolution.InstrumentCode, PointValue = resolution.PointValue, TickSize = resolution.TickSize, Account = Value(row, headers, "tradeaccount", "account"),
                                 Side = side, Quantity = quantity, Price = price / scale, Price2 = ScaleNullable(DecimalOrNull(Value(row, headers, "price2")), scale),
                                 FilledQuantity = IntOrNull(Value(row, headers, "filledquantity")), OpenClose = Value(row, headers, "openclose"),
                                 OrderType = Value(row, headers, "ordertype"), OrderStatus = Value(row, headers, "orderstatus"), ParentOrderId = Value(row, headers, "parentinternalorderid", "parentorderid"),
@@ -108,8 +110,8 @@ public sealed class ImportService
                                 PositionQuantity = IntOrNull(Value(row, headers, "positionquantity")), OrderId = Value(row, headers, "internalorderid", "orderid"),
                                 ServiceOrderId = Value(row, headers, "serviceorderid"), ExchangeOrderId = Value(row, headers, "exchangeorderid"),
                                 FillExecutionId = serviceId, ClientOrderId = Value(row, headers, "clientorderid"), TimeInForce = Value(row, headers, "timeinforce"),
-                                Username = Value(row, headers, "username"), IsAutomated = BoolOrNull(Value(row, headers, "isautomated", "automated")),
-                                AccountBalance = DecimalOrNull(Value(row, headers, "accountbalance")), Fees = DecimalOrZero(Value(row, headers, "fees", "commission")), RowNumber = rowNumber
+                                 Username = Value(row, headers, "username"), IsAutomated = BoolOrNull(Value(row, headers, "isautomated", "automated")),
+                                 AccountBalance = DecimalOrNull(Value(row, headers, "accountbalance")), Fees = ResolveFees(resolution, DecimalOrZero(Value(row, headers, "fees", "commission")), quantity), RowNumber = rowNumber
                             };
                         }
                     }
@@ -125,8 +127,8 @@ public sealed class ImportService
                 {
                     orderEvent = new OrderEventDraft
                     {
-                        SourceType = result.SourceType, SourceKey = sourceKey, OrderActionSource = orderActionSource, EventUtc = eventUtc, TransactionUtc = transactionUtc, SourceTimeText = eventText,
-                        Symbol = symbol, Account = Value(row, headers, "tradeaccount", "account"), InternalOrderId = Value(row, headers, "internalorderid", "orderid"), ServiceOrderId = Value(row, headers, "serviceorderid"),
+                         SourceType = result.SourceType, SourceKey = sourceKey, OrderActionSource = orderActionSource, EventUtc = eventUtc, TransactionUtc = transactionUtc, SourceTimeText = eventText,
+                          Symbol = symbol, Instrument = resolution.InstrumentCode, Account = Value(row, headers, "tradeaccount", "account"), InternalOrderId = Value(row, headers, "internalorderid", "orderid"), ServiceOrderId = Value(row, headers, "serviceorderid"),
                         ParentOrderId = Value(row, headers, "parentinternalorderid", "parentorderid"), ExchangeOrderId = Value(row, headers, "exchangeorderid"),
                         FillExecutionId = serviceId, OrderType = Value(row, headers, "ordertype"), OrderStatus = Value(row, headers, "orderstatus"),
                         Side = NormalizeSide(Value(row, headers, "buysell", "side", "action")), OpenClose = Value(row, headers, "openclose"),
@@ -163,7 +165,7 @@ public sealed class ImportService
         return result;
     }
 
-    private static ParsedImport ParseTradingViewAccount(string[] lines, string headerLine, string[] headers, char delimiter, string timeZone)
+    private static ParsedImport ParseTradingViewAccount(string[] lines, string headerLine, string[] headers, char delimiter, string timeZone, InstrumentConfiguration configuration)
     {
         var result = NewResult(TradeFoundryConstants.TradingViewAccount);
         foreach (var (row, rowNumber) in Rows(lines, headerLine, headers, delimiter))
@@ -192,22 +194,25 @@ public sealed class ImportService
                     if (string.IsNullOrWhiteSpace(side)) result.Warnings.Add($"TradingView row {rowNumber}: side is missing; the raw row was retained.");
                     else
                     {
+                        var symbol = CleanSymbol(Value(row, headers, "symbol", "ticker", "instrument"));
+                        var resolution = configuration.Resolve(TradeFoundryConstants.TradingView, symbol);
                         fill = new FillDraft
                         {
                             SourceType = result.SourceType, SourceKey = sourceKey.Trim(), ActivityType = "Fills", EventUtc = eventUtc,
                             TransactionUtc = TryTransactionDate(Value(row, headers, "transdatetime", "transactiondatetime"), timeZone, out var transactionUtc) ? transactionUtc : (DateTimeOffset?)null,
                             SourceTimeText = dateText,
-                            Symbol = CleanSymbol(Value(row, headers, "symbol", "ticker", "instrument")), Account = Value(row, headers, "account", "broker", "tradeaccount"),
-                            Side = side, Quantity = quantity, Price = price, Price2 = DecimalOrNull(Value(row, headers, "price2")), OrderActionSource = Value(row, headers, "orderactionsource"),
+                             Symbol = symbol, Instrument = resolution.InstrumentCode, PointValue = resolution.PointValue, TickSize = resolution.TickSize, Account = Value(row, headers, "account", "broker", "tradeaccount"),
+                             Side = side, Quantity = quantity, Price = price, Price2 = DecimalOrNull(Value(row, headers, "price2")), OrderActionSource = Value(row, headers, "orderactionsource"),
                             FilledQuantity = IntOrNull(Value(row, headers, "filledquantity")), OpenClose = Value(row, headers, "openclose", "positioneffect"),
                             OrderType = Value(row, headers, "ordertype", "type"), OrderStatus = status,
                             ParentOrderId = Value(row, headers, "parentorderid", "parentinternalorderid"),
-                            Note = Value(row, headers, "note", "comment"), Fees = DecimalOrZero(Value(row, headers, "fees", "commission")), RowNumber = rowNumber,
+                             Note = Value(row, headers, "note", "comment"), RowNumber = rowNumber,
                             OrderId = Value(row, headers, "orderid"), ServiceOrderId = Value(row, headers, "serviceorderid"),
                             ExchangeOrderId = Value(row, headers, "exchangeorderid"), FillExecutionId = Value(row, headers, "fillexecutionserviceid", "executionid"),
                             ClientOrderId = Value(row, headers, "clientorderid"), TimeInForce = Value(row, headers, "timeinforce"), Username = Value(row, headers, "username"),
-                            IsAutomated = BoolOrNull(Value(row, headers, "isautomated", "automated")), AccountBalance = DecimalOrNull(Value(row, headers, "accountbalance"))
-                        };
+                             IsAutomated = BoolOrNull(Value(row, headers, "isautomated", "automated")), AccountBalance = DecimalOrNull(Value(row, headers, "accountbalance")),
+                             Fees = ResolveFees(resolution, DecimalOrZero(Value(row, headers, "fees", "commission")), quantity)
+                         };
                     }
                 }
             }
@@ -216,7 +221,7 @@ public sealed class ImportService
         return result;
     }
 
-    private static ParsedImport ParseTradingViewStrategy(string[] lines, string headerLine, string[] headers, char delimiter, string timeZone)
+    private static ParsedImport ParseTradingViewStrategy(string[] lines, string headerLine, string[] headers, char delimiter, string timeZone, InstrumentConfiguration configuration)
     {
         var result = NewResult(TradeFoundryConstants.TradingViewStrategy);
         var grouped = new Dictionary<string, List<(Dictionary<string, string> Row, int Number)>>(StringComparer.OrdinalIgnoreCase);
@@ -239,6 +244,7 @@ public sealed class ImportService
             var first = rows[0].Row;
             var last = rows[^1].Row;
             var symbol = CleanSymbol(Value(first, headers, "symbol", "ticker", "instrument"));
+            var resolution = configuration.Resolve(TradeFoundryConstants.TradingView, symbol);
             var direction = NormalizeDirection(Value(entryRow.Row ?? first, headers, "direction", "side", "action", "type"));
             var entryPrice = DecimalOrZero(Value(entryRow.Row ?? first, headers, "entryprice", "entry", "price", "fillprice"));
             var exitPrice = DecimalOrNull(Value(exitRow.Row ?? last, headers, "exitprice", "exit", "price", "fillprice"));
@@ -254,20 +260,22 @@ public sealed class ImportService
             if (quantity <= 0) quantity = 1;
             var reportedPnl = DecimalOrNull(Value(last, headers, "netpnl", "netprofit", "profit", "profitlossp", "profitlossc", "pnl", "pl"));
             var grossPoints = exitPrice.HasValue ? (direction.Equals("Long", StringComparison.OrdinalIgnoreCase) ? exitPrice.Value - entryPrice : entryPrice - exitPrice.Value) * quantity : 0m;
-            var pointValue = DecimalOrNull(Value(last, headers, "pointvalue", "dollarperpoint")) ?? InstrumentCatalog.Resolve(symbol).PointValue;
+            var pointValue = DecimalOrNull(Value(last, headers, "pointvalue", "dollarperpoint")) ?? resolution.PointValue;
             var stopPrice = DecimalOrNull(Value(entryRow.Row ?? first, headers, "initialstopprice", "stopprice", "stop"));
             var targetPrice = DecimalOrNull(Value(entryRow.Row ?? first, headers, "initialtargetprice", "targetprice", "target"));
             var initialRiskPoints = stopPrice.HasValue ? Math.Abs(entryPrice - stopPrice.Value) : (decimal?)null;
             var initialRiskCurrency = initialRiskPoints.HasValue ? initialRiskPoints.Value * quantity * pointValue : (decimal?)null;
             var grossPnl = reportedPnl ?? grossPoints * pointValue;
-            var fees = DecimalOrZero(Value(last, headers, "fees", "commission", "commissionc"));
+            var reportedFees = DecimalOrZero(Value(last, headers, "fees", "commission", "commissionc"));
+            var fees = ResolveFees(resolution, reportedFees, quantity);
             var rMultiple = initialRiskCurrency is > 0m ? grossPnl / initialRiskCurrency.Value : (decimal?)null;
             var exitType = NormalizeExitType(Value(exitRow.Row ?? last, headers, "exittype", "exitreason", "closetype"));
             result.Trades.Add(new ImportedTradeDraft
             {
                 SourceKey = $"trade:{group.Key}", Symbol = symbol, Account = Value(first, headers, "account", "broker") is { Length: > 0 } account ? account : "TradingView",
                 Direction = direction, EntryUtc = entryUtc, ExitUtc = exitUtc, EntryPrice = entryPrice, ExitPrice = exitPrice, Quantity = quantity,
-                GrossPoints = grossPoints, GrossPnl = grossPnl, Fees = fees, NetPnl = reportedPnl ?? grossPnl - fees,
+                GrossPoints = grossPoints, GrossPnl = grossPnl, Fees = fees, NetPnl = resolution.CommissionPerContract.HasValue ? grossPnl - fees : reportedPnl ?? grossPnl - fees,
+                Instrument = resolution.InstrumentCode, PointValue = pointValue, TickSize = resolution.TickSize,
                 InitialStopPrice = stopPrice, InitialTargetPrice = targetPrice, InitialRiskPoints = initialRiskPoints,
                 InitialRiskCurrency = initialRiskCurrency, RMultiple = rMultiple, ExitType = exitType,
                 Note = Value(last, headers, "note", "comment")
@@ -354,7 +362,25 @@ public sealed class ImportService
         }
     }
 
-    private static ParsedImport NewResult(string source) => new() { SourceType = source };
+    private static ParsedImport NewResult(string source) => new()
+    {
+        SourceType = source,
+        SourceApplication = source switch
+        {
+            TradeFoundryConstants.SierraFills => TradeFoundryConstants.SierraChart,
+            TradeFoundryConstants.TradingViewAccount or TradeFoundryConstants.TradingViewStrategy => TradeFoundryConstants.TradingView,
+            TradeFoundryConstants.BenchmarkSeries => TradeFoundryConstants.Benchmark,
+            TradeFoundryConstants.OhlcvBars => TradeFoundryConstants.Ohlcv,
+            _ => string.Empty
+        }
+    };
+
+    private static decimal ResolveFees(InstrumentResolution resolution, decimal reportedFees, int quantity)
+    {
+        return resolution.CommissionPerContract.HasValue
+            ? resolution.CommissionPerContract.Value * Math.Max(1, quantity)
+            : reportedFees;
+    }
 
     private static ImportSource DetectSource(string[] headers, string requestedType)
     {

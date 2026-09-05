@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
+using TradeFoundry.Services;
 
 namespace TradeFoundry.Pages;
 
@@ -24,9 +25,14 @@ public class SettingsModel : PageModel
     [BindProperty] public string NewJournalName { get; set; } = string.Empty;
     [BindProperty] public string NewExecutionContext { get; set; } = "live";
     [BindProperty] public string NewLabels { get; set; } = string.Empty;
+    [BindProperty] public string CurrentPassword { get; set; } = string.Empty;
+    [BindProperty] public string NewPassword { get; set; } = string.Empty;
+    [BindProperty] public string ConfirmNewPassword { get; set; } = string.Empty;
 
     public Journal? Journal { get; private set; }
     public IReadOnlyList<Journal> Journals { get; private set; } = Array.Empty<Journal>();
+    public IReadOnlyList<InstrumentDefinition> Instruments { get; private set; } = Array.Empty<InstrumentDefinition>();
+    public IReadOnlyList<InstrumentMapping> SierraChartMappings { get; private set; } = Array.Empty<InstrumentMapping>();
     public string DatabasePath => _database.DatabasePath;
     public string DatabaseSize => FormatBytes(_database.DatabaseSizeBytes);
     public string? FlashMessage { get; private set; }
@@ -65,6 +71,79 @@ public class SettingsModel : PageModel
         return Redirect($"/journal/{journal.Id:D}/settings");
     }
 
+    public IActionResult OnPostChangePassword()
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+
+        var currentHash = _database.GetOwnerPasswordHash();
+        if (currentHash is null || !PasswordService.Verify(CurrentPassword, currentHash))
+        {
+            TempData["FlashMessage"] = "The current password is incorrect.";
+            TempData["FlashKind"] = "error";
+        }
+        else if (!string.Equals(NewPassword, ConfirmNewPassword, StringComparison.Ordinal))
+        {
+            TempData["FlashMessage"] = "The new passwords do not match.";
+            TempData["FlashKind"] = "error";
+        }
+        else if (!_database.UpdateOwnerPasswordHash(PasswordService.Hash(NewPassword)))
+        {
+            TempData["FlashMessage"] = "The password could not be changed.";
+            TempData["FlashKind"] = "error";
+        }
+        else
+        {
+            TempData["FlashMessage"] = "Password changed.";
+            TempData["FlashKind"] = "success";
+        }
+
+        return Redirect($"/journal/{JournalId:D}/settings");
+    }
+
+    public IActionResult OnPostSaveInstrument(Guid? instrumentId, string code, decimal? defaultCommission, decimal pointValue, decimal tickSize)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        var saved = _database.SaveInstrument(instrumentId, code, defaultCommission, pointValue, tickSize);
+        TempData["FlashMessage"] = saved
+            ? $"Instrument {InstrumentConfiguration.NormalizeCode(code)} saved."
+            : "The instrument could not be saved. Check that its code is unique and its point value is positive.";
+        TempData["FlashKind"] = saved ? "success" : "error";
+        return Redirect($"/journal/{JournalId:D}/settings");
+    }
+
+    public IActionResult OnPostDeleteInstrument(Guid instrumentId)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        var deleted = _database.DeleteInstrument(instrumentId);
+        TempData["FlashMessage"] = deleted ? "Instrument removed." : "The instrument could not be removed while a source mapping still uses it.";
+        TempData["FlashKind"] = deleted ? "success" : "error";
+        return Redirect($"/journal/{JournalId:D}/settings");
+    }
+
+    public IActionResult OnPostSaveSierraMapping(Guid? mappingId, string matchRegex, string instrumentCode, decimal? commissionOverride, int position)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        var regexIsValid = InstrumentConfiguration.IsValidMatchRegex(matchRegex ?? string.Empty);
+
+        var saved = regexIsValid && _database.SaveInstrumentMapping(mappingId, TradeFoundryConstants.SierraChart, matchRegex ?? string.Empty, instrumentCode ?? string.Empty, commissionOverride, position);
+        TempData["FlashMessage"] = saved
+            ? "Sierra Chart mapping saved."
+            : regexIsValid
+                ? "The mapping could not be saved. Check the regex, instrument, commission, and duplicate patterns."
+                : "The mapping regex is invalid.";
+        TempData["FlashKind"] = saved ? "success" : "error";
+        return Redirect($"/journal/{JournalId:D}/settings");
+    }
+
+    public IActionResult OnPostDeleteSierraMapping(Guid mappingId)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        var deleted = _database.DeleteInstrumentMapping(mappingId);
+        TempData["FlashMessage"] = deleted ? "Sierra Chart mapping removed." : "The Sierra Chart mapping could not be removed.";
+        TempData["FlashKind"] = deleted ? "success" : "error";
+        return Redirect($"/journal/{JournalId:D}/settings");
+    }
+
     public IActionResult OnPostArchive()
     {
         if (_database.GetJournal(JournalId) is null) return NotFound();
@@ -82,6 +161,8 @@ public class SettingsModel : PageModel
     private void Load()
     {
         Journals = _database.GetJournals();
+        Instruments = _database.GetInstruments();
+        SierraChartMappings = _database.GetInstrumentMappings(TradeFoundryConstants.SierraChart);
         Journal = _database.GetJournal(JournalId);
         if (Journal is null) return;
         Name = Journal.Name;

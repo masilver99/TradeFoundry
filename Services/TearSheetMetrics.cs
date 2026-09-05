@@ -781,6 +781,8 @@ public static class TearSheetMetrics
         IReadOnlyList<BenchmarkPoint> source,
         decimal? baseline)
     {
+        if (baseline is not > 0m || equity.Count < 2) return new BenchmarkStats();
+
         var benchmark = source
             .Where(point => point.Value > 0m)
             .GroupBy(point => point.Symbol, StringComparer.OrdinalIgnoreCase)

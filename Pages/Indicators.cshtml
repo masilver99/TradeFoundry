@@ -7,6 +7,11 @@
     ViewData["UsesPlotly"] = false;
 }
 
+@if (!string.IsNullOrWhiteSpace(Model.BenchmarkRefreshMessage))
+{
+    <div class="alert tf-alert warning" role="status">@Model.BenchmarkRefreshMessage</div>
+}
+
 @if (Model.Overview is not null)
 {
     var overview = Model.Overview;

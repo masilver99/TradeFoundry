@@ -1,4 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
+  initializeChartExportOptions();
   initializePlotlyCharts();
   initializeAnalysisNavigation();
   initializeIndicatorNavigation();
@@ -473,16 +474,144 @@ function renderPlotlyChart(node) {
 
   try {
     const payload = JSON.parse(node.dataset.plotlyChart || "{}");
-    window.Plotly.newPlot(node, payload.data || [], payload.layout || {}, {
+    const payloadConfig = payload.config || {};
+    const config = {
       responsive: true,
       displaylogo: false,
-      ...(payload.config || {})
-    })
+      ...payloadConfig,
+      modeBarButtonsToRemove: Array.from(new Set([...(payloadConfig.modeBarButtonsToRemove || []), "toImage"])),
+      modeBarButtonsToAdd: [...(payloadConfig.modeBarButtonsToAdd || []), createChartExportButton()]
+    };
+
+    window.Plotly.newPlot(node, payload.data || [], payload.layout || {}, config)
       .then(() => node.removeAttribute("aria-busy"))
       .catch(error => showPlotlyError(node, error));
   } catch (error) {
     showPlotlyError(node, error);
   }
+}
+
+function initializeChartExportOptions() {
+  const options = document.querySelector("[data-chart-export-options]");
+  if (!options) return;
+
+  const settings = [
+    [options.querySelector("[data-chart-export-owner]"), "tradefoundry.chart-export.include-owner"],
+    [options.querySelector("[data-chart-export-journal]"), "tradefoundry.chart-export.include-journal"]
+  ];
+
+  settings.forEach(([checkbox, key]) => {
+    if (!checkbox) return;
+
+    try {
+      checkbox.checked = window.localStorage.getItem(key) === "true";
+    } catch {
+      checkbox.checked = false;
+    }
+
+    checkbox.addEventListener("change", () => {
+      try {
+        window.localStorage.setItem(key, String(checkbox.checked));
+      } catch {
+        // A blocked storage area should not prevent PNG export.
+      }
+    });
+  });
+}
+
+function createChartExportButton() {
+  return {
+    name: "tradefoundryDownloadPng",
+    title: "Download as PNG",
+    icon: window.Plotly.Icons.camera,
+    click: graph => {
+      downloadChartAsPng(graph).catch(error => console.error("TradeFoundry PNG export failed.", error));
+    }
+  };
+}
+
+async function downloadChartAsPng(graph) {
+  if (graph.dataset.chartExportInProgress === "true") return;
+  graph.dataset.chartExportInProgress = "true";
+
+  const card = graph.closest(".tf-chart-card, .tf-library-chart");
+  const title = card?.querySelector(".tf-card-title")?.textContent?.replace(/\s+/g, " ").trim()
+    || graph.getAttribute("aria-label")
+    || "TradeFoundry chart";
+  const context = getChartExportContext();
+  const contextLines = [];
+  if (context.owner) contextLines.push(`Owner: ${context.owner}`);
+  if (context.journal) contextLines.push(`Journal: ${context.journal}`);
+
+  const originalLayout = graph.layout || {};
+  const originalMargin = originalLayout.margin ? { ...originalLayout.margin } : null;
+  const originalTitle = originalLayout.title ?? null;
+  const originalHeight = originalLayout.height;
+  const baseHeight = Number(originalHeight) || 280;
+  const exportMargin = {
+    ...(originalMargin || {}),
+    t: Math.max(Number(originalMargin?.t) || 0, 44 + contextLines.length * 15)
+  };
+
+  try {
+    await window.Plotly.relayout(graph, {
+      title: {
+        text: [title, ...contextLines].map(escapePlotlyText).join("<br>"),
+        x: 0,
+        xanchor: "left",
+        y: 1,
+        yanchor: "top",
+        font: { family: "Segoe UI, system-ui, sans-serif", color: "#c9d1d9", size: 13 }
+      },
+      margin: exportMargin,
+      height: baseHeight + 28 + contextLines.length * 15
+    });
+
+    await window.Plotly.downloadImage(graph, {
+      format: "png",
+      filename: chartExportFilename(title),
+      width: Math.max(graph.clientWidth || 0, 480),
+      height: baseHeight + 28 + contextLines.length * 15,
+      scale: 2
+    });
+  } finally {
+    try {
+      await window.Plotly.relayout(graph, {
+        title: originalTitle,
+        margin: originalMargin,
+        height: originalHeight
+      });
+    } finally {
+      delete graph.dataset.chartExportInProgress;
+    }
+  }
+}
+
+function getChartExportContext() {
+  const options = document.querySelector("[data-chart-export-options]");
+  const body = document.body;
+  return {
+    owner: options?.querySelector("[data-chart-export-owner]")?.checked ? (body.dataset.chartExportOwnerName || "").trim() : "",
+    journal: options?.querySelector("[data-chart-export-journal]")?.checked ? (body.dataset.chartExportJournalName || "").trim() : ""
+  };
+}
+
+function escapePlotlyText(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function chartExportFilename(title) {
+  const filename = title
+    .replace(/[<>:\"/\\|?*\u0000-\u001f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return filename || "tradefoundry-chart";
 }
 
 function showPlotlyError(node, error) {

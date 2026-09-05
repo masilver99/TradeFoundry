@@ -12,7 +12,7 @@
         @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="alert tf-alert error">@Model.ErrorMessage</div> }
         <form method="post" class="row g-3">
             <input type="hidden" asp-for="ReturnUrl" />
-            <div class="col-12"><label class="form-label" for="Password">Password</label><input asp-for="Password" class="form-control" type="password" autocomplete="current-password" required autofocus /></div>
+            <div class="col-12"><label class="form-label" for="Password">Password</label><input asp-for="Password" class="form-control" type="password" autocomplete="current-password" autofocus /></div>
             <div class="col-12"><button class="btn btn-primary" type="submit">Open TradeFoundry</button></div>
         </form>
         <p class="tf-helper mt-4 mb-0">No cloud account. No vendor journal subscription. This login is only for this installation.</p>

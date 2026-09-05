@@ -28,13 +28,13 @@
                                 <div class="col-md-6"><label class="form-label">Format<select asp-for="RequestedType" class="form-select"><option value="auto">Auto-detect</option><option value="sierra">Sierra Chart fills + orders</option><option value="tradingview-account">TradingView account history</option><option value="tradingview-strategy">TradingView Strategy Tester</option><option value="benchmark">Benchmark daily series</option><option value="ohlcv">OHLCV bars</option></select></label></div>
                                 <div class="col-md-6"><label class="form-label">Grouping<select asp-for="GroupingPolicy" class="form-select"><option value="flat_to_flat">Flat-to-flat</option><option value="fifo_lots">FIFO lots (phase 2)</option><option value="source_defined">Source-defined rows</option></select></label></div>
                                 <div class="col-md-6"><label class="form-label">Bar interval<input asp-for="BarInterval" class="form-control" placeholder="source, 1m, 5m…" /></label></div>
-                                <div class="col-md-6"><label class="form-label">Benchmark ticker<input asp-for="BenchmarkSymbol" class="form-control" placeholder="SPY" /></label></div>
+                                <div class="col-md-6"><label class="form-label">Benchmark ticker<input asp-for="BenchmarkSymbol" class="form-control" placeholder="^GSPC" /></label></div>
                                 <div class="col-12"><button class="btn btn-primary" type="submit">Import &amp; rebuild</button></div>
                             </div>
                         </div>
                     </div>
                 </form>
-                <p class="text-secondary small mb-0 mt-3">Imports are deduplicated per journal. Raw rows remain linked to typed fills, order events, balances, benchmark points, and derived trades; Undo removes one batch and rebuilds the affected evidence.</p>
+                <p class="text-secondary small mb-0 mt-3">Imports are deduplicated per journal. Raw rows remain linked to typed fills, order events, balances, benchmark points, and derived trades; Undo removes one batch and rebuilds the affected evidence. Analysis automatically downloads the default S&amp;P 500 daily benchmark when completed trades exist.</p>
             </div>
         </div>
     </div>
@@ -55,10 +55,10 @@
         }
         else
         {
-            <div class="table-responsive"><table class="table table-vcenter tf-table"><thead><tr><th>File</th><th>Source</th><th>Imported</th><th>Rows</th><th>Status</th><th></th></tr></thead><tbody>
+            <div class="table-responsive"><table class="table table-vcenter tf-table"><thead><tr><th>File</th><th>Trading app / source</th><th>Imported</th><th>Rows</th><th>Status</th><th></th></tr></thead><tbody>
             @foreach (var batch in Model.Results.Items)
             {
-                <tr><td><strong>@batch.FileName</strong><small>@batch.Id</small></td><td>@batch.SourceType</td><td>@batch.ImportedUtc.ToLocalTime().ToString("MMM d, yyyy HH:mm")</td><td>@batch.NewRows new · @batch.DuplicateRows dup<small>@batch.TotalRows total</small></td><td><span class="tf-status tf-status-closed">@batch.Status</span>@if (!string.IsNullOrWhiteSpace(batch.Message)){<small>@batch.Message</small>}</td><td><form method="post" action="@($"{action}?handler=UndoImport")" onsubmit="return confirm('Remove this import batch and rebuild derived trades?');">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><input type="hidden" name="batchId" value="@batch.Id" /><button class="btn btn-sm btn-outline-danger" type="submit">Undo</button></form></td></tr>
+                <tr><td><strong>@batch.FileName</strong><small>@batch.Id</small></td><td><strong>@TradeFoundryConstants.SourceApplicationName(batch.SourceApplication)</strong><small>@batch.SourceType</small></td><td>@batch.ImportedUtc.ToLocalTime().ToString("MMM d, yyyy HH:mm")</td><td>@batch.NewRows new · @batch.DuplicateRows dup<small>@batch.TotalRows total</small></td><td><span class="tf-status tf-status-closed">@batch.Status</span>@if (!string.IsNullOrWhiteSpace(batch.Message)){<small>@batch.Message</small>}</td><td><form method="post" action="@($"{action}?handler=UndoImport")" onsubmit="return confirm('Remove this import batch and rebuild derived trades?');">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><input type="hidden" name="batchId" value="@batch.Id" /><button class="btn btn-sm btn-outline-danger" type="submit">Undo</button></form></td></tr>
             }
             </tbody></table></div>
         }

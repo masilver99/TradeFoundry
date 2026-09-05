@@ -24,7 +24,7 @@ public class SetupModel : PageModel
     {
         if (_database.HasOwner()) return RedirectToPage("/Login");
         DisplayName = string.IsNullOrWhiteSpace(DisplayName) ? "Owner" : DisplayName.Trim();
-        if (Password.Length < 8) ErrorMessage = "Use at least 8 characters for the local owner password.";
+        if (Password.Length > 0 && Password.Length < 8) ErrorMessage = "Use at least 8 characters, or leave the password empty.";
         else if (!string.Equals(Password, ConfirmPassword, StringComparison.Ordinal)) ErrorMessage = "The passwords do not match.";
         if (ErrorMessage is not null) return Page();
         _database.CreateOwner(DisplayName, PasswordService.Hash(Password));

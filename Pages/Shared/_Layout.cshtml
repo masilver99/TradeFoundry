@@ -11,6 +11,8 @@
     var pageTitle = ViewData["Title"]?.ToString() ?? "Workspace";
     var pageKicker = ViewData["PageKicker"]?.ToString() ?? "TRADEFOUNDRY / WORKSPACE";
     var usesPlotly = ViewData["UsesPlotly"] as bool? == true;
+    var exportOwnerName = authenticated ? User.Identity?.Name ?? "Owner" : string.Empty;
+    var exportJournalName = activeJournal?.Name ?? string.Empty;
     string JournalPath(string page) => activeJournal is null ? "/" : $"/journal/{activeJournal.Id:D}/{page}";
     string AnalysisPath(string section) => $"{JournalPath("analytics")}#{section}";
     string IndicatorsPath(string section) => $"{JournalPath("indicators")}#{section}";
@@ -22,10 +24,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@pageTitle · TradeFoundry</title>
+    <link rel="icon" type="image/webp" href="~/images/TradeFoundryLogo.webp" asp-append-version="true" />
     <link rel="stylesheet" href="~/lib/tabler/tabler.min.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
-<body class="@(authenticated ? "tf-app" : "tf-public")">
+<body class="@(authenticated ? "tf-app" : "tf-public")" data-chart-export-owner-name="@exportOwnerName" data-chart-export-journal-name="@exportJournalName">
 @if (authenticated)
 {
     <div class="page">
@@ -35,7 +38,7 @@
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <h1 class="navbar-brand navbar-brand-autodark tf-brand">
-                    <a href="@brandPath"><span class="tf-brand-mark">TF</span><span>TradeFoundry</span></a>
+                    <a href="@brandPath"><img class="tf-brand-logo" src="~/images/TradeFoundryLogo.webp" alt="TradeFoundry" asp-append-version="true" /></a>
                 </h1>
                 <div class="tf-journal-context">
                     <div class="tf-sidebar-label">ACTIVE JOURNAL</div>
@@ -92,7 +95,31 @@
         </aside>
         <div class="page-wrapper">
             <header class="navbar navbar-expand-md d-print-none tf-header"><div class="container-xl"><div class="navbar-nav flex-row order-md-last align-items-center gap-2">@if (activeJournal is not null){<span class="badge bg-blue-lt">@activeJournal.ExecutionContext</span><span class="text-secondary small d-none d-sm-inline">@activeJournal.Name</span>}</div><div class="navbar-nav"><span class="tf-header-label">LOCAL-FIRST FUTURES JOURNAL</span></div></div></header>
-            <div class="page-header d-print-none"><div class="container-xl"><div class="row align-items-center"><div class="col"><div class="page-pretitle">@pageKicker</div><h2 class="page-title">@pageTitle</h2></div>@if (activeJournal is not null){<div class="col-auto"><span class="tf-page-context">@activeJournal.Name <span>·</span> @activeJournal.TimeZone</span></div>}</div></div></div>
+            <div class="page-header d-print-none">
+                <div class="container-xl">
+                    <div class="row align-items-center">
+                        <div class="col"><div class="page-pretitle">@pageKicker</div><h2 class="page-title">@pageTitle</h2></div>
+                        @if (activeJournal is not null)
+                        {
+                            <div class="col-auto tf-page-header-tools">
+                                <span class="tf-page-context">@activeJournal.Name <span>·</span> @activeJournal.TimeZone</span>
+                                @if (usesPlotly)
+                                {
+                                    <details class="tf-chart-export-options" data-chart-export-options>
+                                        <summary class="btn btn-sm btn-outline-secondary">PNG options</summary>
+                                        <div class="tf-chart-export-panel">
+                                            <div class="tf-kicker">PNG EXPORT</div>
+                                            <p class="tf-chart-export-note">Chart titles are always included. Optional context applies to every chart export.</p>
+                                            <label class="tf-chart-export-option"><input type="checkbox" data-chart-export-owner /><span>Include owner name</span></label>
+                                            <label class="tf-chart-export-option"><input type="checkbox" data-chart-export-journal /><span>Include journal name</span></label>
+                                        </div>
+                                    </details>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
             <div class="page-body"><div class="container-xl">@RenderBody()</div></div>
             <footer class="footer footer-transparent d-print-none"><div class="container-xl"><div class="row text-center align-items-center"><div class="col-12 col-lg-auto mt-3 mt-lg-0">TradeFoundry · local-first futures journaling</div><div class="col-lg-auto ms-lg-auto">SQLite · auditable imports · one local owner</div></div></div></footer>
         </div>
@@ -100,7 +127,7 @@
 }
 else
 {
-    <div class="tf-public-frame"><header class="tf-public-header"><a class="tf-public-brand" href="/"><span class="tf-brand-mark">TF</span><span>TradeFoundry</span></a></header><main class="tf-public-main">@RenderBody()</main><footer class="tf-public-footer">Local-first futures journaling · no cloud account required</footer></div>
+    <div class="tf-public-frame"><header class="tf-public-header"><a class="tf-public-brand" href="/"><img class="tf-brand-logo" src="~/images/TradeFoundryLogo.webp" alt="TradeFoundry" asp-append-version="true" /></a></header><main class="tf-public-main">@RenderBody()</main><footer class="tf-public-footer">Local-first futures journaling · no cloud account required</footer></div>
 }
 <script src="~/lib/tabler/tabler.min.js" asp-append-version="true"></script>
 @if (usesPlotly)

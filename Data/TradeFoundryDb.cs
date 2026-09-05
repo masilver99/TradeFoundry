@@ -15,9 +15,10 @@ public sealed class TradeFoundryDb
 {
     private const string DerivedFillSource = "Derived fills";
     private const string JournalColumns = "id, name, execution_context, labels, timezone, currency, grouping_policy, starting_equity, created_utc";
-    private const string TradeColumns = "id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note";
-    private const string FillColumns = "id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, row_number";
-    private const string OrderEventColumns = "id, journal_id, import_batch_id, source_type, source_key, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, internal_order_id, service_order_id, parent_order_id, exchange_order_id, fill_execution_id, order_type, order_status, side, open_close, price, price2, quantity, filled_quantity, fill_price, position_quantity, note, client_order_id, time_in_force, username, is_automated, fees, row_number";
+    private const string ImportColumns = "id, journal_id, file_name, source_application, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message";
+    private const string TradeColumns = "id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, instrument";
+    private const string FillColumns = "id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, row_number, instrument, point_value, tick_size";
+    private const string OrderEventColumns = "id, journal_id, import_batch_id, source_type, source_key, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, internal_order_id, service_order_id, parent_order_id, exchange_order_id, fill_execution_id, order_type, order_status, side, open_close, price, price2, quantity, filled_quantity, fill_price, position_quantity, note, client_order_id, time_in_force, username, is_automated, fees, row_number, instrument";
     private const string AccountBalanceColumns = "id, journal_id, import_batch_id, source_type, source_key, event_utc, transaction_utc, source_time_text, account, balance, note, row_number";
     private readonly string _connectionString;
     private readonly string _databasePath;
@@ -72,22 +73,26 @@ public sealed class TradeFoundryDb
             "CREATE TABLE IF NOT EXISTS app_users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, created_utc TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS journals (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES app_users(id), name TEXT NOT NULL, execution_context TEXT NOT NULL, labels TEXT NOT NULL DEFAULT '', timezone TEXT NOT NULL DEFAULT 'UTC', currency TEXT NOT NULL DEFAULT 'USD', grouping_policy TEXT NOT NULL DEFAULT 'flat_to_flat', starting_equity TEXT NULL, created_utc TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
             "CREATE INDEX IF NOT EXISTS ix_journals_owner ON journals(owner_user_id, archived, created_utc)",
-            "CREATE TABLE IF NOT EXISTS import_batches (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), file_name TEXT NOT NULL, source_type TEXT NOT NULL, imported_utc TEXT NOT NULL, total_rows INTEGER NOT NULL, new_rows INTEGER NOT NULL, duplicate_rows INTEGER NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL DEFAULT '')",
+            "CREATE TABLE IF NOT EXISTS instruments (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, default_commission TEXT NULL, point_value TEXT NOT NULL, tick_size TEXT NOT NULL DEFAULT '0', created_utc TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS source_instrument_mappings (id TEXT PRIMARY KEY, application_key TEXT NOT NULL, match_regex TEXT NOT NULL, instrument_code TEXT NOT NULL REFERENCES instruments(code), commission_override TEXT NULL, position INTEGER NOT NULL DEFAULT 0, created_utc TEXT NOT NULL, UNIQUE(application_key, match_regex))",
+            "CREATE INDEX IF NOT EXISTS ix_source_instrument_mappings_application ON source_instrument_mappings(application_key, position, id)",
+            "CREATE TABLE IF NOT EXISTS app_settings (settings_key TEXT PRIMARY KEY, settings_value TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS import_batches (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), file_name TEXT NOT NULL, source_application TEXT NOT NULL DEFAULT '', source_type TEXT NOT NULL, imported_utc TEXT NOT NULL, total_rows INTEGER NOT NULL, new_rows INTEGER NOT NULL, duplicate_rows INTEGER NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL DEFAULT '')",
             "CREATE INDEX IF NOT EXISTS ix_import_batches_journal ON import_batches(journal_id, imported_utc DESC)",
             "CREATE TABLE IF NOT EXISTS raw_records (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, row_number INTEGER NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
-            "CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, activity_type TEXT NOT NULL DEFAULT 'Fills', order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', side TEXT NOT NULL, quantity INTEGER NOT NULL, price TEXT NOT NULL, price2 TEXT NULL, filled_quantity INTEGER NULL, open_close TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', high TEXT NULL, low TEXT NULL, note TEXT NOT NULL DEFAULT '', position_quantity INTEGER NULL, order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, account_balance TEXT NULL, fees TEXT NOT NULL DEFAULT '0', row_number INTEGER NOT NULL, UNIQUE(journal_id, source_type, source_key))",
+            "CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, activity_type TEXT NOT NULL DEFAULT 'Fills', order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', side TEXT NOT NULL, quantity INTEGER NOT NULL, price TEXT NOT NULL, price2 TEXT NULL, filled_quantity INTEGER NULL, open_close TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', high TEXT NULL, low TEXT NULL, note TEXT NOT NULL DEFAULT '', position_quantity INTEGER NULL, order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, account_balance TEXT NULL, fees TEXT NOT NULL DEFAULT '0', row_number INTEGER NOT NULL, instrument TEXT NOT NULL DEFAULT '', point_value TEXT NOT NULL DEFAULT '0', tick_size TEXT NOT NULL DEFAULT '0', UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_fills_journal_time ON fills(journal_id, symbol, account, event_utc, row_number)",
-            "CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, grouping_policy TEXT NOT NULL, sequence INTEGER NOT NULL, symbol TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL, entry_utc TEXT NOT NULL, exit_utc TEXT NULL, entry_price TEXT NOT NULL, exit_price TEXT NULL, quantity INTEGER NOT NULL, closed_quantity INTEGER NOT NULL, gross_points TEXT NOT NULL DEFAULT '0', average_points TEXT NOT NULL DEFAULT '0', gross_pnl TEXT NOT NULL DEFAULT '0', fees TEXT NOT NULL DEFAULT '0', net_pnl TEXT NOT NULL DEFAULT '0', mae_points TEXT NULL, mfe_points TEXT NULL, point_value TEXT NOT NULL DEFAULT '1', tick_size TEXT NOT NULL DEFAULT '0', initial_stop_price TEXT NULL, initial_target_price TEXT NULL, initial_risk_points TEXT NULL, initial_risk_currency TEXT NULL, r_multiple TEXT NULL, exit_type TEXT NOT NULL DEFAULT '', entry_order_price TEXT NULL, exit_order_price TEXT NULL, entry_chase_points TEXT NULL, exit_chase_points TEXT NULL, status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL, UNIQUE(journal_id, source_type, source_key))",
+            "CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, grouping_policy TEXT NOT NULL, sequence INTEGER NOT NULL, symbol TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL, entry_utc TEXT NOT NULL, exit_utc TEXT NULL, entry_price TEXT NOT NULL, exit_price TEXT NULL, quantity INTEGER NOT NULL, closed_quantity INTEGER NOT NULL, gross_points TEXT NOT NULL DEFAULT '0', average_points TEXT NOT NULL DEFAULT '0', gross_pnl TEXT NOT NULL DEFAULT '0', fees TEXT NOT NULL DEFAULT '0', net_pnl TEXT NOT NULL DEFAULT '0', mae_points TEXT NULL, mfe_points TEXT NULL, point_value TEXT NOT NULL DEFAULT '1', tick_size TEXT NOT NULL DEFAULT '0', initial_stop_price TEXT NULL, initial_target_price TEXT NULL, initial_risk_points TEXT NULL, initial_risk_currency TEXT NULL, r_multiple TEXT NULL, exit_type TEXT NOT NULL DEFAULT '', entry_order_price TEXT NULL, exit_order_price TEXT NULL, entry_chase_points TEXT NULL, exit_chase_points TEXT NULL, status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL, instrument TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_time ON trades(journal_id, entry_utc)",
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_status_time ON trades(journal_id, status, entry_utc)",
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_symbol_time ON trades(journal_id, symbol, entry_utc)",
             "CREATE TABLE IF NOT EXISTS trade_fill_allocations (trade_id TEXT NOT NULL REFERENCES trades(id) ON DELETE CASCADE, fill_id TEXT NOT NULL REFERENCES fills(id) ON DELETE CASCADE, quantity INTEGER NOT NULL, PRIMARY KEY(trade_id, fill_id))",
-            "CREATE TABLE IF NOT EXISTS order_events (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', internal_order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', side TEXT NOT NULL DEFAULT '', open_close TEXT NOT NULL DEFAULT '', price TEXT NULL, price2 TEXT NULL, quantity INTEGER NULL, filled_quantity INTEGER NULL, fill_price TEXT NULL, position_quantity INTEGER NULL, note TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, fees TEXT NOT NULL DEFAULT '0', row_number INTEGER NOT NULL, UNIQUE(journal_id, source_type, source_key))",
+            "CREATE TABLE IF NOT EXISTS order_events (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', internal_order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', side TEXT NOT NULL DEFAULT '', open_close TEXT NOT NULL DEFAULT '', price TEXT NULL, price2 TEXT NULL, quantity INTEGER NULL, filled_quantity INTEGER NULL, fill_price TEXT NULL, position_quantity INTEGER NULL, note TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, fees TEXT NOT NULL DEFAULT '0', row_number INTEGER NOT NULL, instrument TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_order_events_journal_order_time ON order_events(journal_id, account, symbol, internal_order_id, event_utc, row_number)",
             "CREATE INDEX IF NOT EXISTS ix_order_events_journal_parent ON order_events(journal_id, parent_order_id, event_utc)",
             "CREATE TABLE IF NOT EXISTS account_balance_events (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', balance TEXT NULL, note TEXT NOT NULL DEFAULT '', row_number INTEGER NOT NULL, UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_account_balance_events_journal_time ON account_balance_events(journal_id, account, event_utc, row_number)",
-            "CREATE TABLE IF NOT EXISTS benchmark_series (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, symbol TEXT NOT NULL, interval TEXT NOT NULL DEFAULT '1d', series_key TEXT NOT NULL UNIQUE, created_utc TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS benchmark_series (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, symbol TEXT NOT NULL, interval TEXT NOT NULL DEFAULT '1d', series_key TEXT NOT NULL UNIQUE, created_utc TEXT NOT NULL, provider TEXT NOT NULL DEFAULT 'Imported CSV', source_url TEXT NOT NULL DEFAULT '', last_fetched_utc TEXT NULL, last_attempted_utc TEXT NULL, requested_start TEXT NULL, requested_end TEXT NULL, last_error TEXT NOT NULL DEFAULT '')",
             "CREATE TABLE IF NOT EXISTS benchmark_points (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, series_id TEXT NOT NULL REFERENCES benchmark_series(id) ON DELETE CASCADE, import_batch_id TEXT NULL REFERENCES import_batches(id) ON DELETE SET NULL, source_type TEXT NOT NULL, source_key TEXT NOT NULL, event_utc TEXT NOT NULL, value TEXT NOT NULL, source_time_text TEXT NOT NULL DEFAULT '', row_number INTEGER NOT NULL, UNIQUE(journal_id, source_type, source_key), UNIQUE(series_id, event_utc))",
             "CREATE INDEX IF NOT EXISTS ix_benchmark_points_series_time ON benchmark_points(series_id, event_utc)",
             "CREATE TABLE IF NOT EXISTS bar_series (id TEXT PRIMARY KEY, symbol TEXT NOT NULL, interval TEXT NOT NULL, series_key TEXT NOT NULL UNIQUE, created_utc TEXT NOT NULL)",
@@ -105,6 +110,14 @@ public sealed class TradeFoundryDb
         // The application started without migrations, so keep schema upgrades
         // additive and idempotent for existing local SQLite files.
         EnsureColumn(connection, "journals", "starting_equity", "TEXT NULL");
+        EnsureColumn(connection, "import_batches", "source_application", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "benchmark_series", "provider", "TEXT NOT NULL DEFAULT 'Imported CSV'");
+        EnsureColumn(connection, "benchmark_series", "source_url", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "benchmark_series", "last_fetched_utc", "TEXT NULL");
+        EnsureColumn(connection, "benchmark_series", "last_attempted_utc", "TEXT NULL");
+        EnsureColumn(connection, "benchmark_series", "requested_start", "TEXT NULL");
+        EnsureColumn(connection, "benchmark_series", "requested_end", "TEXT NULL");
+        EnsureColumn(connection, "benchmark_series", "last_error", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "fills", "activity_type", "TEXT NOT NULL DEFAULT 'Fills'");
         EnsureColumn(connection, "fills", "order_action_source", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "fills", "transaction_utc", "TEXT NULL");
@@ -120,8 +133,12 @@ public sealed class TradeFoundryDb
         EnsureColumn(connection, "fills", "username", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "fills", "is_automated", "INTEGER NULL");
         EnsureColumn(connection, "fills", "account_balance", "TEXT NULL");
+        EnsureColumn(connection, "fills", "instrument", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "fills", "point_value", "TEXT NOT NULL DEFAULT '0'");
+        EnsureColumn(connection, "fills", "tick_size", "TEXT NOT NULL DEFAULT '0'");
         EnsureColumn(connection, "order_events", "order_action_source", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "order_events", "service_order_id", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "order_events", "instrument", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "trades", "point_value", "TEXT NOT NULL DEFAULT '1'");
         EnsureColumn(connection, "trades", "tick_size", "TEXT NOT NULL DEFAULT '0'");
         EnsureColumn(connection, "trades", "initial_stop_price", "TEXT NULL");
@@ -134,7 +151,9 @@ public sealed class TradeFoundryDb
         EnsureColumn(connection, "trades", "exit_order_price", "TEXT NULL");
         EnsureColumn(connection, "trades", "entry_chase_points", "TEXT NULL");
         EnsureColumn(connection, "trades", "exit_chase_points", "TEXT NULL");
+        EnsureColumn(connection, "trades", "instrument", "TEXT NOT NULL DEFAULT ''");
 
+        SeedInstrumentConfiguration(connection);
         }
 
         // Older Sierra imports may have persisted fixed-point prices before
@@ -142,6 +161,49 @@ public sealed class TradeFoundryDb
         // Repair normalized values from immutable raw_records at startup, then
         // rebuild the derived trades that depend on them.
         RepairSierraPriceScales();
+    }
+
+    private static void SeedInstrumentConfiguration(SqliteConnection connection)
+    {
+        using (var marker = connection.CreateCommand())
+        {
+            marker.CommandText = "SELECT settings_value FROM app_settings WHERE settings_key = 'instrument_configuration_seeded'";
+            if (marker.ExecuteScalar() is not null) return;
+        }
+
+        using var transaction = connection.BeginTransaction();
+        foreach (var spec in InstrumentCatalog.Defaults)
+        {
+            using var instrument = connection.CreateCommand();
+            instrument.Transaction = transaction;
+            instrument.CommandText = "INSERT OR IGNORE INTO instruments (id, code, default_commission, point_value, tick_size, created_utc) VALUES ($id, $code, NULL, $pointValue, $tickSize, $created)";
+            instrument.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            instrument.Parameters.AddWithValue("$code", spec.Root);
+            instrument.Parameters.AddWithValue("$pointValue", NumberFormat.Decimal(spec.PointValue));
+            instrument.Parameters.AddWithValue("$tickSize", NumberFormat.Decimal(spec.TickSize));
+            instrument.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            instrument.ExecuteNonQuery();
+
+            var pattern = $"(?<![A-Z0-9]){spec.Root}(?:[FGHJKMNQUVXZ]\\d{{1,4}})?(?![A-Z0-9])";
+            using var mapping = connection.CreateCommand();
+            mapping.Transaction = transaction;
+            mapping.CommandText = "INSERT OR IGNORE INTO source_instrument_mappings (id, application_key, match_regex, instrument_code, commission_override, position, created_utc) VALUES ($id, $application, $regex, $instrument, NULL, $position, $created)";
+            mapping.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            mapping.Parameters.AddWithValue("$application", TradeFoundryConstants.SierraChart);
+            mapping.Parameters.AddWithValue("$regex", pattern);
+            mapping.Parameters.AddWithValue("$instrument", spec.Root);
+            mapping.Parameters.AddWithValue("$position", Array.IndexOf(InstrumentCatalog.Defaults.ToArray(), spec));
+            mapping.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            mapping.ExecuteNonQuery();
+        }
+
+        using (var marker = connection.CreateCommand())
+        {
+            marker.Transaction = transaction;
+            marker.CommandText = "INSERT INTO app_settings (settings_key, settings_value) VALUES ('instrument_configuration_seeded', '1')";
+            marker.ExecuteNonQuery();
+        }
+        transaction.Commit();
     }
 
     private void RepairSierraPriceScales()
@@ -289,6 +351,16 @@ public sealed class TradeFoundryDb
         return command.ExecuteScalar() as string;
     }
 
+    public bool UpdateOwnerPasswordHash(string passwordHash)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE app_users SET password_hash = $hash WHERE id = $id";
+        command.Parameters.AddWithValue("$hash", passwordHash);
+        command.Parameters.AddWithValue("$id", TradeFoundryConstants.OwnerUserId);
+        return command.ExecuteNonQuery() == 1;
+    }
+
     public IReadOnlyList<Journal> GetJournals(bool includeArchived = false)
     {
         using var connection = OpenConnection();
@@ -370,6 +442,162 @@ public sealed class TradeFoundryDb
         return command.ExecuteNonQuery() == 1;
     }
 
+    public IReadOnlyList<InstrumentDefinition> GetInstruments()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, code, default_commission, point_value, tick_size FROM instruments ORDER BY code";
+        using var reader = command.ExecuteReader();
+        var instruments = new List<InstrumentDefinition>();
+        while (reader.Read())
+        {
+            instruments.Add(new InstrumentDefinition
+            {
+                Id = Guid.Parse(reader.GetString(0)),
+                Code = reader.GetString(1),
+                DefaultCommission = NullableDecimal(reader, 2),
+                PointValue = ParseDecimal(reader.GetString(3)),
+                TickSize = ParseDecimal(reader.GetString(4))
+            });
+        }
+        return instruments;
+    }
+
+    public IReadOnlyList<InstrumentMapping> GetInstrumentMappings(string? applicationKey = null)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var filter = string.IsNullOrWhiteSpace(applicationKey) ? string.Empty : " WHERE application_key = $application";
+        command.CommandText = $"SELECT id, application_key, match_regex, instrument_code, commission_override, position FROM source_instrument_mappings{filter} ORDER BY application_key, position, id";
+        if (!string.IsNullOrWhiteSpace(applicationKey)) command.Parameters.AddWithValue("$application", applicationKey.Trim());
+        using var reader = command.ExecuteReader();
+        var mappings = new List<InstrumentMapping>();
+        while (reader.Read())
+        {
+            mappings.Add(new InstrumentMapping
+            {
+                Id = Guid.Parse(reader.GetString(0)),
+                ApplicationKey = reader.GetString(1),
+                MatchRegex = reader.GetString(2),
+                InstrumentCode = reader.GetString(3),
+                CommissionOverride = NullableDecimal(reader, 4),
+                Position = reader.GetInt32(5)
+            });
+        }
+        return mappings;
+    }
+
+    public InstrumentConfiguration GetInstrumentConfiguration() => new(GetInstruments(), GetInstrumentMappings());
+
+    public bool SaveInstrument(Guid? instrumentId, string code, decimal? defaultCommission, decimal pointValue, decimal tickSize)
+    {
+        code = InstrumentConfiguration.NormalizeCode(code);
+        if (string.IsNullOrWhiteSpace(code) || code.Length > 32 || pointValue <= 0m || tickSize < 0m || defaultCommission is < 0m) return false;
+
+        using var connection = OpenConnection();
+        try
+        {
+            if (instrumentId.HasValue && instrumentId.Value != Guid.Empty)
+            {
+                using var update = connection.CreateCommand();
+                update.CommandText = "UPDATE instruments SET code = $code, default_commission = $commission, point_value = $pointValue, tick_size = $tickSize WHERE id = $id";
+                update.Parameters.AddWithValue("$id", instrumentId.Value.ToString("D"));
+                update.Parameters.AddWithValue("$code", code);
+                AddNullable(update, "$commission", defaultCommission);
+                update.Parameters.AddWithValue("$pointValue", NumberFormat.Decimal(pointValue));
+                update.Parameters.AddWithValue("$tickSize", NumberFormat.Decimal(tickSize));
+                return update.ExecuteNonQuery() == 1;
+            }
+
+            using var insert = connection.CreateCommand();
+            insert.CommandText = "INSERT INTO instruments (id, code, default_commission, point_value, tick_size, created_utc) VALUES ($id, $code, $commission, $pointValue, $tickSize, $created)";
+            insert.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            insert.Parameters.AddWithValue("$code", code);
+            AddNullable(insert, "$commission", defaultCommission);
+            insert.Parameters.AddWithValue("$pointValue", NumberFormat.Decimal(pointValue));
+            insert.Parameters.AddWithValue("$tickSize", NumberFormat.Decimal(tickSize));
+            insert.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            return insert.ExecuteNonQuery() == 1;
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            return false;
+        }
+    }
+
+    public bool DeleteInstrument(Guid instrumentId)
+    {
+        using var connection = OpenConnection();
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM instruments WHERE id = $id";
+            command.Parameters.AddWithValue("$id", instrumentId.ToString("D"));
+            return command.ExecuteNonQuery() == 1;
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            return false;
+        }
+    }
+
+    public bool SaveInstrumentMapping(Guid? mappingId, string applicationKey, string matchRegex, string instrumentCode, decimal? commissionOverride, int position)
+    {
+        applicationKey = (applicationKey ?? string.Empty).Trim().ToLowerInvariant();
+        matchRegex = (matchRegex ?? string.Empty).Trim();
+        instrumentCode = InstrumentConfiguration.NormalizeCode(instrumentCode);
+        if (string.IsNullOrWhiteSpace(applicationKey) || string.IsNullOrWhiteSpace(matchRegex) || matchRegex.Length > 512 || commissionOverride is < 0m || position < 0) return false;
+        if (!InstrumentConfiguration.IsValidMatchRegex(matchRegex)) return false;
+
+        using var connection = OpenConnection();
+        using (var instrument = connection.CreateCommand())
+        {
+            instrument.CommandText = "SELECT EXISTS (SELECT 1 FROM instruments WHERE code = $code)";
+            instrument.Parameters.AddWithValue("$code", instrumentCode);
+            if (Convert.ToInt32(instrument.ExecuteScalar(), CultureInfo.InvariantCulture) != 1) return false;
+        }
+
+        try
+        {
+            if (mappingId.HasValue && mappingId.Value != Guid.Empty)
+            {
+                using var update = connection.CreateCommand();
+                update.CommandText = "UPDATE source_instrument_mappings SET application_key = $application, match_regex = $regex, instrument_code = $instrument, commission_override = $commission, position = $position WHERE id = $id";
+                update.Parameters.AddWithValue("$id", mappingId.Value.ToString("D"));
+                update.Parameters.AddWithValue("$application", applicationKey);
+                update.Parameters.AddWithValue("$regex", matchRegex);
+                update.Parameters.AddWithValue("$instrument", instrumentCode);
+                AddNullable(update, "$commission", commissionOverride);
+                update.Parameters.AddWithValue("$position", position);
+                return update.ExecuteNonQuery() == 1;
+            }
+
+            using var insert = connection.CreateCommand();
+            insert.CommandText = "INSERT INTO source_instrument_mappings (id, application_key, match_regex, instrument_code, commission_override, position, created_utc) VALUES ($id, $application, $regex, $instrument, $commission, $position, $created)";
+            insert.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            insert.Parameters.AddWithValue("$application", applicationKey);
+            insert.Parameters.AddWithValue("$regex", matchRegex);
+            insert.Parameters.AddWithValue("$instrument", instrumentCode);
+            AddNullable(insert, "$commission", commissionOverride);
+            insert.Parameters.AddWithValue("$position", position);
+            insert.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            return insert.ExecuteNonQuery() == 1;
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            return false;
+        }
+    }
+
+    public bool DeleteInstrumentMapping(Guid mappingId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM source_instrument_mappings WHERE id = $id";
+        command.Parameters.AddWithValue("$id", mappingId.ToString("D"));
+        return command.ExecuteNonQuery() == 1;
+    }
+
     public JournalOverview GetOverview(Guid journalId)
     {
         var journal = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
@@ -416,7 +644,7 @@ public sealed class TradeFoundryDb
         var recentImports = new List<ImportBatch>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT id, journal_id, file_name, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message FROM import_batches WHERE journal_id = $journal ORDER BY imported_utc DESC LIMIT 8";
+            command.CommandText = $"SELECT {ImportColumns} FROM import_batches WHERE journal_id = $journal ORDER BY imported_utc DESC LIMIT 8";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             using var reader = command.ExecuteReader();
             while (reader.Read()) recentImports.Add(ReadImport(reader));
@@ -553,13 +781,132 @@ public sealed class TradeFoundryDb
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT p.id, p.journal_id, p.import_batch_id, p.series_id, p.source_type, p.source_key, s.symbol, p.event_utc, p.value, p.source_time_text, p.row_number FROM benchmark_points p JOIN benchmark_series s ON s.id = p.series_id WHERE p.journal_id = $journal" + (string.IsNullOrWhiteSpace(symbol) ? string.Empty : " AND s.symbol = $symbol") + " ORDER BY s.symbol, p.event_utc, p.row_number, p.id";
+        command.CommandText = "SELECT p.id, p.journal_id, p.import_batch_id, p.series_id, p.source_type, p.source_key, s.symbol, s.provider, p.event_utc, p.value, p.source_time_text, p.row_number FROM benchmark_points p JOIN benchmark_series s ON s.id = p.series_id WHERE p.journal_id = $journal" + (string.IsNullOrWhiteSpace(symbol) ? string.Empty : " AND s.symbol = $symbol") + " ORDER BY s.symbol, p.event_utc, p.row_number, p.id";
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         if (!string.IsNullOrWhiteSpace(symbol)) command.Parameters.AddWithValue("$symbol", symbol.Trim());
         using var reader = command.ExecuteReader();
         var points = new List<BenchmarkPoint>();
         while (reader.Read()) points.Add(ReadBenchmarkPoint(reader));
-        return points;
+        return points
+            .GroupBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(symbolGroup => symbolGroup
+                .GroupBy(x => x.SeriesId)
+                .OrderBy(seriesGroup => seriesGroup.Any(x => x.Provider.Equals(TradeFoundryConstants.YahooFinanceBenchmarkSource, StringComparison.OrdinalIgnoreCase)) ? 0 : 1)
+                .ThenBy(seriesGroup => seriesGroup.Min(x => x.EventUtc))
+                .First())
+            .OrderBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.EventUtc)
+            .ThenBy(x => x.RowNumber)
+            .ThenBy(x => x.Id)
+            .ToArray();
+    }
+
+    public BenchmarkSeriesStatus? GetBenchmarkSeriesStatus(Guid journalId, string? symbol = null, string? provider = null)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT s.id, s.journal_id, s.symbol, s.interval, s.provider, s.source_url, s.created_utc, s.last_fetched_utc, s.last_attempted_utc, s.requested_start, s.requested_end, s.last_error, COUNT(p.id), MIN(p.event_utc), MAX(p.event_utc) FROM benchmark_series s LEFT JOIN benchmark_points p ON p.series_id = s.id WHERE s.journal_id = $journal" + (string.IsNullOrWhiteSpace(symbol) ? string.Empty : " AND s.symbol = $symbol") + (string.IsNullOrWhiteSpace(provider) ? string.Empty : " AND s.provider = $provider") + " GROUP BY s.id, s.journal_id, s.symbol, s.interval, s.provider, s.source_url, s.created_utc, s.last_fetched_utc, s.last_attempted_utc, s.requested_start, s.requested_end, s.last_error ORDER BY CASE WHEN COUNT(p.id) > 0 THEN 0 ELSE 1 END, CASE WHEN s.provider = $automaticProvider THEN 0 ELSE 1 END, s.created_utc DESC LIMIT 1";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$automaticProvider", TradeFoundryConstants.YahooFinanceBenchmarkSource);
+        if (!string.IsNullOrWhiteSpace(symbol)) command.Parameters.AddWithValue("$symbol", symbol.Trim());
+        if (!string.IsNullOrWhiteSpace(provider)) command.Parameters.AddWithValue("$provider", provider.Trim());
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadBenchmarkSeriesStatus(reader) : null;
+    }
+
+    public int StoreDownloadedBenchmark(Guid journalId, string symbol, string provider, string sourceUrl, DateOnly requestedStart, DateOnly requestedEnd, DateTimeOffset fetchedUtc, IReadOnlyList<BenchmarkDownloadPoint> points)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        if (points.Count == 0) return 0;
+
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var seriesId = EnsureDownloadedBenchmarkSeries(connection, transaction, journalId, symbol, provider, sourceUrl);
+        var stored = 0;
+        var rowNumber = 0;
+        foreach (var point in points.OrderBy(x => x.EventUtc))
+        {
+            if (point.Value <= 0m) continue;
+            rowNumber++;
+            var sourceKey = $"{provider}\u001f{symbol}\u001f{DateOnly.FromDateTime(point.EventUtc.UtcDateTime.Date):yyyy-MM-dd}";
+            var eventUtc = point.EventUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+
+            using (var removeMovedPoint = connection.CreateCommand())
+            {
+                removeMovedPoint.Transaction = transaction;
+                removeMovedPoint.CommandText = "DELETE FROM benchmark_points WHERE series_id = $series AND source_key = $key AND event_utc <> $event";
+                removeMovedPoint.Parameters.AddWithValue("$series", seriesId);
+                removeMovedPoint.Parameters.AddWithValue("$key", sourceKey);
+                removeMovedPoint.Parameters.AddWithValue("$event", eventUtc);
+                removeMovedPoint.ExecuteNonQuery();
+            }
+
+            using (var insert = connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandText = "INSERT OR IGNORE INTO benchmark_points (id, journal_id, series_id, import_batch_id, source_type, source_key, event_utc, value, source_time_text, row_number) VALUES ($id, $journal, $series, NULL, $source, $key, $event, $value, $sourceTime, $row)";
+                insert.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+                insert.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+                insert.Parameters.AddWithValue("$series", seriesId);
+                insert.Parameters.AddWithValue("$source", provider);
+                insert.Parameters.AddWithValue("$key", sourceKey);
+                insert.Parameters.AddWithValue("$event", eventUtc);
+                insert.Parameters.AddWithValue("$value", NumberFormat.Decimal(point.Value));
+                insert.Parameters.AddWithValue("$sourceTime", string.IsNullOrWhiteSpace(point.SourceTimeText) ? eventUtc : point.SourceTimeText);
+                insert.Parameters.AddWithValue("$row", rowNumber);
+                insert.ExecuteNonQuery();
+            }
+
+            using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText = "UPDATE benchmark_points SET import_batch_id = NULL, source_type = $source, source_key = $key, value = $value, source_time_text = $sourceTime, row_number = $row WHERE series_id = $series AND event_utc = $event";
+                update.Parameters.AddWithValue("$source", provider);
+                update.Parameters.AddWithValue("$key", sourceKey);
+                update.Parameters.AddWithValue("$value", NumberFormat.Decimal(point.Value));
+                update.Parameters.AddWithValue("$sourceTime", string.IsNullOrWhiteSpace(point.SourceTimeText) ? eventUtc : point.SourceTimeText);
+                update.Parameters.AddWithValue("$row", rowNumber);
+                update.Parameters.AddWithValue("$series", seriesId);
+                update.Parameters.AddWithValue("$event", eventUtc);
+                if (update.ExecuteNonQuery() > 0) stored++;
+            }
+        }
+
+        using (var metadata = connection.CreateCommand())
+        {
+            metadata.Transaction = transaction;
+            metadata.CommandText = "UPDATE benchmark_series SET provider = $provider, source_url = $sourceUrl, last_fetched_utc = $fetched, last_attempted_utc = $fetched, requested_start = $start, requested_end = $end, last_error = '' WHERE id = $id";
+            metadata.Parameters.AddWithValue("$provider", provider);
+            metadata.Parameters.AddWithValue("$sourceUrl", sourceUrl);
+            metadata.Parameters.AddWithValue("$fetched", fetchedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+            metadata.Parameters.AddWithValue("$start", requestedStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            metadata.Parameters.AddWithValue("$end", requestedEnd.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            metadata.Parameters.AddWithValue("$id", seriesId);
+            metadata.ExecuteNonQuery();
+        }
+        transaction.Commit();
+        return stored;
+    }
+
+    public void RecordBenchmarkDownloadFailure(Guid journalId, string symbol, string provider, string sourceUrl, DateOnly requestedStart, DateOnly requestedEnd, DateTimeOffset attemptedUtc, string error)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var seriesId = EnsureDownloadedBenchmarkSeries(connection, transaction, journalId, symbol, provider, sourceUrl);
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "UPDATE benchmark_series SET provider = $provider, source_url = $sourceUrl, last_attempted_utc = $attempted, requested_start = $start, requested_end = $end, last_error = $error WHERE id = $id";
+        command.Parameters.AddWithValue("$provider", provider);
+        command.Parameters.AddWithValue("$sourceUrl", sourceUrl);
+        command.Parameters.AddWithValue("$attempted", attemptedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$start", requestedStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$end", requestedEnd.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$error", error.Length > 500 ? error[..500] : error);
+        command.Parameters.AddWithValue("$id", seriesId);
+        command.ExecuteNonQuery();
+        transaction.Commit();
     }
 
     public PagedResult<ImportBatch> GetImports(ImportQuery query)
@@ -573,7 +920,7 @@ public sealed class TradeFoundryDb
         count.Parameters.AddWithValue("$journal", query.JournalId.ToString("D"));
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            filters.Add("(file_name LIKE $search OR source_type LIKE $search OR status LIKE $search)");
+            filters.Add("(file_name LIKE $search OR source_application LIKE $search OR source_type LIKE $search OR status LIKE $search)");
             count.Parameters.AddWithValue("$search", $"%{query.Search.Trim()}%");
         }
         count.CommandText = $"SELECT COUNT(*) FROM import_batches WHERE {string.Join(" AND ", filters)}";
@@ -581,7 +928,7 @@ public sealed class TradeFoundryDb
         var imports = new List<ImportBatch>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT id, journal_id, file_name, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message FROM import_batches WHERE {string.Join(" AND ", filters)} ORDER BY imported_utc DESC LIMIT $limit OFFSET $offset";
+            command.CommandText = $"SELECT {ImportColumns} FROM import_batches WHERE {string.Join(" AND ", filters)} ORDER BY imported_utc DESC LIMIT $limit OFFSET $offset";
             command.Parameters.AddWithValue("$journal", query.JournalId.ToString("D"));
             if (!string.IsNullOrWhiteSpace(query.Search)) command.Parameters.AddWithValue("$search", $"%{query.Search.Trim()}%");
             command.Parameters.AddWithValue("$limit", pageSize);
@@ -649,10 +996,11 @@ public sealed class TradeFoundryDb
             using (var batch = connection.CreateCommand())
             {
                 batch.Transaction = transaction;
-                batch.CommandText = "INSERT INTO import_batches (id, journal_id, file_name, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message) VALUES ($id, $journal, $file, $source, $utc, $total, 0, 0, 'completed', '')";
+                batch.CommandText = "INSERT INTO import_batches (id, journal_id, file_name, source_application, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message) VALUES ($id, $journal, $file, $application, $source, $utc, $total, 0, 0, 'completed', '')";
                 batch.Parameters.AddWithValue("$id", batchId.ToString("D"));
                 batch.Parameters.AddWithValue("$journal", journalId.ToString("D"));
                 batch.Parameters.AddWithValue("$file", fileName);
+                batch.Parameters.AddWithValue("$application", parsed.SourceApplication);
                 batch.Parameters.AddWithValue("$source", parsed.SourceType);
                 batch.Parameters.AddWithValue("$utc", importedUtc.ToString("O", CultureInfo.InvariantCulture));
                 batch.Parameters.AddWithValue("$total", parsed.Records.Count + parsed.Trades.Count);
@@ -833,7 +1181,7 @@ public sealed class TradeFoundryDb
     {
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            filters.Add("(symbol LIKE $search OR account LIKE $search OR direction LIKE $search OR status LIKE $search)");
+            filters.Add("(symbol LIKE $search OR instrument LIKE $search OR account LIKE $search OR direction LIKE $search OR status LIKE $search)");
             command.Parameters.AddWithValue("$search", $"%{query.Search.Trim()}%");
         }
         if (!string.IsNullOrWhiteSpace(query.Symbol))
@@ -859,7 +1207,7 @@ public sealed class TradeFoundryDb
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT OR IGNORE INTO fills (id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, row_number) VALUES ($id, $journal, $batch, $source, $key, $activity, $orderActionSource, $event, $transaction, $sourceTime, $symbol, $account, $side, $quantity, $price, $price2, $filledQuantity, $openClose, $orderType, $orderStatus, $parent, $high, $low, $note, $position, $order, $serviceOrder, $exchangeOrder, $fillExecution, $clientOrder, $timeInForce, $username, $automated, $accountBalance, $fees, $row)";
+        command.CommandText = "INSERT OR IGNORE INTO fills (id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, row_number, instrument, point_value, tick_size) VALUES ($id, $journal, $batch, $source, $key, $activity, $orderActionSource, $event, $transaction, $sourceTime, $symbol, $account, $side, $quantity, $price, $price2, $filledQuantity, $openClose, $orderType, $orderStatus, $parent, $high, $low, $note, $position, $order, $serviceOrder, $exchangeOrder, $fillExecution, $clientOrder, $timeInForce, $username, $automated, $accountBalance, $fees, $row, $instrument, $pointValue, $tickSize)";
         command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$batch", batchId.ToString("D"));
@@ -896,6 +1244,9 @@ public sealed class TradeFoundryDb
         AddNullable(command, "$accountBalance", fill.AccountBalance);
         command.Parameters.AddWithValue("$fees", NumberFormat.Decimal(fill.Fees));
         command.Parameters.AddWithValue("$row", fill.RowNumber);
+        command.Parameters.AddWithValue("$instrument", fill.Instrument);
+        command.Parameters.AddWithValue("$pointValue", NumberFormat.Decimal(fill.PointValue));
+        command.Parameters.AddWithValue("$tickSize", NumberFormat.Decimal(fill.TickSize));
         return command.ExecuteNonQuery() > 0;
     }
 
@@ -903,7 +1254,7 @@ public sealed class TradeFoundryDb
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT OR IGNORE INTO order_events (id, journal_id, import_batch_id, source_type, source_key, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, internal_order_id, service_order_id, parent_order_id, exchange_order_id, fill_execution_id, order_type, order_status, side, open_close, price, price2, quantity, filled_quantity, fill_price, position_quantity, note, client_order_id, time_in_force, username, is_automated, fees, row_number) VALUES ($id, $journal, $batch, $source, $key, $orderActionSource, $event, $transaction, $sourceTime, $symbol, $account, $internal, $serviceOrder, $parent, $exchange, $fillExecution, $orderType, $orderStatus, $side, $openClose, $price, $price2, $quantity, $filledQuantity, $fillPrice, $position, $note, $clientOrder, $timeInForce, $username, $automated, $fees, $row)";
+        command.CommandText = "INSERT OR IGNORE INTO order_events (id, journal_id, import_batch_id, source_type, source_key, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, internal_order_id, service_order_id, parent_order_id, exchange_order_id, fill_execution_id, order_type, order_status, side, open_close, price, price2, quantity, filled_quantity, fill_price, position_quantity, note, client_order_id, time_in_force, username, is_automated, fees, row_number, instrument) VALUES ($id, $journal, $batch, $source, $key, $orderActionSource, $event, $transaction, $sourceTime, $symbol, $account, $internal, $serviceOrder, $parent, $exchange, $fillExecution, $orderType, $orderStatus, $side, $openClose, $price, $price2, $quantity, $filledQuantity, $fillPrice, $position, $note, $clientOrder, $timeInForce, $username, $automated, $fees, $row, $instrument)";
         command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$batch", batchId.ToString("D"));
@@ -937,6 +1288,7 @@ public sealed class TradeFoundryDb
         AddNullable(command, "$automated", orderEvent.IsAutomated.HasValue ? (orderEvent.IsAutomated.Value ? 1 : 0) : null);
         command.Parameters.AddWithValue("$fees", NumberFormat.Decimal(orderEvent.Fees));
         command.Parameters.AddWithValue("$row", orderEvent.RowNumber);
+        command.Parameters.AddWithValue("$instrument", orderEvent.Instrument);
         return command.ExecuteNonQuery() > 0;
     }
 
@@ -1001,15 +1353,53 @@ public sealed class TradeFoundryDb
         command.ExecuteNonQuery();
     }
 
+    private static string EnsureDownloadedBenchmarkSeries(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, string symbol, string provider, string sourceUrl)
+    {
+        var seriesKey = $"{journalId:D}\u001f{symbol}\u001f1d\u001f{provider}";
+        using (var find = connection.CreateCommand())
+        {
+            find.Transaction = transaction;
+            find.CommandText = "SELECT id FROM benchmark_series WHERE series_key = $key";
+            find.Parameters.AddWithValue("$key", seriesKey);
+            if (find.ExecuteScalar() is string existingId)
+            {
+                using var update = connection.CreateCommand();
+                update.Transaction = transaction;
+                update.CommandText = "UPDATE benchmark_series SET provider = $provider, source_url = $sourceUrl WHERE id = $id";
+                update.Parameters.AddWithValue("$provider", provider);
+                update.Parameters.AddWithValue("$sourceUrl", sourceUrl);
+                update.Parameters.AddWithValue("$id", existingId);
+                update.ExecuteNonQuery();
+                return existingId;
+            }
+        }
+
+        var seriesId = Guid.NewGuid().ToString("D");
+        using var insertSeries = connection.CreateCommand();
+        insertSeries.Transaction = transaction;
+        insertSeries.CommandText = "INSERT INTO benchmark_series (id, journal_id, symbol, interval, series_key, created_utc, provider, source_url) VALUES ($id, $journal, $symbol, '1d', $key, $created, $provider, $sourceUrl)";
+        insertSeries.Parameters.AddWithValue("$id", seriesId);
+        insertSeries.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        insertSeries.Parameters.AddWithValue("$symbol", symbol);
+        insertSeries.Parameters.AddWithValue("$key", seriesKey);
+        insertSeries.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        insertSeries.Parameters.AddWithValue("$provider", provider);
+        insertSeries.Parameters.AddWithValue("$sourceUrl", sourceUrl);
+        insertSeries.ExecuteNonQuery();
+        return seriesId;
+    }
+
     private static bool InsertDirectTrade(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, Guid batchId, ImportedTradeDraft draft, string groupingPolicy)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT OR IGNORE INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $fees, $netPnl, NULL, NULL, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, NULL, NULL, NULL, NULL, $status, $note, $created)";
+        command.CommandText = "INSERT OR IGNORE INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc, instrument) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $fees, $netPnl, NULL, NULL, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, NULL, NULL, NULL, NULL, $status, $note, $created, $instrument)";
         var quantity = Math.Max(1, draft.Quantity);
         var averagePoints = quantity == 0 ? 0m : draft.GrossPoints / quantity;
-        var pointValue = InstrumentCatalog.Resolve(draft.Symbol).PointValue;
-        var tickSize = InstrumentCatalog.Resolve(draft.Symbol).TickSize;
+        var instrument = string.IsNullOrWhiteSpace(draft.Instrument) ? InstrumentCatalog.ExtractRoot(draft.Symbol) : draft.Instrument;
+        var fallback = InstrumentCatalog.Resolve(instrument);
+        var pointValue = draft.PointValue > 0m ? draft.PointValue : fallback.PointValue;
+        var tickSize = draft.TickSize > 0m ? draft.TickSize : fallback.TickSize;
         command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$batch", batchId.ToString("D"));
@@ -1042,6 +1432,7 @@ public sealed class TradeFoundryDb
         command.Parameters.AddWithValue("$status", draft.ExitUtc.HasValue ? "closed" : "open");
         command.Parameters.AddWithValue("$note", draft.Note);
         command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$instrument", instrument);
         return command.ExecuteNonQuery() > 0;
     }
 
@@ -1104,7 +1495,7 @@ public sealed class TradeFoundryDb
         var enrichment = EnrichTrade(state, entryPrice, exitPrice, Math.Max(state.MaxOpenQuantity, closed), orderLifecycles);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $fees, $netPnl, $mae, $mfe, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, $entryOrderPrice, $exitOrderPrice, $entryChasePoints, $exitChasePoints, $status, $note, $created)";
+        command.CommandText = "INSERT INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc, instrument) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $fees, $netPnl, $mae, $mfe, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, $entryOrderPrice, $exitOrderPrice, $entryChasePoints, $exitChasePoints, $status, $note, $created, $instrument)";
         command.Parameters.AddWithValue("$id", tradeId);
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$batch", state.ImportBatchId?.ToString("D") ?? (object)DBNull.Value);
@@ -1143,6 +1534,7 @@ public sealed class TradeFoundryDb
         command.Parameters.AddWithValue("$status", status);
         command.Parameters.AddWithValue("$note", note);
         command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$instrument", state.Instrument);
         command.ExecuteNonQuery();
 
         foreach (var allocation in state.Allocations)
@@ -1171,7 +1563,7 @@ public sealed class TradeFoundryDb
         {
             fills.Add(new Fill
             {
-                Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), ActivityType = reader.GetString(5), OrderActionSource = reader.GetString(6), EventUtc = ParseDate(reader.GetString(7)), TransactionUtc = reader.IsDBNull(8) ? null : ParseDate(reader.GetString(8)), SourceTimeText = reader.GetString(9), Symbol = reader.GetString(10), Account = reader.GetString(11), Side = reader.GetString(12), Quantity = reader.GetInt32(13), Price = ParseDecimal(reader.GetString(14)), Price2 = NullableDecimal(reader, 15), FilledQuantity = reader.IsDBNull(16) ? null : reader.GetInt32(16), OpenClose = reader.GetString(17), OrderType = reader.GetString(18), OrderStatus = reader.GetString(19), ParentOrderId = reader.GetString(20), High = NullableDecimal(reader, 21), Low = NullableDecimal(reader, 22), Note = reader.GetString(23), PositionQuantity = reader.IsDBNull(24) ? null : reader.GetInt32(24), OrderId = reader.GetString(25), ServiceOrderId = reader.GetString(26), ExchangeOrderId = reader.GetString(27), FillExecutionId = reader.GetString(28), ClientOrderId = reader.GetString(29), TimeInForce = reader.GetString(30), Username = reader.GetString(31), IsAutomated = NullableBool(reader, 32), AccountBalance = NullableDecimal(reader, 33), Fees = ParseDecimal(reader.GetString(34)), RowNumber = reader.GetInt32(35)
+                Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), ActivityType = reader.GetString(5), OrderActionSource = reader.GetString(6), EventUtc = ParseDate(reader.GetString(7)), TransactionUtc = reader.IsDBNull(8) ? null : ParseDate(reader.GetString(8)), SourceTimeText = reader.GetString(9), Symbol = reader.GetString(10), Account = reader.GetString(11), Side = reader.GetString(12), Quantity = reader.GetInt32(13), Price = ParseDecimal(reader.GetString(14)), Price2 = NullableDecimal(reader, 15), FilledQuantity = reader.IsDBNull(16) ? null : reader.GetInt32(16), OpenClose = reader.GetString(17), OrderType = reader.GetString(18), OrderStatus = reader.GetString(19), ParentOrderId = reader.GetString(20), High = NullableDecimal(reader, 21), Low = NullableDecimal(reader, 22), Note = reader.GetString(23), PositionQuantity = reader.IsDBNull(24) ? null : reader.GetInt32(24), OrderId = reader.GetString(25), ServiceOrderId = reader.GetString(26), ExchangeOrderId = reader.GetString(27), FillExecutionId = reader.GetString(28), ClientOrderId = reader.GetString(29), TimeInForce = reader.GetString(30), Username = reader.GetString(31), IsAutomated = NullableBool(reader, 32), AccountBalance = NullableDecimal(reader, 33), Fees = ParseDecimal(reader.GetString(34)), RowNumber = reader.GetInt32(35), Instrument = string.IsNullOrWhiteSpace(reader.GetString(36)) ? InstrumentCatalog.ExtractRoot(reader.GetString(10)) : reader.GetString(36), PointValue = ParsePositiveOrFallback(reader, 37, InstrumentCatalog.Resolve(reader.GetString(10)).PointValue), TickSize = ParsePositiveOrFallback(reader, 38, InstrumentCatalog.Resolve(reader.GetString(10)).TickSize)
             });
         }
         return fills;
@@ -1191,7 +1583,7 @@ public sealed class TradeFoundryDb
 
     private static OrderEvent ReadOrderEvent(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), OrderActionSource = reader.GetString(5), EventUtc = ParseDate(reader.GetString(6)), TransactionUtc = reader.IsDBNull(7) ? null : ParseDate(reader.GetString(7)), SourceTimeText = reader.GetString(8), Symbol = reader.GetString(9), Account = reader.GetString(10), InternalOrderId = reader.GetString(11), ServiceOrderId = reader.GetString(12), ParentOrderId = reader.GetString(13), ExchangeOrderId = reader.GetString(14), FillExecutionId = reader.GetString(15), OrderType = reader.GetString(16), OrderStatus = reader.GetString(17), Side = reader.GetString(18), OpenClose = reader.GetString(19), Price = NullableDecimal(reader, 20), Price2 = NullableDecimal(reader, 21), Quantity = reader.IsDBNull(22) ? null : reader.GetInt32(22), FilledQuantity = reader.IsDBNull(23) ? null : reader.GetInt32(23), FillPrice = NullableDecimal(reader, 24), PositionQuantity = reader.IsDBNull(25) ? null : reader.GetInt32(25), Note = reader.GetString(26), ClientOrderId = reader.GetString(27), TimeInForce = reader.GetString(28), Username = reader.GetString(29), IsAutomated = NullableBool(reader, 30), Fees = ParseDecimal(reader.GetString(31)), RowNumber = reader.GetInt32(32)
+        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), OrderActionSource = reader.GetString(5), EventUtc = ParseDate(reader.GetString(6)), TransactionUtc = reader.IsDBNull(7) ? null : ParseDate(reader.GetString(7)), SourceTimeText = reader.GetString(8), Symbol = reader.GetString(9), Account = reader.GetString(10), InternalOrderId = reader.GetString(11), ServiceOrderId = reader.GetString(12), ParentOrderId = reader.GetString(13), ExchangeOrderId = reader.GetString(14), FillExecutionId = reader.GetString(15), OrderType = reader.GetString(16), OrderStatus = reader.GetString(17), Side = reader.GetString(18), OpenClose = reader.GetString(19), Price = NullableDecimal(reader, 20), Price2 = NullableDecimal(reader, 21), Quantity = reader.IsDBNull(22) ? null : reader.GetInt32(22), FilledQuantity = reader.IsDBNull(23) ? null : reader.GetInt32(23), FillPrice = NullableDecimal(reader, 24), PositionQuantity = reader.IsDBNull(25) ? null : reader.GetInt32(25), Note = reader.GetString(26), ClientOrderId = reader.GetString(27), TimeInForce = reader.GetString(28), Username = reader.GetString(29), IsAutomated = NullableBool(reader, 30), Fees = ParseDecimal(reader.GetString(31)), RowNumber = reader.GetInt32(32), Instrument = string.IsNullOrWhiteSpace(reader.GetString(33)) ? InstrumentCatalog.ExtractRoot(reader.GetString(9)) : reader.GetString(33)
     };
 
     private static AccountBalanceEvent ReadAccountBalanceEvent(SqliteDataReader reader) => new()
@@ -1201,7 +1593,26 @@ public sealed class TradeFoundryDb
 
     private static BenchmarkPoint ReadBenchmarkPoint(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SeriesId = Guid.Parse(reader.GetString(3)), SourceType = reader.GetString(4), SourceKey = reader.GetString(5), Symbol = reader.GetString(6), EventUtc = ParseDate(reader.GetString(7)), Value = ParseDecimal(reader.GetString(8)), SourceTimeText = reader.GetString(9), RowNumber = reader.GetInt32(10)
+        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SeriesId = Guid.Parse(reader.GetString(3)), SourceType = reader.GetString(4), SourceKey = reader.GetString(5), Symbol = reader.GetString(6), Provider = reader.GetString(7), EventUtc = ParseDate(reader.GetString(8)), Value = ParseDecimal(reader.GetString(9)), SourceTimeText = reader.GetString(10), RowNumber = reader.GetInt32(11)
+    };
+
+    private static BenchmarkSeriesStatus ReadBenchmarkSeriesStatus(SqliteDataReader reader) => new()
+    {
+        Id = Guid.Parse(reader.GetString(0)),
+        JournalId = Guid.Parse(reader.GetString(1)),
+        Symbol = reader.GetString(2),
+        Interval = reader.GetString(3),
+        Provider = reader.GetString(4),
+        SourceUrl = reader.GetString(5),
+        CreatedUtc = ParseDate(reader.GetString(6)),
+        LastFetchedUtc = reader.IsDBNull(7) ? null : ParseDate(reader.GetString(7)),
+        LastAttemptedUtc = reader.IsDBNull(8) ? null : ParseDate(reader.GetString(8)),
+        RequestedStart = NullableDateOnly(reader, 9),
+        RequestedEnd = NullableDateOnly(reader, 10),
+        LastError = reader.GetString(11),
+        PointCount = Convert.ToInt32(reader.GetInt64(12), CultureInfo.InvariantCulture),
+        FirstDate = NullableDateOnlyFromTimestamp(reader, 13),
+        LastDate = NullableDateOnlyFromTimestamp(reader, 14)
     };
 
     private static OrderLifecycleIndex BuildOrderLifecycles(IReadOnlyList<OrderEvent> events)
@@ -1247,7 +1658,6 @@ public sealed class TradeFoundryDb
 
     private static TradeEnrichment EnrichTrade(PositionState state, decimal entryPrice, decimal? exitPrice, int quantity, OrderLifecycleIndex orderLifecycles)
     {
-        var spec = InstrumentCatalog.Resolve(state.Symbol);
         var entryOrderReferences = state.EntryReferences
             .Select(reference => (Reference: reference, Order: orderLifecycles.Find(state.Account, reference.InternalOrderId, reference.ExchangeOrderId, reference.FillExecutionId)))
             .Where(x => x.Order?.InitialPrice.HasValue == true)
@@ -1268,7 +1678,7 @@ public sealed class TradeFoundryDb
         var initialStopPrice = initialStop?.InitialPrice;
         var initialTargetPrice = initialTarget?.InitialPrice;
         var initialRiskPoints = initialStopPrice.HasValue ? Math.Abs(entryPrice - initialStopPrice.Value) : (decimal?)null;
-        var initialRiskCurrency = initialRiskPoints.HasValue ? initialRiskPoints.Value * quantity * spec.PointValue : (decimal?)null;
+        var initialRiskCurrency = initialRiskPoints.HasValue ? initialRiskPoints.Value * quantity * state.PointValue : (decimal?)null;
         var rMultiple = initialRiskCurrency is > 0m ? state.GrossPnl / initialRiskCurrency.Value : (decimal?)null;
 
         var entryChasePoints = entryOrderPrice.HasValue
@@ -1283,8 +1693,8 @@ public sealed class TradeFoundryDb
             exitType = ClassifyExitType(lastExitOrder.OrderType);
 
         return new TradeEnrichment(
-            spec.PointValue,
-            spec.TickSize,
+            state.PointValue,
+            state.TickSize,
             initialStopPrice,
             initialTargetPrice,
             initialRiskPoints,
@@ -1323,11 +1733,11 @@ public sealed class TradeFoundryDb
         return "manual";
     }
 
-    private ImportBatch? GetImport(Guid importId)
+    public ImportBatch? GetImport(Guid importId)
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, journal_id, file_name, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message FROM import_batches WHERE id = $id";
+        command.CommandText = $"SELECT {ImportColumns} FROM import_batches WHERE id = $id";
         command.Parameters.AddWithValue("$id", importId.ToString("D"));
         using var reader = command.ExecuteReader();
         return reader.Read() ? ReadImport(reader) : null;
@@ -1379,14 +1789,27 @@ public sealed class TradeFoundryDb
         Id = Guid.Parse(reader.GetString(0)), Name = reader.GetString(1), ExecutionContext = reader.GetString(2), Labels = reader.GetString(3), TimeZone = reader.GetString(4), Currency = reader.GetString(5), GroupingPolicy = reader.GetString(6), StartingEquity = NullableDecimal(reader, 7), CreatedUtc = ParseDate(reader.GetString(8))
     };
 
+    private static string InferSourceApplication(string sourceApplication, string sourceType)
+    {
+        if (!string.IsNullOrWhiteSpace(sourceApplication)) return sourceApplication;
+        return sourceType switch
+        {
+            TradeFoundryConstants.SierraFills => TradeFoundryConstants.SierraChart,
+            TradeFoundryConstants.TradingViewAccount or TradeFoundryConstants.TradingViewStrategy => TradeFoundryConstants.TradingView,
+            TradeFoundryConstants.BenchmarkSeries => TradeFoundryConstants.Benchmark,
+            TradeFoundryConstants.OhlcvBars => TradeFoundryConstants.Ohlcv,
+            _ => string.Empty
+        };
+    }
+
     private static ImportBatch ReadImport(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), FileName = reader.GetString(2), SourceType = reader.GetString(3), ImportedUtc = ParseDate(reader.GetString(4)), TotalRows = reader.GetInt32(5), NewRows = reader.GetInt32(6), DuplicateRows = reader.GetInt32(7), Status = reader.GetString(8), Message = reader.GetString(9)
+        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), FileName = reader.GetString(2), SourceApplication = InferSourceApplication(reader.IsDBNull(3) ? string.Empty : reader.GetString(3), reader.GetString(4)), SourceType = reader.GetString(4), ImportedUtc = ParseDate(reader.GetString(5)), TotalRows = reader.GetInt32(6), NewRows = reader.GetInt32(7), DuplicateRows = reader.GetInt32(8), Status = reader.GetString(9), Message = reader.GetString(10)
     };
 
     private static Trade ReadTrade(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), GroupingPolicy = reader.GetString(5), Sequence = reader.GetInt32(6), Symbol = reader.GetString(7), Account = reader.GetString(8), Direction = reader.GetString(9), EntryUtc = ParseDate(reader.GetString(10)), ExitUtc = reader.IsDBNull(11) ? null : ParseDate(reader.GetString(11)), EntryPrice = ParseDecimal(reader.GetString(12)), ExitPrice = reader.IsDBNull(13) ? null : ParseDecimal(reader.GetString(13)), Quantity = reader.GetInt32(14), ClosedQuantity = reader.GetInt32(15), GrossPoints = ParseDecimal(reader.GetString(16)), AveragePoints = ParseDecimal(reader.GetString(17)), GrossPnl = ParseDecimal(reader.GetString(18)), Fees = ParseDecimal(reader.GetString(19)), NetPnl = ParseDecimal(reader.GetString(20)), MaePoints = reader.IsDBNull(21) ? null : ParseDecimal(reader.GetString(21)), MfePoints = reader.IsDBNull(22) ? null : ParseDecimal(reader.GetString(22)), PointValue = ParseDecimal(reader.GetString(23)), TickSize = ParseDecimal(reader.GetString(24)), InitialStopPrice = NullableDecimal(reader, 25), InitialTargetPrice = NullableDecimal(reader, 26), InitialRiskPoints = NullableDecimal(reader, 27), InitialRiskCurrency = NullableDecimal(reader, 28), RMultiple = NullableDecimal(reader, 29), ExitType = reader.GetString(30), EntryOrderPrice = NullableDecimal(reader, 31), ExitOrderPrice = NullableDecimal(reader, 32), EntryChasePoints = NullableDecimal(reader, 33), ExitChasePoints = NullableDecimal(reader, 34), Status = reader.GetString(35), Note = reader.GetString(36)
+        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), GroupingPolicy = reader.GetString(5), Sequence = reader.GetInt32(6), Symbol = reader.GetString(7), Account = reader.GetString(8), Direction = reader.GetString(9), EntryUtc = ParseDate(reader.GetString(10)), ExitUtc = reader.IsDBNull(11) ? null : ParseDate(reader.GetString(11)), EntryPrice = ParseDecimal(reader.GetString(12)), ExitPrice = reader.IsDBNull(13) ? null : ParseDecimal(reader.GetString(13)), Quantity = reader.GetInt32(14), ClosedQuantity = reader.GetInt32(15), GrossPoints = ParseDecimal(reader.GetString(16)), AveragePoints = ParseDecimal(reader.GetString(17)), GrossPnl = ParseDecimal(reader.GetString(18)), Fees = ParseDecimal(reader.GetString(19)), NetPnl = ParseDecimal(reader.GetString(20)), MaePoints = reader.IsDBNull(21) ? null : ParseDecimal(reader.GetString(21)), MfePoints = reader.IsDBNull(22) ? null : ParseDecimal(reader.GetString(22)), PointValue = ParseDecimal(reader.GetString(23)), TickSize = ParseDecimal(reader.GetString(24)), InitialStopPrice = NullableDecimal(reader, 25), InitialTargetPrice = NullableDecimal(reader, 26), InitialRiskPoints = NullableDecimal(reader, 27), InitialRiskCurrency = NullableDecimal(reader, 28), RMultiple = NullableDecimal(reader, 29), ExitType = reader.GetString(30), EntryOrderPrice = NullableDecimal(reader, 31), ExitOrderPrice = NullableDecimal(reader, 32), EntryChasePoints = NullableDecimal(reader, 33), ExitChasePoints = NullableDecimal(reader, 34), Status = reader.GetString(35), Note = reader.GetString(36), Instrument = string.IsNullOrWhiteSpace(reader.GetString(37)) ? InstrumentCatalog.ExtractRoot(reader.GetString(7)) : reader.GetString(37)
     };
 
     private static Bar ReadBar(SqliteDataReader reader) => new()
@@ -1402,7 +1825,7 @@ public sealed class TradeFoundryDb
             Id = fill.Id, JournalId = fill.JournalId, ImportBatchId = fill.ImportBatchId, SourceType = fill.SourceType, SourceKey = fill.SourceKey,
             ActivityType = fill.ActivityType, OrderActionSource = fill.OrderActionSource, EventUtc = fill.EventUtc, TransactionUtc = fill.TransactionUtc, SourceTimeText = fill.SourceTimeText, Symbol = fill.Symbol, Account = fill.Account, Side = fill.Side,
             Quantity = quantity, Price = fill.Price, Price2 = fill.Price2, FilledQuantity = fill.FilledQuantity, OpenClose = fill.OpenClose, OrderType = fill.OrderType, OrderStatus = fill.OrderStatus, ParentOrderId = fill.ParentOrderId, High = fill.High, Low = fill.Low, Note = fill.Note,
-            PositionQuantity = fill.PositionQuantity, OrderId = fill.OrderId, ServiceOrderId = fill.ServiceOrderId, ExchangeOrderId = fill.ExchangeOrderId, FillExecutionId = fill.FillExecutionId, ClientOrderId = fill.ClientOrderId, TimeInForce = fill.TimeInForce, Username = fill.Username, IsAutomated = fill.IsAutomated, AccountBalance = fill.AccountBalance, Fees = fee, RowNumber = fill.RowNumber
+            PositionQuantity = fill.PositionQuantity, OrderId = fill.OrderId, ServiceOrderId = fill.ServiceOrderId, ExchangeOrderId = fill.ExchangeOrderId, FillExecutionId = fill.FillExecutionId, ClientOrderId = fill.ClientOrderId, TimeInForce = fill.TimeInForce, Username = fill.Username, IsAutomated = fill.IsAutomated, AccountBalance = fill.AccountBalance, Fees = fee, RowNumber = fill.RowNumber, Instrument = fill.Instrument, PointValue = fill.PointValue, TickSize = fill.TickSize
         };
     }
 
@@ -1420,6 +1843,14 @@ public sealed class TradeFoundryDb
     private static decimal ParseDecimal(string value) => decimal.Parse(value, NumberStyles.Any, CultureInfo.InvariantCulture);
     private static DateTimeOffset ParseDate(string value) => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
     private static decimal? NullableDecimal(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? null : ParseDecimal(reader.GetString(ordinal));
+    private static DateOnly? NullableDateOnly(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? null : DateOnly.Parse(reader.GetString(ordinal), CultureInfo.InvariantCulture);
+    private static DateOnly? NullableDateOnlyFromTimestamp(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? null : DateOnly.FromDateTime(ParseDate(reader.GetString(ordinal)).UtcDateTime.Date);
+    private static decimal ParsePositiveOrFallback(SqliteDataReader reader, int ordinal, decimal fallback)
+    {
+        if (reader.IsDBNull(ordinal)) return fallback;
+        var value = ParseDecimal(reader.GetString(ordinal));
+        return value > 0m ? value : fallback;
+    }
     private static bool? NullableBool(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? null : Convert.ToInt32(reader.GetValue(ordinal), CultureInfo.InvariantCulture) != 0;
     private static decimal AggregateDecimal(SqliteDataReader reader, int ordinal)
     {
@@ -1512,12 +1943,15 @@ public sealed class TradeFoundryDb
     {
         private PositionState(Fill fill, int direction, int quantity)
         {
-            Symbol = fill.Symbol; Account = fill.Account; Direction = direction > 0 ? "Long" : "Short"; SignedQuantity = direction * quantity; OpenQuantity = quantity; MaxOpenQuantity = quantity; EntryCost = fill.Price * quantity; EntryUtc = fill.EventUtc; EntrySourceKey = fill.SourceKey; ImportBatchId = fill.ImportBatchId; Fees = fill.Fees; EntryReferences.Add(OrderReference.From(fill, quantity)); Notes.Add(fill.Note); AddExcursion(fill, fill.Price, direction);
+            Symbol = fill.Symbol; Instrument = string.IsNullOrWhiteSpace(fill.Instrument) ? InstrumentCatalog.ExtractRoot(fill.Symbol) : fill.Instrument; Account = fill.Account; Direction = direction > 0 ? "Long" : "Short"; PointValue = fill.PointValue > 0m ? fill.PointValue : InstrumentCatalog.Resolve(Instrument).PointValue; TickSize = fill.TickSize > 0m ? fill.TickSize : InstrumentCatalog.Resolve(Instrument).TickSize; SignedQuantity = direction * quantity; OpenQuantity = quantity; MaxOpenQuantity = quantity; EntryCost = fill.Price * quantity; EntryUtc = fill.EventUtc; EntrySourceKey = fill.SourceKey; ImportBatchId = fill.ImportBatchId; Fees = fill.Fees; EntryReferences.Add(OrderReference.From(fill, quantity)); Notes.Add(fill.Note); AddExcursion(fill, fill.Price, direction);
         }
 
         public string Symbol { get; }
+        public string Instrument { get; }
         public string Account { get; }
         public string Direction { get; }
+        public decimal PointValue { get; }
+        public decimal TickSize { get; }
         public int SignedQuantity { get; private set; }
         public int OpenQuantity { get; private set; }
         public int MaxOpenQuantity { get; private set; }
@@ -1560,12 +1994,11 @@ public sealed class TradeFoundryDb
             var entryAverage = EntryCost / Math.Max(1, OpenQuantity);
             var direction = Math.Sign(SignedQuantity);
             var move = direction > 0 ? fill.Price - entryAverage : entryAverage - fill.Price;
-            var pointValue = InstrumentCatalog.Resolve(Symbol).PointValue;
             var feePortion = fill.Quantity == 0 ? 0m : fill.Fees * quantity / fill.Quantity;
             ClosedEntryCost += entryAverage * quantity;
             ExitCost += fill.Price * quantity;
             GrossPoints += move * quantity;
-            GrossPnl += move * quantity * pointValue;
+            GrossPnl += move * quantity * PointValue;
             Fees += feePortion;
             ClosedQuantity += quantity;
             EntryCost -= entryAverage * quantity;

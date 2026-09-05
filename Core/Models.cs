@@ -5,11 +5,25 @@ namespace TradeFoundry.Core;
 public static class TradeFoundryConstants
 {
     public const string OwnerUserId = "owner";
+    public const string SierraChart = "sierra_chart";
+    public const string TradingView = "tradingview";
+    public const string Benchmark = "benchmark";
+    public const string Ohlcv = "ohlcv";
+    public const string YahooFinanceBenchmarkSource = "Yahoo Finance chart API";
     public const string SierraFills = "Sierra Chart fills";
     public const string TradingViewAccount = "TradingView account history";
     public const string TradingViewStrategy = "TradingView Strategy Tester";
     public const string OhlcvBars = "OHLCV bars";
     public const string BenchmarkSeries = "Benchmark daily series";
+
+    public static string SourceApplicationName(string key) => key switch
+    {
+        SierraChart => "Sierra Chart",
+        TradingView => "TradingView",
+        Benchmark => "Benchmark series",
+        Ohlcv => "OHLCV bars",
+        _ => string.IsNullOrWhiteSpace(key) ? "Unknown source" : key
+    };
 }
 
 public sealed class AppUser
@@ -36,6 +50,7 @@ public sealed class ImportBatch
     public Guid Id { get; init; }
     public Guid JournalId { get; init; }
     public string FileName { get; init; } = string.Empty;
+    public string SourceApplication { get; init; } = string.Empty;
     public string SourceType { get; init; } = string.Empty;
     public DateTimeOffset ImportedUtc { get; init; }
     public int TotalRows { get; init; }
@@ -83,6 +98,9 @@ public sealed class Fill
     public decimal? AccountBalance { get; init; }
     public decimal Fees { get; init; }
     public int RowNumber { get; init; }
+    public string Instrument { get; init; } = string.Empty;
+    public decimal PointValue { get; init; }
+    public decimal TickSize { get; init; }
 }
 
 public sealed class OrderEvent
@@ -120,6 +138,7 @@ public sealed class OrderEvent
     public bool? IsAutomated { get; init; }
     public decimal Fees { get; init; }
     public int RowNumber { get; init; }
+    public string Instrument { get; init; } = string.Empty;
 }
 
 public sealed class AccountBalanceEvent
@@ -147,10 +166,39 @@ public sealed class BenchmarkPoint
     public string SourceType { get; init; } = string.Empty;
     public string SourceKey { get; init; } = string.Empty;
     public string Symbol { get; init; } = string.Empty;
+    public string Provider { get; init; } = string.Empty;
     public DateTimeOffset EventUtc { get; init; }
     public decimal Value { get; init; }
     public string SourceTimeText { get; init; } = string.Empty;
     public int RowNumber { get; init; }
+}
+
+public sealed class BenchmarkSeriesStatus
+{
+    public Guid Id { get; init; }
+    public Guid JournalId { get; init; }
+    public string Symbol { get; init; } = string.Empty;
+    public string Interval { get; init; } = "1d";
+    public string Provider { get; init; } = string.Empty;
+    public string SourceUrl { get; init; } = string.Empty;
+    public DateTimeOffset CreatedUtc { get; init; }
+    public DateTimeOffset? LastFetchedUtc { get; init; }
+    public DateTimeOffset? LastAttemptedUtc { get; init; }
+    public DateOnly? RequestedStart { get; init; }
+    public DateOnly? RequestedEnd { get; init; }
+    public string LastError { get; init; } = string.Empty;
+    public int PointCount { get; init; }
+    public DateOnly? FirstDate { get; init; }
+    public DateOnly? LastDate { get; init; }
+
+    public bool IsAutomatic => Provider.Equals(TradeFoundryConstants.YahooFinanceBenchmarkSource, StringComparison.OrdinalIgnoreCase);
+}
+
+public sealed class BenchmarkDownloadPoint
+{
+    public DateTimeOffset EventUtc { get; init; }
+    public decimal Value { get; init; }
+    public string SourceTimeText { get; init; } = string.Empty;
 }
 
 public sealed class Trade
@@ -192,6 +240,7 @@ public sealed class Trade
     public decimal? ExitChasePoints { get; init; }
     public string Status { get; init; } = "closed";
     public string Note { get; init; } = string.Empty;
+    public string Instrument { get; init; } = string.Empty;
     public TimeSpan? Duration => ExitUtc.HasValue ? ExitUtc.Value - EntryUtc : null;
     public TimeSpan? TimeInTrade => Duration;
     public double? TimeInTradeSeconds => Duration?.TotalSeconds;
@@ -316,6 +365,9 @@ public sealed class FillDraft
     public decimal? AccountBalance { get; init; }
     public decimal Fees { get; init; }
     public int RowNumber { get; init; }
+    public string Instrument { get; init; } = string.Empty;
+    public decimal PointValue { get; init; }
+    public decimal TickSize { get; init; }
 }
 
 public sealed class OrderEventDraft
@@ -350,6 +402,7 @@ public sealed class OrderEventDraft
     public bool? IsAutomated { get; init; }
     public decimal Fees { get; init; }
     public int RowNumber { get; init; }
+    public string Instrument { get; init; } = string.Empty;
 }
 
 public sealed class AccountBalanceDraft
@@ -411,6 +464,9 @@ public sealed class ImportedTradeDraft
     public decimal? RMultiple { get; init; }
     public string ExitType { get; init; } = string.Empty;
     public string Note { get; init; } = string.Empty;
+    public string Instrument { get; init; } = string.Empty;
+    public decimal PointValue { get; init; }
+    public decimal TickSize { get; init; }
 }
 
 public sealed class ParsedRecord
@@ -429,6 +485,7 @@ public sealed class ParsedRecord
 public sealed class ParsedImport
 {
     public string SourceType { get; init; } = string.Empty;
+    public string SourceApplication { get; init; } = string.Empty;
     public List<ParsedRecord> Records { get; } = new();
     public List<ImportedTradeDraft> Trades { get; } = new();
     public List<string> Warnings { get; } = new();

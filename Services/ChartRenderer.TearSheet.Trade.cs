@@ -490,6 +490,7 @@ public static partial class ChartRenderer
     {
         var daily = DailyEquity(source, balanceSource, startingEquity);
         if (daily.Count < 2) return Empty("Monthly return heatmap needs equity history.");
+        if (!HasReturnBaseline(daily)) return Empty("Set starting equity or import account balances to calculate monthly returns.");
 
         var records = new List<MonthlyReturnPoint>();
         decimal? previous = null;

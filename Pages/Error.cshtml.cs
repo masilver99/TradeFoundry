@@ -8,12 +8,21 @@ namespace TradeFoundry.Pages;
 [IgnoreAntiforgeryToken]
 public class ErrorModel : PageModel
 {
+    public int HttpStatusCode { get; private set; }
+
     public string? RequestId { get; set; }
 
     public bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
 
-    public void OnGet()
+    public void OnGet(int statusCode)
     {
+        HttpStatusCode = statusCode;
+        if (HttpStatusCode is < 400 or > 599)
+        {
+            HttpStatusCode = StatusCodes.Status500InternalServerError;
+        }
+
+        HttpContext.Response.StatusCode = HttpStatusCode;
         RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier;
     }
 }

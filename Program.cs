@@ -30,6 +30,7 @@ builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AddPageRoute("/Index", "/journal/{journalId:guid}/overview");
     options.Conventions.AddPageRoute("/Trade", "/journal/{journalId:guid}/trades/{id:guid}");
+    options.Conventions.AddPageRoute("/NotFound", "/Error/404");
 });
 
 var app = builder.Build();
@@ -37,8 +38,10 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error");
+    app.UseExceptionHandler("/Error/500");
 }
+
+app.UseStatusCodePagesWithReExecute("/Error/{0}");
 
 app.UseStaticFiles();
 app.UseRouting();

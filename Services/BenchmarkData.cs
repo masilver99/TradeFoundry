@@ -246,6 +246,17 @@ public sealed class BenchmarkRefreshService
         {
             return await RecordFailureAsync(journalId, symbol, requestedStart, requestedEnd, now, $"Yahoo Finance returned invalid JSON: {ex.Message}");
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Benchmark data is supplementary. A runtime/network dependency
+            // failure must not prevent the Analysis page from rendering.
+            _logger.LogWarning(ex, "Benchmark refresh failed unexpectedly for {Symbol}.", symbol);
+            return await RecordFailureAsync(journalId, symbol, requestedStart, requestedEnd, now, $"Benchmark refresh failed: {ex.Message}");
+        }
     }
 
     private async Task<BenchmarkRefreshResult> RecordFailureAsync(Guid journalId, string symbol, DateOnly requestedStart, DateOnly requestedEnd, DateTimeOffset attemptedUtc, string error)

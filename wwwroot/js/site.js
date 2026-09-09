@@ -7,6 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeSectionInfo();
   initializePeriodSummary();
   initializePnlCalendar();
+  initializeSidebarResize();
 
   const fileInput = document.querySelector("#import-file");
   const dropZone = fileInput?.closest(".drop-zone");
@@ -54,6 +55,87 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 });
+
+function initializeSidebarResize() {
+  const app = document.querySelector(".tf-app");
+  const sidebar = app?.querySelector(".tf-sidebar");
+  const resizer = app?.querySelector("[data-sidebar-resizer]");
+  if (!app || !sidebar || !resizer) return;
+
+  const minWidth = 180;
+  const maxWidth = () => Math.min(360, Math.max(minWidth, window.innerWidth * .4));
+  const storageKey = "tradefoundry.sidebar.width";
+  let storedWidth = null;
+
+  try {
+    const value = Number.parseFloat(window.localStorage.getItem(storageKey) || "");
+    if (Number.isFinite(value)) storedWidth = value;
+  } catch {
+    // Ignore storage restrictions; the resize still works for the current page.
+  }
+
+  const setWidth = (value, persist = false) => {
+    const width = Math.round(Math.max(minWidth, Math.min(maxWidth(), value)));
+    app.style.setProperty("--tf-sidebar-width", `${width}px`);
+    resizer.setAttribute("aria-valuenow", String(width));
+    if (!persist) return;
+
+    try {
+      window.localStorage.setItem(storageKey, String(width));
+    } catch {
+      // Ignore storage restrictions; the current width remains applied.
+    }
+  };
+
+  setWidth(storedWidth ?? sidebar.getBoundingClientRect().width);
+
+  let pointerId = null;
+  let pointerStart = 0;
+  let widthStart = 0;
+
+  resizer.addEventListener("pointerdown", event => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    pointerId = event.pointerId;
+    pointerStart = event.clientX;
+    widthStart = sidebar.getBoundingClientRect().width;
+    resizer.setPointerCapture?.(pointerId);
+    app.classList.add("tf-sidebar-resizing");
+    event.preventDefault();
+  });
+
+  resizer.addEventListener("pointermove", event => {
+    if (event.pointerId !== pointerId) return;
+    setWidth(widthStart + event.clientX - pointerStart);
+  });
+
+  const finishPointerResize = event => {
+    if (event.pointerId !== pointerId) return;
+    setWidth(sidebar.getBoundingClientRect().width, true);
+    resizer.releasePointerCapture?.(pointerId);
+    pointerId = null;
+    app.classList.remove("tf-sidebar-resizing");
+  };
+
+  resizer.addEventListener("pointerup", finishPointerResize);
+  resizer.addEventListener("pointercancel", finishPointerResize);
+  resizer.addEventListener("keydown", event => {
+    const currentWidth = sidebar.getBoundingClientRect().width;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      setWidth(currentWidth + (event.key === "ArrowRight" ? 10 : -10), true);
+      event.preventDefault();
+    } else if (event.key === "Home") {
+      setWidth(minWidth, true);
+      event.preventDefault();
+    } else if (event.key === "End") {
+      setWidth(maxWidth(), true);
+      event.preventDefault();
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    setWidth(sidebar.getBoundingClientRect().width);
+  });
+}
 
 function initializeSectionInfo() {
   document.querySelectorAll("[data-section-info-toggle]").forEach(button => {

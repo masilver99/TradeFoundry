@@ -1,0 +1,14 @@
+@page "/404"
+@model NotFoundModel
+@{
+    ViewData["Title"] = "Page not found";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / 404";
+}
+
+<section class="tf-error-page tf-not-found-page" aria-labelledby="not-found-title">
+    <img class="tf-error-logo" src="~/images/TradeFoundryLogo.webp" alt="TradeFoundry" asp-append-version="true" />
+    <div class="tf-error-code">404</div>
+    <h1 id="not-found-title">Page not found.</h1>
+    <p class="tf-error-message">The page you’re looking for doesn’t exist or may have moved.</p>
+    <a class="btn btn-primary" href="/">Return to TradeFoundry</a>
+</section>

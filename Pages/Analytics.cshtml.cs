@@ -76,6 +76,10 @@ public class AnalyticsModel : PageModel
     public string SessionMixChart => ChartRenderer.TearSheetSessionMix(Trades, Journal?.TimeZone);
     public string OutcomeMixChart => ChartRenderer.TearSheetOutcomeMix(Trades);
     public string MonthlyHeatmapChart => ChartRenderer.TearSheetMonthlyReturnHeatmap(Trades, AccountBalances, Overview?.StartingEquity);
+    public string RiskDisciplineRollingRescueChart => ChartRenderer.TearSheetRiskDisciplineRollingRescue(Trades);
+    public string RiskDisciplineRollingHeatChart => ChartRenderer.TearSheetRiskDisciplineRollingHeat(Trades);
+    public string RiskDisciplineRollingViolationsChart => ChartRenderer.TearSheetRiskDisciplineRollingViolations(Trades);
+    public string RiskDisciplineMonthlyChart => ChartRenderer.TearSheetRiskDisciplineMonthly(Trades, Journal?.TimeZone);
     public string RMultipleChart => ChartRenderer.RMultipleDistribution(Trades);
     public string ExitTypeChart => ChartRenderer.ExitTypeAnalysis(Trades);
     public string OrderExecutionChart => ChartRenderer.OrderExecution(OrderEvents);

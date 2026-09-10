@@ -84,18 +84,89 @@ public sealed class RiskDisciplineMetricsTests
         Assert.Contains("riskDiscipline.Indicators", view);
         Assert.Contains("tf-risk-discipline-score-value", view);
         Assert.Contains("The score is an equal-weight average", view);
+        Assert.Contains("RISK OVER TIME", view);
+        Assert.Contains("Rolling rescue dependency", view);
+        Assert.Contains("Rolling winner heat and MAE", view);
+        Assert.Contains("Rolling MAE violations", view);
+        Assert.Contains("Monthly Risk Discipline score", view);
     }
 
-    private static Trade Trade(decimal grossPnl, decimal? maePoints, decimal riskPoints, int sequence)
+    [Fact]
+    public void Builds_fixed_rolling_windows_and_monthly_summaries()
     {
-        var timestamp = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero).AddMinutes(sequence);
+        var start = new DateTimeOffset(2026, 1, 20, 12, 0, 0, TimeSpan.Zero);
+        var trades = Enumerable.Range(1, 21)
+            .Select(sequence => Trade(1m, .25m, 1m, sequence, start.AddDays(sequence - 1)))
+            .ToArray();
+
+        var trend = RiskDisciplineTrend.Build(trades, "UTC");
+
+        Assert.Equal(2, trend.Rolling.Count);
+        Assert.All(trend.Rolling, point =>
+        {
+            Assert.Equal(RiskDisciplineTrend.RollingWindow, point.WindowTradeCount);
+            Assert.Equal(RiskDisciplineTrend.RollingWindow, point.RiskQualifiedTradeCount);
+            Assert.Equal(RiskDisciplineTrend.RollingWindow, point.WinnerCount);
+            Assert.Equal(RiskDisciplineTrend.RollingWindow, point.RiskQualifiedWinnerCount);
+            Assert.Equal(0, point.MaeViolationCount);
+            Assert.Equal(0m, point.RescueRate);
+            Assert.NotNull(point.Score);
+        });
+
+        Assert.Equal(2, trend.Monthly.Count);
+        Assert.Equal(21, trend.Monthly.Sum(point => point.TradeCount));
+        Assert.Equal(12, trend.Monthly[0].TradeCount);
+        Assert.Equal(9, trend.Monthly[1].TradeCount);
+        Assert.All(trend.Monthly, point =>
+        {
+            Assert.True(point.HasCompleteRiskData);
+            Assert.True(point.HasCompleteWinnerRiskData);
+            Assert.NotNull(point.Score);
+        });
+    }
+
+    [Fact]
+    public void Renders_risk_discipline_trend_charts_and_explains_short_history()
+    {
+        var start = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var trades = Enumerable.Range(1, 21)
+            .Select(sequence => Trade(1m, .25m, 1m, sequence, start.AddDays(sequence - 1)))
+            .ToArray();
+
+        var rescueChart = ChartRenderer.TearSheetRiskDisciplineRollingRescue(trades);
+        var heatChart = ChartRenderer.TearSheetRiskDisciplineRollingHeat(trades);
+        var violationsChart = ChartRenderer.TearSheetRiskDisciplineRollingViolations(trades);
+        var monthlyChart = ChartRenderer.TearSheetRiskDisciplineMonthly(trades, "UTC");
+
+        Assert.Contains("data-plotly-chart", rescueChart);
+        Assert.Contains("Rolling rescue dependency", rescueChart);
+        Assert.Contains("data-plotly-chart", heatChart);
+        Assert.Contains("Rolling winner heat and MAE", heatChart);
+        Assert.Contains("data-plotly-chart", violationsChart);
+        Assert.Contains("Rolling MAE violations", violationsChart);
+        Assert.Contains("data-plotly-chart", monthlyChart);
+        Assert.Contains("Monthly Risk Discipline score", monthlyChart);
+
+        var shortHistory = ChartRenderer.TearSheetRiskDisciplineRollingRescue(trades.Take(19));
+        Assert.Contains("chart-empty", shortHistory);
+        Assert.Contains("20 completed trades", shortHistory);
+    }
+
+    private static Trade Trade(
+        decimal grossPnl,
+        decimal? maePoints,
+        decimal riskPoints,
+        int sequence,
+        DateTimeOffset? timestamp = null)
+    {
+        var entry = timestamp ?? new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero).AddMinutes(sequence);
         return new Trade
         {
             Id = Guid.NewGuid(),
             Sequence = sequence,
             Direction = "Long",
-            EntryUtc = timestamp,
-            ExitUtc = timestamp.AddMinutes(1),
+            EntryUtc = entry,
+            ExitUtc = entry.AddMinutes(1),
             EntryPrice = 100m,
             ExitPrice = 100m + grossPnl,
             Quantity = 1,

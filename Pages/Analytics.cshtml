@@ -486,6 +486,26 @@
                     }
                 </div>
             </div>
+
+            <div class="tf-risk-discipline-trends">
+                <div class="tf-chart-subsection-heading">
+                    <div class="tf-chart-subsection-heading-main">
+                        <div class="tf-chart-subsection-title-row">
+                            <div class="tf-kicker">RISK OVER TIME</div>
+                            <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Risk Discipline trends" aria-expanded="false" aria-controls="risk-discipline-trends-description" aria-label="Show explanation for Risk Discipline trends"><span aria-hidden="true">i</span></button>
+                        </div>
+                        <h3>Trend before the score</h3>
+                        <p id="risk-discipline-trends-description" class="tf-section-info" hidden>Rolling charts use a fixed 20-trade window and keep trade and winner counts in the hover detail. The monthly score is shown only when that month has complete MAE and initial-risk evidence; use the sample counts to avoid over-reading short histories.</p>
+                    </div>
+                    <span>20-trade rolling · monthly summary</span>
+                </div>
+                <div class="tf-chart-grid">
+                    <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ROLLING RESCUE</div><h4 class="tf-card-title">Rolling rescue dependency</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineRollingRescueChart)</div></article>
+                    <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">WINNER HEAT</div><h4 class="tf-card-title">Rolling winner heat and MAE</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineRollingHeatChart)</div></article>
+                    <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">MAE VIOLATIONS</div><h4 class="tf-card-title">Rolling MAE violations</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineRollingViolationsChart)</div></article>
+                    <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">MONTHLY SUMMARY</div><h4 class="tf-card-title">Monthly Risk Discipline score</h4></div><span class="text-secondary">score + trade count</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineMonthlyChart)</div></article>
+                </div>
+            </div>
         </div>
 
         <div id="risk-drawdown" class="tf-chart-subsection">

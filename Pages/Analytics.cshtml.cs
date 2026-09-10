@@ -15,11 +15,13 @@ public class AnalyticsModel : PageModel
     private static readonly JsonSerializerOptions PnlCalendarJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly TradeFoundryDb _database;
     private readonly BenchmarkRefreshService _benchmarkRefresh;
+    private readonly JournalAnalysisService _analysis;
 
-    public AnalyticsModel(TradeFoundryDb database, BenchmarkRefreshService benchmarkRefresh)
+    public AnalyticsModel(TradeFoundryDb database, BenchmarkRefreshService benchmarkRefresh, JournalAnalysisService analysis)
     {
         _database = database;
         _benchmarkRefresh = benchmarkRefresh;
+        _analysis = analysis;
     }
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
@@ -39,6 +41,7 @@ public class AnalyticsModel : PageModel
     public string BenchmarkRefreshMessageKind { get; private set; } = "warning";
     public string PnlCalendarCurrency => Journal?.Currency ?? "USD";
     public string PnlCalendarJson => JsonSerializer.Serialize(PnlCalendarMonths, PnlCalendarJsonOptions);
+    public IReadOnlyList<string> DataAvailabilityWarnings { get; private set; } = Array.Empty<string>();
 
     public string EquityChart => ChartRenderer.TearSheetEquity(Trades, AccountBalances, Overview?.StartingEquity);
     public string FeeDragChart => ChartRenderer.TearSheetFeeDrag(Trades);
@@ -117,6 +120,7 @@ public class AnalyticsModel : PageModel
         var periodData = TearSheetPeriods.Build(Trades, Journal.TimeZone);
         PeriodSummary = periodData.Summary;
         PeriodBreakdown = periodData.Breakdown;
+        DataAvailabilityWarnings = _analysis.GetOverview(JournalId, null).DataGaps;
         BuildPnlCalendar();
 
         if (TempData["BenchmarkFlashMessage"] is string flashMessage && !string.IsNullOrWhiteSpace(flashMessage))
@@ -147,13 +151,8 @@ public class AnalyticsModel : PageModel
     {
         if (Journal is null) return;
 
-        var timeZone = TimeZoneCatalog.Resolve(Journal.TimeZone);
-        var daily = Trades
-            .Where(trade => trade.ExitUtc.HasValue)
-            .GroupBy(trade => DateInZone(trade.ExitUtc!.Value, timeZone))
-            .ToDictionary(
-                group => group.Key,
-                group => (NetPnl: group.Sum(trade => trade.NetPnl), TradeCount: group.Count()));
+        var daily = JournalAnalysisService.BuildDailyRealized(Trades, Journal.TimeZone)
+            .ToDictionary(day => day.Date, day => (day.NetPnl, day.TradeCount));
 
         PnlCalendarMonths = daily.Keys
             .GroupBy(date => new { date.Year, date.Month })
@@ -189,11 +188,4 @@ public class AnalyticsModel : PageModel
             .ToArray();
 
     }
-
-    private static DateOnly DateInZone(DateTimeOffset value, TimeZoneInfo timeZone)
-    {
-        var local = TimeZoneInfo.ConvertTime(value, timeZone);
-        return DateOnly.FromDateTime(local.DateTime);
-    }
-
 }

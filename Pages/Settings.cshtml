@@ -152,6 +152,46 @@
                 </form>
             </div>
         </div>
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">LOCAL AI ACCESS</div><h3 class="tf-card-title">MCP server</h3></div><span class="badge @(Model.McpEnabled ? "bg-green-lt" : "bg-secondary-lt")">@(Model.McpEnabled ? "enabled" : "disabled")</span></div>
+            <div class="card-body">
+                <p class="text-secondary small">Read-only tokens are separate from your TradeFoundry password and can see only the journals selected below. The MCP server never exposes raw import rows or changes journal data.</p>
+                <dl class="tf-definition-list"><dt>Endpoint</dt><dd class="text-break"><code>@Model.McpEndpoint</code></dd><dt>Transport</dt><dd>Stateless Streamable HTTP · loopback only</dd></dl>
+                @if (!Model.McpEnabled)
+                {
+                    <div class="alert tf-alert mb-3">Set <code>Mcp:Enabled</code> to <code>true</code> and restart TradeFoundry before connecting an AI client.</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Model.NewMcpToken))
+                {
+                    <div class="mb-3">
+                        <label class="form-label">New token — shown once<input class="form-control font-monospace" value="@Model.NewMcpToken" readonly autocomplete="off" /></label>
+                    </div>
+                }
+                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=CreateMcpToken")" class="row g-3 mb-3">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="journalId" value="@Model.JournalId" />
+                    <div class="col-12"><label class="form-label">Client name<input asp-for="McpTokenName" class="form-control" maxlength="100" required /></label></div>
+                    <div class="col-12">
+                        <div class="form-label">Allowed journals</div>
+                        @foreach (var journal in Model.Journals)
+                        {
+                            <label class="form-check mb-1"><input class="form-check-input" type="checkbox" name="McpJournalIds" value="@journal.Id" checked="@(journal.Id == Model.JournalId ? "checked" : null)" /><span class="form-check-label">@journal.Name <span class="text-secondary">(@journal.ExecutionContext)</span></span></label>
+                        }
+                    </div>
+                    <div class="col-12"><button class="btn btn-outline-primary" type="submit">Generate read-only token</button></div>
+                </form>
+                @if (Model.McpTokens.Count > 0)
+                {
+                    <div class="tf-kicker mb-2">ISSUED TOKENS</div>
+                    @foreach (var token in Model.McpTokens)
+                    {
+                        <div class="border-top py-2">
+                            <div class="d-flex justify-content-between gap-2"><div><strong>@token.Name</strong><div class="small text-secondary"><code>@token.TokenPrefix…</code> · @token.JournalIds.Count journal(s) · created @token.CreatedUtc.ToString("yyyy-MM-dd")</div>@if (token.LastUsedUtc.HasValue){<div class="small text-secondary">Last used @token.LastUsedUtc.Value.ToString("yyyy-MM-dd HH:mm 'UTC'")</div>}</div>@if (token.IsRevoked){<span class="badge bg-secondary-lt align-self-start">revoked</span>}else{<form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=RevokeMcpToken")" onsubmit="return confirm('Revoke this MCP token?');">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><input type="hidden" name="tokenId" value="@token.Id" /><button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button></form>}</div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
         @if (Model.Journals.Count > 1)
         {
             <div class="card tf-card border-danger">

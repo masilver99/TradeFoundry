@@ -996,7 +996,7 @@ public static partial class ChartRenderer
     private static string SessionName(DateTimeOffset value, string? timeZoneId)
     {
         var hour = InZone(value, timeZoneId).Hour;
-        return hour < 9 ? "Overnight" : hour < 16 ? "RTH" : "Evening";
+        return TradingSessionClassifier.Name(hour);
     }
 
     private static DateTimeOffset InZone(DateTimeOffset value, string? timeZoneId)

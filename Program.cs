@@ -1,14 +1,19 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
+using TradeFoundry.Mcp;
 using TradeFoundry.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
 builder.Services.Configure<BenchmarkOptions>(builder.Configuration.GetSection("Benchmark"));
+builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
 builder.Services.AddSingleton<TradeFoundryDb>();
 builder.Services.AddSingleton<ImportService>();
+builder.Services.AddSingleton<McpTokenService>();
+builder.Services.AddSingleton<JournalAnalysisService>();
+builder.Services.AddHostedService<McpHostedService>();
 builder.Services.AddHttpClient<YahooFinanceBenchmarkProvider>(client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TradeFoundry/1.0 local benchmark refresh");

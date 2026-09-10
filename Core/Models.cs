@@ -104,6 +104,8 @@ public sealed class Fill
     public decimal TickSize { get; init; }
 }
 
+public sealed record TradeFillEvidence(DateTimeOffset EventUtc, string Side, int Quantity, decimal Price, decimal Fees, string SourceType);
+
 public sealed class OrderEvent
 {
     public Guid Id { get; init; }
@@ -242,10 +244,30 @@ public sealed class Trade
     public string Status { get; init; } = "closed";
     public string Note { get; init; } = string.Empty;
     public string Instrument { get; init; } = string.Empty;
+    public string ReviewKey { get; init; } = string.Empty;
     public TimeSpan? Duration => ExitUtc.HasValue ? ExitUtc.Value - EntryUtc : null;
     public TimeSpan? TimeInTrade => Duration;
     public double? TimeInTradeSeconds => Duration?.TotalSeconds;
     public bool IsWinner => NetPnl > 0m;
+}
+
+public sealed class McpAccessToken
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string TokenPrefix { get; init; } = string.Empty;
+    public string Scopes { get; init; } = "read";
+    public DateTimeOffset CreatedUtc { get; init; }
+    public DateTimeOffset? LastUsedUtc { get; init; }
+    public DateTimeOffset? RevokedUtc { get; init; }
+    public IReadOnlyList<Guid> JournalIds { get; init; } = Array.Empty<Guid>();
+    public bool IsRevoked => RevokedUtc.HasValue;
+}
+
+public sealed class CreatedMcpAccessToken
+{
+    public McpAccessToken Token { get; init; } = new();
+    public string Secret { get; init; } = string.Empty;
 }
 
 public sealed class Bar

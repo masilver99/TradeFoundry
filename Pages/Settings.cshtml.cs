@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Options;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
 using TradeFoundry.Services;
@@ -11,8 +12,15 @@ namespace TradeFoundry.Pages;
 public class SettingsModel : PageModel
 {
     private readonly TradeFoundryDb _database;
+    private readonly McpTokenService _mcpTokens;
+    private readonly McpOptions _mcpOptions;
 
-    public SettingsModel(TradeFoundryDb database) => _database = database;
+    public SettingsModel(TradeFoundryDb database, McpTokenService mcpTokens, IOptions<McpOptions> mcpOptions)
+    {
+        _database = database;
+        _mcpTokens = mcpTokens;
+        _mcpOptions = mcpOptions.Value;
+    }
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
     [BindProperty] public string Name { get; set; } = string.Empty;
@@ -28,11 +36,17 @@ public class SettingsModel : PageModel
     [BindProperty] public string CurrentPassword { get; set; } = string.Empty;
     [BindProperty] public string NewPassword { get; set; } = string.Empty;
     [BindProperty] public string ConfirmNewPassword { get; set; } = string.Empty;
+    [BindProperty] public string McpTokenName { get; set; } = "Local AI client";
+    [BindProperty] public List<Guid> McpJournalIds { get; set; } = new();
 
     public Journal? Journal { get; private set; }
     public IReadOnlyList<Journal> Journals { get; private set; } = Array.Empty<Journal>();
     public IReadOnlyList<InstrumentDefinition> Instruments { get; private set; } = Array.Empty<InstrumentDefinition>();
     public IReadOnlyList<InstrumentMapping> SierraChartMappings { get; private set; } = Array.Empty<InstrumentMapping>();
+    public IReadOnlyList<McpAccessToken> McpTokens { get; private set; } = Array.Empty<McpAccessToken>();
+    public bool McpEnabled => _mcpOptions.Enabled;
+    public string McpEndpoint => _mcpOptions.Url.TrimEnd('/') + "/mcp";
+    public string? NewMcpToken { get; private set; }
     public string DatabasePath => _database.DatabasePath;
     public string DatabaseSize => FormatBytes(_database.DatabaseSizeBytes);
     public string? FlashMessage { get; private set; }
@@ -144,6 +158,35 @@ public class SettingsModel : PageModel
         return Redirect($"/journal/{JournalId:D}/settings");
     }
 
+    public IActionResult OnPostCreateMcpToken()
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        try
+        {
+            var created = _mcpTokens.Create(McpTokenName, McpJournalIds);
+            NewMcpToken = created.Secret;
+            FlashMessage = "MCP access token created. Copy it now; TradeFoundry will not show it again.";
+            FlashKind = "success";
+        }
+        catch (InvalidOperationException ex)
+        {
+            FlashMessage = ex.Message;
+            FlashKind = "error";
+        }
+        Response.Headers.CacheControl = "no-store";
+        Load();
+        return Page();
+    }
+
+    public IActionResult OnPostRevokeMcpToken(Guid tokenId)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        var revoked = _mcpTokens.Revoke(tokenId);
+        TempData["FlashMessage"] = revoked ? "MCP access token revoked." : "The MCP access token was already revoked or could not be found.";
+        TempData["FlashKind"] = revoked ? "success" : "error";
+        return Redirect($"/journal/{JournalId:D}/settings");
+    }
+
     public IActionResult OnPostArchive()
     {
         if (_database.GetJournal(JournalId) is null) return NotFound();
@@ -163,6 +206,7 @@ public class SettingsModel : PageModel
         Journals = _database.GetJournals();
         Instruments = _database.GetInstruments();
         SierraChartMappings = _database.GetInstrumentMappings(TradeFoundryConstants.SierraChart);
+        McpTokens = _mcpTokens.List();
         Journal = _database.GetJournal(JournalId);
         if (Journal is null) return;
         Name = Journal.Name;

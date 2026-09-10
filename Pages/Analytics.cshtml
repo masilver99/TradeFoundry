@@ -40,6 +40,11 @@
     <div class="alert tf-alert @(Model.BenchmarkRefreshMessageKind == "success" ? string.Empty : Model.BenchmarkRefreshMessageKind == "error" ? "error" : "warning")" role="status">@Model.BenchmarkRefreshMessage</div>
 }
 
+@if (Model.DataAvailabilityWarnings.Count > 0)
+{
+    <div class="alert tf-alert warning" role="status"><strong>Evidence limits:</strong> @string.Join(" ", Model.DataAvailabilityWarnings)</div>
+}
+
 @if (Model.Overview is not null)
 {
     <nav class="tf-chart-index tf-analysis-index" data-analysis-index aria-label="Analysis sections">

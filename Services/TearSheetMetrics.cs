@@ -37,12 +37,82 @@ public sealed class TearSheetIndicatorSet
     public IReadOnlyList<TearSheetIndicator> Key { get; init; } = Array.Empty<TearSheetIndicator>();
     public IReadOnlyList<TearSheetIndicatorGroup> Groups { get; init; } = Array.Empty<TearSheetIndicatorGroup>();
     public TearSheetScStatistics ScTradeStatistics { get; init; } = new();
+    public RiskDisciplineMetrics RiskDiscipline { get; init; } = new();
+}
+
+public sealed record RiskDisciplineThresholds
+{
+    public decimal RescueMaeR { get; init; } = .75m;
+    public decimal MaeViolationR { get; init; } = 1.00m;
+    public decimal RescueRateExcellent { get; init; } = .10m;
+    public decimal RescueRateGood { get; init; } = .20m;
+    public decimal RescueRateWatch { get; init; } = .30m;
+    public decimal RescueProfitShareExcellent { get; init; } = .15m;
+    public decimal RescueProfitShareGood { get; init; } = .30m;
+    public decimal RescueProfitShareWatch { get; init; } = .50m;
+    public decimal WinnerMaeP90ExcellentR { get; init; } = .50m;
+    public decimal WinnerMaeP90GoodR { get; init; } = .75m;
+    public decimal WinnerMaeP90WatchR { get; init; } = 1.00m;
+    public decimal WinnerHeatRatioExcellent { get; init; } = .35m;
+    public decimal WinnerHeatRatioGood { get; init; } = .60m;
+    public decimal WinnerHeatRatioWatch { get; init; } = 1.00m;
+    public decimal ScoreExcellent { get; init; } = 90m;
+    public decimal ScoreGood { get; init; } = 70m;
+    public decimal ScoreWatch { get; init; } = 50m;
+}
+
+public sealed record RiskDisciplineComponent(
+    string Label,
+    decimal? NumericValue,
+    string Value,
+    string Target,
+    string Note,
+    decimal? Points,
+    string Tone);
+
+public sealed class RiskDisciplineScore
+{
+    public decimal? Value { get; init; }
+    public string DisplayValue { get; init; } = "—";
+    public string Tier { get; init; } = "Insufficient data";
+    public string Tone { get; init; } = "muted";
+    public string Summary { get; init; } = string.Empty;
+    public int AvailableComponentCount { get; init; }
+    public int ComponentCount { get; init; }
+    public bool IsComplete => Value.HasValue && AvailableComponentCount == ComponentCount;
+    public TearSheetIndicatorScale? Scale { get; init; }
+    public IReadOnlyList<RiskDisciplineComponent> Components { get; init; } = Array.Empty<RiskDisciplineComponent>();
+}
+
+public sealed class RiskDisciplineMetrics
+{
+    public RiskDisciplineThresholds Thresholds { get; init; } = new();
+    public int CompletedTradeCount { get; init; }
+    public int WinnerCount { get; init; }
+    public int RiskObservedTradeCount { get; init; }
+    public int RiskObservedWinnerCount { get; init; }
+    public decimal? RiskDataCoverage { get; init; }
+    public decimal? WinnerRiskDataCoverage { get; init; }
+    public decimal? RescueRate { get; init; }
+    public decimal? RescueProfitShare { get; init; }
+    public decimal? WinnerHeatRatio { get; init; }
+    public int? MaeViolationCount { get; init; }
+    public decimal? AllMaeP90R { get; init; }
+    public decimal? AllMaeP95R { get; init; }
+    public decimal? WinnerMaeP50R { get; init; }
+    public decimal? WinnerMaeP90R { get; init; }
+    public decimal? WinnerMaeP95R { get; init; }
+    public decimal? MfeMaeRatio { get; init; }
+    public IReadOnlyList<TearSheetIndicator> Indicators { get; init; } = Array.Empty<TearSheetIndicator>();
+    public RiskDisciplineScore Score { get; init; } = new();
 }
 
 public static class TearSheetMetrics
 {
     private static readonly CultureInfo UiCulture = CultureInfo.CurrentCulture;
     private sealed record IndicatorDefinition(string Help, Func<decimal, TearSheetIndicatorScale>? Scale = null);
+
+    public static RiskDisciplineThresholds DefaultRiskDisciplineThresholds { get; } = new();
 
     private static readonly IReadOnlyDictionary<string, IndicatorDefinition> IndicatorDefinitions =
         new Dictionary<string, IndicatorDefinition>(StringComparer.OrdinalIgnoreCase)
@@ -99,6 +169,21 @@ public static class TearSheetMetrics
             ["Concentration (Top 5)"] = new(
                 "Share of gross winner profit supplied by the five largest winning trades. Lower values indicate a more diversified result stream.",
                 value => Gauge("tf-scale-concentration", value, 0m, 1m, current => current < .3m ? "Diversified" : current < .5m ? "Moderate" : "Concentrated")),
+            ["Risk Discipline Score"] = new(
+                "Equal-weight score across rescue dependency, winner heat, winner MAE, and MAE violations. Higher is better; missing risk evidence leaves the score incomplete.",
+                value => Gauge("tf-scale-risk-discipline", value, 0m, 100m, current => current < 50m ? "Needs Work" : current < 70m ? "Watch" : current < 90m ? "Good" : "Excellent")),
+            ["Rescue Rate"] = new("Share of risk-qualified gross winners that reached the rescue threshold before becoming profitable. Lower is better."),
+            ["Rescue Profit Share"] = new("Share of risk-qualified gross winner profit supplied by rescued winners. Lower is better."),
+            ["Winner Heat Ratio"] = new("P90 winner MAE divided by the median winner result, both normalized in initial-risk units. Lower is better."),
+            ["MAE violation count"] = new("Count of risk-qualified completed trades whose absolute MAE reached or exceeded the configured violation threshold."),
+            ["Winner MAE P50"] = new("Median maximum adverse excursion of gross winners, normalized in initial-risk units."),
+            ["Winner MAE P90"] = new("90th percentile maximum adverse excursion of gross winners, normalized in initial-risk units. Lower is better."),
+            ["Winner MAE P95"] = new("95th percentile maximum adverse excursion of gross winners, normalized in initial-risk units. Lower is better."),
+            ["All-trade MAE P90"] = new("90th percentile maximum adverse excursion across all risk-qualified completed trades, normalized in initial-risk units."),
+            ["All-trade MAE P95"] = new("95th percentile maximum adverse excursion across all risk-qualified completed trades, normalized in initial-risk units."),
+            ["MFE/MAE Ratio (Risk Discipline)"] = new("Average favorable excursion divided by average adverse excursion, using the existing currency excursion fields. Higher is better."),
+            ["Risk Data Coverage"] = new("Share of completed trades with both maximum adverse excursion and usable initial-risk data."),
+            ["Winner Risk Coverage"] = new("Share of gross winners with both maximum adverse excursion and usable initial-risk data."),
             ["Avg MAE (Winners)"] = new("Average maximum adverse excursion of winning trades: how much adversity winning trades withstood before turning profitable."),
             ["MFE/MAE Ratio"] = new("Average MFE divided by absolute average MAE. Above 1 means trades moved further in your favor than against you."),
             ["Avg Entry Chase"] = new("Average points chased per entry order. Positive means paying more than the original price to get filled; lower is better."),
@@ -139,7 +224,8 @@ public static class TearSheetMetrics
         IEnumerable<BenchmarkPoint> benchmarkSource,
         decimal? startingEquity,
         string? timeZoneId,
-        string currency)
+        string currency,
+        RiskDisciplineThresholds? riskDisciplineThresholds = null)
     {
         var trades = source
             .Where(trade => trade.ExitUtc.HasValue)
@@ -161,10 +247,12 @@ public static class TearSheetMetrics
         var execution = BuildExecutionStats(orders, trades);
         var benchmark = BuildBenchmarkStats(equity, benchmarks, baseline);
         var scTradeStatistics = BuildScTradeStatistics(trades, timeZone, currency);
+        var riskDiscipline = BuildRiskDiscipline(trades, riskDisciplineThresholds);
 
         return new TearSheetIndicatorSet
         {
             ScTradeStatistics = scTradeStatistics,
+            RiskDiscipline = riskDiscipline,
             Key = new[]
             {
                 Money("Net P&L", stats.TotalNetPnl, "After fees", currency),
@@ -234,6 +322,12 @@ public static class TearSheetMetrics
                         Days("Days Since High", stats.DaysSinceLastEquityHigh, "Days since the last equity high"),
                         Percent("% Time at Highs", stats.PercentTimeAtHighs, "Share of equity observations at a high")
                     }),
+                new TearSheetIndicatorGroup(
+                    "indicators-risk-discipline",
+                    "RISK DISCIPLINE",
+                    "Risk Discipline",
+                    "Equal-weight score for rescue dependency and adverse-excursion control. The score requires complete MAE and initial-risk coverage.",
+                    riskDiscipline.Indicators.Prepend(RiskDisciplineScoreIndicator(riskDiscipline.Score)).ToArray()),
                 new TearSheetIndicatorGroup(
                     "indicators-trade-dynamics",
                     "TRADE DYNAMICS",
@@ -336,6 +430,259 @@ public static class TearSheetMetrics
             }
         };
     }
+
+    public static RiskDisciplineMetrics BuildRiskDiscipline(
+        IEnumerable<Trade> source,
+        RiskDisciplineThresholds? thresholds = null)
+    {
+        var configuration = thresholds ?? DefaultRiskDisciplineThresholds;
+        var trades = source
+            .Where(trade => trade.ExitUtc.HasValue)
+            .OrderBy(trade => trade.ExitUtc)
+            .ThenBy(trade => trade.Sequence)
+            .ToArray();
+        var winners = trades.Where(trade => trade.GrossPnl > 0m).ToArray();
+        var samples = trades
+            .Select(CreateRiskDisciplineSample)
+            .Where(sample => sample is not null)
+            .Select(sample => sample!)
+            .ToArray();
+        var winnerSamples = samples.Where(sample => sample.Trade.GrossPnl > 0m).ToArray();
+        var maeR = samples.Select(sample => sample.MaeR).ToArray();
+        var winnerMaeR = winnerSamples.Select(sample => sample.MaeR).ToArray();
+        var winnerMedianR = Median(winnerSamples.Select(sample => sample.ResultR).ToArray());
+        decimal? winnerMaeP90 = winnerMaeR.Length == 0 ? null : Quantile(winnerMaeR, .90m);
+        var rescueSamples = winnerSamples.Where(sample => sample.MaeR >= configuration.RescueMaeR).ToArray();
+        var allMaeCurrency = trades
+            .Select(trade => ExcursionCurrency(trade, trade.MaePoints))
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value)
+            .ToArray();
+        var allMfeCurrency = trades
+            .Select(trade => ExcursionCurrency(trade, trade.MfePoints))
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value)
+            .ToArray();
+        decimal? mfeMaeRatio = allMfeCurrency.Length > 0 && allMaeCurrency.Length > 0 && allMaeCurrency.Average() > 0m
+            ? SafeDivide(allMfeCurrency.Average(), allMaeCurrency.Average())
+            : null;
+        decimal? rescueRate = winnerSamples.Length == 0
+            ? null
+            : (decimal)rescueSamples.Length / winnerSamples.Length;
+        var winnerProfit = winnerSamples.Sum(sample => sample.Trade.GrossPnl);
+        decimal? rescueProfitShare = winnerProfit > 0m
+            ? SafeDivide(rescueSamples.Sum(sample => sample.Trade.GrossPnl), winnerProfit)
+            : null;
+        int? maeViolationCount = samples.Length == 0
+            ? null
+            : samples.Count(sample => sample.MaeR >= configuration.MaeViolationR);
+        decimal? winnerHeatRatio = winnerMaeP90.HasValue && winnerMedianR.HasValue && winnerMedianR.Value > 0m
+            ? SafeDivide(winnerMaeP90.Value, winnerMedianR.Value)
+            : null;
+
+        var components = new[]
+        {
+            LowerBetterComponent(
+                "Rescue Rate",
+                rescueRate,
+                FormatRiskPercent(rescueRate),
+                $"≤ {FormatRiskPercent(configuration.RescueRateExcellent)} excellent · ≤ {FormatRiskPercent(configuration.RescueRateGood)} good · ≤ {FormatRiskPercent(configuration.RescueRateWatch)} watch",
+                $"Rescued winners / risk-qualified winners at or above {FormatRiskR(configuration.RescueMaeR)}; lower is better.",
+                configuration.RescueRateExcellent,
+                configuration.RescueRateGood,
+                configuration.RescueRateWatch),
+            LowerBetterComponent(
+                "Rescue Profit Share",
+                rescueProfitShare,
+                FormatRiskPercent(rescueProfitShare),
+                $"≤ {FormatRiskPercent(configuration.RescueProfitShareExcellent)} excellent · ≤ {FormatRiskPercent(configuration.RescueProfitShareGood)} good · ≤ {FormatRiskPercent(configuration.RescueProfitShareWatch)} watch",
+                "Gross profit supplied by rescued winners; lower is better.",
+                configuration.RescueProfitShareExcellent,
+                configuration.RescueProfitShareGood,
+                configuration.RescueProfitShareWatch),
+            LowerBetterComponent(
+                "Winner Heat Ratio",
+                winnerHeatRatio,
+                FormatRiskRatio(winnerHeatRatio),
+                $"≤ {FormatRiskRatio(configuration.WinnerHeatRatioExcellent)} excellent · ≤ {FormatRiskRatio(configuration.WinnerHeatRatioGood)} good · ≤ {FormatRiskRatio(configuration.WinnerHeatRatioWatch)} watch",
+                "P90 winner MAE ÷ median winner result, both in initial-risk units; lower is better.",
+                configuration.WinnerHeatRatioExcellent,
+                configuration.WinnerHeatRatioGood,
+                configuration.WinnerHeatRatioWatch),
+            ViolationComponent(maeViolationCount, configuration.MaeViolationR),
+            LowerBetterComponent(
+                "Winner MAE P90",
+                winnerMaeP90,
+                FormatRiskR(winnerMaeP90),
+                $"≤ {FormatRiskR(configuration.WinnerMaeP90ExcellentR)} excellent · ≤ {FormatRiskR(configuration.WinnerMaeP90GoodR)} good · ≤ {FormatRiskR(configuration.WinnerMaeP90WatchR)} watch",
+                "90th percentile winner MAE in initial-risk units; lower is better.",
+                configuration.WinnerMaeP90ExcellentR,
+                configuration.WinnerMaeP90GoodR,
+                configuration.WinnerMaeP90WatchR)
+        };
+        var scoreComplete = trades.Length > 0
+            && winners.Length > 0
+            && samples.Length == trades.Length
+            && winnerSamples.Length == winners.Length
+            && components.All(component => component.Points.HasValue);
+        var scoreValue = scoreComplete
+            ? components.Average(component => component.Points!.Value)
+            : (decimal?)null;
+        var availableComponents = components.Count(component => component.Points.HasValue);
+        var scoreSummary = scoreValue.HasValue
+            ? $"Equal-weight average of five 0–100 components. MAE violations are a hard gate; observed violations: {maeViolationCount!.Value:N0}."
+            : trades.Length == 0
+                ? "Complete trades are needed before a Risk Discipline score can be calculated."
+                : samples.Length != trades.Length
+                    ? $"Add MAE and initial-risk data for every completed trade before scoring. Current coverage: {samples.Length:N0}/{trades.Length:N0} trades."
+                    : winners.Length == 0
+                        ? "At least one gross winner is needed to evaluate rescue dependency and winner heat."
+                        : "The score is waiting for enough valid winner MAE and result data.";
+        var score = new RiskDisciplineScore
+        {
+            Value = scoreValue,
+            DisplayValue = scoreValue.HasValue ? scoreValue.Value.ToString("0", UiCulture) : "—",
+            Tier = scoreValue.HasValue ? RiskScoreTier(scoreValue.Value, configuration) : "Incomplete",
+            Tone = scoreValue.HasValue ? RiskScoreTone(scoreValue.Value, configuration) : "muted",
+            Summary = scoreSummary,
+            AvailableComponentCount = availableComponents,
+            ComponentCount = components.Length,
+            Scale = scoreValue.HasValue
+                ? Gauge("tf-scale-risk-discipline", scoreValue.Value, 0m, 100m, current => RiskScoreTier(current, configuration))
+                : null,
+            Components = components
+        };
+
+        return new RiskDisciplineMetrics
+        {
+            Thresholds = configuration,
+            CompletedTradeCount = trades.Length,
+            WinnerCount = winners.Length,
+            RiskObservedTradeCount = samples.Length,
+            RiskObservedWinnerCount = winnerSamples.Length,
+            RiskDataCoverage = trades.Length == 0 ? null : (decimal)samples.Length / trades.Length,
+            WinnerRiskDataCoverage = winners.Length == 0 ? null : (decimal)winnerSamples.Length / winners.Length,
+            RescueRate = rescueRate,
+            RescueProfitShare = rescueProfitShare,
+            WinnerHeatRatio = winnerHeatRatio,
+            MaeViolationCount = maeViolationCount,
+            AllMaeP90R = maeR.Length == 0 ? null : Quantile(maeR, .90m),
+            AllMaeP95R = maeR.Length == 0 ? null : Quantile(maeR, .95m),
+            WinnerMaeP50R = winnerMaeR.Length == 0 ? null : Quantile(winnerMaeR, .50m),
+            WinnerMaeP90R = winnerMaeP90,
+            WinnerMaeP95R = winnerMaeR.Length == 0 ? null : Quantile(winnerMaeR, .95m),
+            MfeMaeRatio = mfeMaeRatio,
+            Indicators = components
+                .Select(ToRiskIndicator)
+                .Concat(new[]
+                {
+                    RiskRIndicator("Winner MAE P50", winnerMaeR.Length == 0 ? null : Quantile(winnerMaeR, .50m), "Median winner MAE in initial-risk units."),
+                    RiskRIndicator("Winner MAE P95", winnerMaeR.Length == 0 ? null : Quantile(winnerMaeR, .95m), "95th percentile winner MAE in initial-risk units; lower is better."),
+                    RiskRIndicator("All-trade MAE P90", maeR.Length == 0 ? null : Quantile(maeR, .90m), "90th percentile MAE across risk-qualified trades."),
+                    RiskRIndicator("All-trade MAE P95", maeR.Length == 0 ? null : Quantile(maeR, .95m), "95th percentile MAE across risk-qualified trades."),
+                    RiskRatioIndicator("MFE/MAE Ratio (Risk Discipline)", mfeMaeRatio, "Existing currency MFE ÷ absolute MAE; higher is better."),
+                    RiskPercentIndicator("Risk Data Coverage", trades.Length == 0 ? null : (decimal)samples.Length / trades.Length, "Completed trades with both MAE and usable initial-risk data.", higherIsBetter: true),
+                    RiskPercentIndicator("Winner Risk Coverage", winners.Length == 0 ? null : (decimal)winnerSamples.Length / winners.Length, "Gross winners with both MAE and usable initial-risk data.", higherIsBetter: true)
+                })
+                .ToArray(),
+            Score = score
+        };
+    }
+
+    private static RiskDisciplineComponent LowerBetterComponent(
+        string label,
+        decimal? value,
+        string formattedValue,
+        string target,
+        string note,
+        decimal excellent,
+        decimal good,
+        decimal watch)
+    {
+        var points = value.HasValue ? LowerBetterPoints(value.Value, excellent, good, watch) : (decimal?)null;
+        return new RiskDisciplineComponent(label, value, formattedValue, target, note, points, RiskPointsTone(points));
+    }
+
+    private static RiskDisciplineComponent ViolationComponent(int? value, decimal threshold)
+    {
+        var points = value.HasValue ? value.Value == 0 ? 100m : 0m : (decimal?)null;
+        var formattedValue = value.HasValue ? value.Value.ToString("N0", UiCulture) : "—";
+        var target = $"0 · violation at or above {FormatRiskR(threshold)}";
+        var note = $"Risk-qualified completed trades with MAE at or above {FormatRiskR(threshold)}; any violation fails this component.";
+        return new RiskDisciplineComponent("MAE violation count", value, formattedValue, target, note, points, RiskPointsTone(points));
+    }
+
+    private static TearSheetIndicator ToRiskIndicator(RiskDisciplineComponent component)
+        => component.NumericValue.HasValue
+            ? CreateIndicator(component.Label, component.Value, component.Note, component.Tone, component.NumericValue.Value)
+            : Missing(component.Label, component.Note);
+
+    private static TearSheetIndicator RiskRIndicator(string label, decimal? value, string note)
+    {
+        if (!value.HasValue) return Missing(label, note);
+        var tone = value.Value <= .50m ? "positive" : value.Value <= 1.00m ? "neutral" : "negative";
+        return CreateIndicator(label, FormatRiskR(value), note, tone, value.Value);
+    }
+
+    private static TearSheetIndicator RiskRatioIndicator(string label, decimal? value, string note)
+    {
+        if (!value.HasValue) return Missing(label, note);
+        var tone = value.Value >= 1.50m ? "positive" : value.Value >= 1.00m ? "neutral" : "negative";
+        return CreateIndicator(label, FormatRiskRatio(value), note, tone, value.Value);
+    }
+
+    private static TearSheetIndicator RiskPercentIndicator(string label, decimal? value, string note, bool higherIsBetter = false)
+    {
+        if (!value.HasValue) return Missing(label, note);
+        var tone = higherIsBetter
+            ? value.Value >= 1m ? "positive" : "neutral"
+            : value.Value <= .10m ? "positive" : value.Value <= .30m ? "neutral" : "negative";
+        return CreateIndicator(label, FormatRiskPercent(value), note, tone, value.Value);
+    }
+
+    private static RiskDisciplineSample? CreateRiskDisciplineSample(Trade trade)
+    {
+        var risk = RiskCurrency(trade);
+        var mae = ExcursionCurrency(trade, trade.MaePoints);
+        if (risk is not > 0m || !mae.HasValue) return null;
+
+        return new RiskDisciplineSample(
+            trade,
+            mae.Value / risk.Value,
+            trade.GrossPnl / risk.Value);
+    }
+
+    private static decimal LowerBetterPoints(decimal value, decimal excellent, decimal good, decimal watch)
+        => value <= excellent ? 100m : value <= good ? 70m : value <= watch ? 40m : 0m;
+
+    private static string RiskPointsTone(decimal? points)
+        => points is null ? "muted" : points >= 70m ? "positive" : points >= 40m ? "neutral" : "negative";
+
+    private static string RiskScoreTier(decimal value, RiskDisciplineThresholds thresholds)
+        => value >= thresholds.ScoreExcellent
+            ? "Excellent"
+            : value >= thresholds.ScoreGood
+                ? "Good"
+                : value >= thresholds.ScoreWatch
+                    ? "Watch"
+                    : "Needs work";
+
+    private static string RiskScoreTone(decimal value, RiskDisciplineThresholds thresholds)
+        => value >= thresholds.ScoreGood ? "positive" : value >= thresholds.ScoreWatch ? "neutral" : "negative";
+
+    private static string FormatRiskPercent(decimal? value)
+        => value.HasValue ? $"{value.Value * 100m:0.0}%" : "—";
+
+    private static string FormatRiskR(decimal? value)
+        => value.HasValue ? $"{value.Value:0.00}R" : "—";
+
+    private static string FormatRiskRatio(decimal? value)
+        => value.HasValue ? value.Value.ToString("0.00", UiCulture) : "—";
+
+    private static TearSheetIndicator RiskDisciplineScoreIndicator(RiskDisciplineScore score)
+        => score.Value.HasValue
+            ? CreateIndicator("Risk Discipline Score", $"{score.DisplayValue}/100", "Equal-weight average of five risk-discipline components.", score.Tone, score.Value.Value)
+            : Missing("Risk Discipline Score", score.Summary);
 
     private static TearSheetScStatistics BuildScTradeStatistics(
         IReadOnlyList<Trade> trades,
@@ -1266,6 +1613,11 @@ public static class TearSheetMetrics
         decimal LowestCumulativeLoss,
         decimal MaximumRunup,
         decimal MaximumDrawdown);
+
+    private sealed record RiskDisciplineSample(
+        Trade Trade,
+        decimal MaeR,
+        decimal ResultR);
 
     private sealed class TradeStats
     {

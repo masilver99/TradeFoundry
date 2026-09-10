@@ -414,6 +414,35 @@ button, input, select, textarea { font: inherit; }
 .tf-scale-beta { background: linear-gradient(to right, #6b78ff 0%, var(--tf-green) 25%, var(--tf-gold) 50%, var(--tf-red) 75%, var(--tf-red) 100%); }
 .tf-scale-treynor { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 17%, var(--tf-gold) 25%, #8bc34a 42%, var(--tf-green) 67%, #56e07f 100%); }
 .tf-scale-m2 { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 20%, var(--tf-gold) 30%, #8bc34a 50%, var(--tf-green) 70%, #56e07f 100%); }
+.tf-scale-risk-discipline { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 50%, var(--tf-gold) 70%, #8bc34a 85%, var(--tf-green) 100%); }
+.tf-risk-discipline-layout { display: grid; grid-template-columns: minmax(250px, .75fr) minmax(0, 1.75fr); gap: 16px; align-items: start; }
+.tf-risk-discipline-score-card { margin: 0; }
+.tf-risk-discipline-score-card .card-header { align-items: center; }
+.tf-risk-discipline-score-card .card-body { padding: 16px; }
+.tf-risk-discipline-badge { display: inline-flex; align-items: center; border: 1px solid var(--tf-line); border-radius: 999px; padding: 3px 8px; color: var(--tf-muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
+.tf-risk-discipline-badge.positive { border-color: rgba(63,185,80,.45); background: rgba(63,185,80,.12); color: var(--tf-green); }
+.tf-risk-discipline-badge.neutral { border-color: rgba(210,153,34,.45); background: rgba(210,153,34,.12); color: var(--tf-gold); }
+.tf-risk-discipline-badge.negative { border-color: rgba(248,81,73,.45); background: rgba(248,81,73,.12); color: var(--tf-red); }
+.tf-risk-discipline-score-value { color: var(--tf-ink); font-size: 42px; font-weight: 700; letter-spacing: -.04em; line-height: 1; }
+.tf-risk-discipline-score-value.positive { color: var(--tf-green); }
+.tf-risk-discipline-score-value.neutral { color: var(--tf-gold); }
+.tf-risk-discipline-score-value.negative { color: var(--tf-red); }
+.tf-risk-discipline-score-value.muted { color: var(--tf-muted); }
+.tf-risk-discipline-score-value span { margin-left: 3px; color: var(--tf-muted); font-size: 16px; font-weight: 600; letter-spacing: 0; }
+.tf-risk-discipline-score-scale { margin-top: 14px; }
+.tf-risk-discipline-summary { margin: 14px 0 0; color: var(--tf-ink); font-size: 12px; line-height: 1.45; }
+.tf-risk-discipline-coverage { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 10px; color: var(--tf-muted); font-size: 10px; line-height: 1.35; }
+.tf-risk-discipline-components { display: grid; gap: 7px; margin: 14px 0 0; padding: 12px 0 0; border-top: 1px solid var(--tf-line); list-style: none; }
+.tf-risk-discipline-component { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; align-items: baseline; font-size: 11px; }
+.tf-risk-discipline-component > span { color: var(--tf-muted); }
+.tf-risk-discipline-component > strong { color: var(--tf-ink); font-size: 11px; }
+.tf-risk-discipline-component > strong.positive { color: var(--tf-green); }
+.tf-risk-discipline-component > strong.neutral { color: var(--tf-gold); }
+.tf-risk-discipline-component > strong.negative { color: var(--tf-red); }
+.tf-risk-discipline-component > strong.muted { color: var(--tf-muted); }
+.tf-risk-discipline-component > small { grid-column: 1 / -1; color: var(--tf-muted); font-size: 9px; line-height: 1.3; }
+.tf-risk-discipline-footnote { margin: 12px 0 0; color: var(--tf-muted); font-size: 10px; line-height: 1.4; }
+.tf-risk-discipline-indicator-grid { align-content: start; }
 .tf-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .tf-library-chart { min-width: 0; margin: 0; }
 .tf-library-chart-wide { grid-column: span 2; }
@@ -497,9 +526,9 @@ button, input, select, textarea { font: inherit; }
   .tf-import-row form { grid-column: 2; grid-row: 1 / 3; }
   .tf-trade-chart-toolbar { align-items: flex-start; flex-direction: column; }
   .tf-trade-chart-toolbar form { width: 100%; }
-  .tf-chart-intro-row, .tf-chart-section-heading, .tf-analysis-section-heading, .tf-indicator-group-heading { align-items: flex-start; flex-direction: column; }
+  .tf-chart-intro-row, .tf-chart-section-heading, .tf-chart-subsection-heading, .tf-analysis-section-heading, .tf-indicator-group-heading { align-items: flex-start; flex-direction: column; }
   .tf-chart-count { min-width: 0; }
-  .tf-chart-section-heading > span, .tf-analysis-section-heading > span { text-align: left; }
+  .tf-chart-section-heading > span, .tf-chart-subsection-heading > span, .tf-analysis-section-heading > span { text-align: left; }
   .tf-indicator-group-heading > span { max-width: none; text-align: left; }
   .tf-analysis-index { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: thin; }
   .tf-subsection-index { overflow-x: auto; flex-wrap: nowrap; padding-bottom: .25rem; scrollbar-width: thin; }
@@ -511,6 +540,7 @@ button, input, select, textarea { font: inherit; }
   .tf-period-breakdown-grid { grid-template-columns: minmax(0, 1fr); }
   .tf-period-summary-toolbar { align-items: flex-start; flex-direction: column; }
   .tf-indicator-grid, .tf-indicator-grid-key { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tf-risk-discipline-layout { grid-template-columns: minmax(0, 1fr); }
   .tf-indicator-help { position: static; }
   .tf-indicator-card:nth-child(odd) .tf-indicator-help-popup { left: 0; transform: none; }
   .tf-indicator-card:nth-child(even) .tf-indicator-help-popup { right: 0; left: auto; transform: none; }

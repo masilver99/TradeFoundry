@@ -397,10 +397,96 @@
             <span>drawdown, distributions, and repeatability</span>
         </div>
         <nav class="tf-subsection-index" aria-label="Risk and stability subsections">
+            <a href="#risk-discipline">Risk discipline</a>
             <a href="#risk-drawdown">Drawdown &amp; recovery</a>
             <a href="#risk-rolling">Rolling risk</a>
             <a href="#risk-distributions">Distributions &amp; concentration</a>
         </nav>
+
+        @{
+            var riskDiscipline = Model.Indicators.RiskDiscipline;
+            var riskScore = riskDiscipline.Score;
+            var riskCoverage = riskDiscipline.CompletedTradeCount == 0
+                ? "No completed trades"
+                : $"{riskDiscipline.RiskObservedTradeCount:N0}/{riskDiscipline.CompletedTradeCount:N0} trades with MAE + initial risk";
+            var winnerCoverage = riskDiscipline.WinnerCount == 0
+                ? "No gross winners"
+                : $"{riskDiscipline.RiskObservedWinnerCount:N0}/{riskDiscipline.WinnerCount:N0} gross winners with risk data";
+        }
+
+        <div id="risk-discipline" class="tf-chart-subsection tf-risk-discipline-section" aria-labelledby="risk-discipline-heading">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">RISK DISCIPLINE</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Risk Discipline" aria-expanded="false" aria-controls="risk-discipline-description" aria-label="Show explanation for Risk Discipline"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3 id="risk-discipline-heading">Small wins without relying on rescues</h3>
+                    <p id="risk-discipline-description" class="tf-section-info" hidden>The score is an equal-weight average of five 0–100 components: Rescue Rate, Rescue Profit Share, Winner Heat Ratio, Winner MAE P90, and the MAE violation hard gate. The displayed thresholds are centralized in code and missing MAE or initial-risk evidence keeps the score incomplete.</p>
+                </div>
+                <span>MAE, rescue dependency, and heat</span>
+            </div>
+            <div class="tf-risk-discipline-layout">
+                <article class="card tf-card tf-risk-discipline-score-card">
+                    <div class="card-header">
+                        <div><div class="tf-kicker">OVERALL SCORE</div><h4 class="tf-card-title">Risk Discipline Score</h4></div>
+                        <span class="tf-risk-discipline-badge @riskScore.Tone" data-risk-discipline-tier="@riskScore.Tier" aria-label="Risk Discipline score status: @riskScore.Tier">@riskScore.Tier</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="tf-risk-discipline-score-value @riskScore.Tone">
+                            @riskScore.DisplayValue
+                            @if (riskScore.Value.HasValue)
+                            {
+                                <span>/100</span>
+                            }
+                        </div>
+                        @if (riskScore.Scale is { } riskScale)
+                        {
+                            <div class="tf-indicator-scale tf-risk-discipline-score-scale" role="img" aria-label="Risk Discipline score quality: @riskScore.Tier">
+                                <div class="tf-indicator-scale-marker-row"><span class="tf-indicator-scale-marker" style="left:@riskScale.MarkerPosition%;"></span></div>
+                                <div class="tf-indicator-scale-bar @riskScale.CssClass"></div>
+                                <div class="tf-indicator-scale-tier">@riskScore.Tier</div>
+                            </div>
+                        }
+                        <p class="tf-risk-discipline-summary">@riskScore.Summary</p>
+                        <div class="tf-risk-discipline-coverage"><span>@riskCoverage</span><span>@winnerCoverage</span></div>
+                        <ol class="tf-risk-discipline-components" aria-label="Risk Discipline score components">
+                            @foreach (var component in riskScore.Components)
+                            {
+                                <li class="tf-risk-discipline-component">
+                                    <span>@component.Label</span>
+                                    <strong class="@component.Tone">@(component.Points.HasValue ? $"{component.Points.Value:0}/100" : "—")</strong>
+                                    <small>@component.Target</small>
+                                </li>
+                            }
+                        </ol>
+                        <p class="tf-risk-discipline-footnote">Score = equal-weight average of the five components. Any MAE violation scores zero for that component. Rescues use MAE at or above @riskDiscipline.Thresholds.RescueMaeR.ToString("0.00", CultureInfo.InvariantCulture)R; violations use MAE at or above @riskDiscipline.Thresholds.MaeViolationR.ToString("0.00", CultureInfo.InvariantCulture)R.</p>
+                    </div>
+                </article>
+
+                <div class="tf-indicator-grid tf-risk-discipline-indicator-grid">
+                    @for (var indicatorIndex = 0; indicatorIndex < riskDiscipline.Indicators.Count; indicatorIndex++)
+                    {
+                        var indicator = riskDiscipline.Indicators[indicatorIndex];
+                        var helpId = $"risk-discipline-help-{indicatorIndex}";
+                        <article class="tf-indicator-card">
+                            <div class="tf-indicator-label-row">
+                                <div class="tf-indicator-label">@indicator.Label</div>
+                                @if (!string.IsNullOrWhiteSpace(indicator.Help))
+                                {
+                                    <span class="tf-indicator-help">
+                                        <button type="button" class="tf-indicator-help-button" title="@indicator.Help" aria-label="More information about @indicator.Label" aria-describedby="@helpId">?</button>
+                                        <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">@indicator.Help</span>
+                                    </span>
+                                }
+                            </div>
+                            <div class="tf-indicator-value @indicator.Tone">@indicator.Value</div>
+                            <div class="tf-indicator-note">@indicator.Note</div>
+                        </article>
+                    }
+                </div>
+            </div>
+        </div>
 
         <div id="risk-drawdown" class="tf-chart-subsection">
             <div class="tf-chart-subsection-heading">

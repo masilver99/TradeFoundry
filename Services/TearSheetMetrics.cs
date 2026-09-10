@@ -149,7 +149,7 @@ public static class TearSheetMetrics
         var orders = orderSource.ToArray();
         var balances = balanceSource.Where(balance => balance.Balance.HasValue).ToArray();
         var benchmarks = benchmarkSource.ToArray();
-        var timeZone = ResolveTimeZone(timeZoneId);
+        var timeZone = TimeZoneCatalog.Resolve(timeZoneId);
         var daily = BuildDaily(trades, timeZone);
         var baseline = startingEquity ?? balances
             .OrderBy(balance => balance.EventUtc)
@@ -1116,22 +1116,6 @@ public static class TearSheetMetrics
             return trade.InitialRiskPoints.Value * quantity * pointValue;
         }
         return null;
-    }
-
-    private static TimeZoneInfo ResolveTimeZone(string? timeZoneId)
-    {
-        if (string.IsNullOrWhiteSpace(timeZoneId)) return TimeZoneInfo.Utc;
-        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Eastern Standard Time"] = "America/New_York",
-            ["Central Standard Time"] = "America/Chicago",
-            ["Mountain Standard Time"] = "America/Denver",
-            ["Pacific Standard Time"] = "America/Los_Angeles"
-        };
-        var id = aliases.TryGetValue(timeZoneId.Trim(), out var mapped) ? mapped : timeZoneId.Trim();
-        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
-        catch (TimeZoneNotFoundException) { return TimeZoneInfo.Utc; }
-        catch (InvalidTimeZoneException) { return TimeZoneInfo.Utc; }
     }
 
     private static DateOnly DateInZone(DateTimeOffset value, TimeZoneInfo timeZone) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(value, timeZone).DateTime);

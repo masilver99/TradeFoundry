@@ -67,7 +67,7 @@ public static class TearSheetPeriods
 
     public static TearSheetPeriodData Build(IEnumerable<Trade> source, string? timeZoneId)
     {
-        var timeZone = ResolveTimeZone(timeZoneId);
+        var timeZone = TimeZoneCatalog.Resolve(timeZoneId);
         var trades = source
             .Where(trade => trade.ExitUtc.HasValue)
             .OrderBy(trade => trade.ExitUtc)
@@ -283,22 +283,6 @@ public static class TearSheetPeriods
     {
         var effectiveRate = LongTermShare * LongTermRate + ShortTermShare * DefaultTaxRate;
         return Math.Round(Math.Max(netPnl, 0m) * effectiveRate, 2);
-    }
-
-    private static TimeZoneInfo ResolveTimeZone(string? timeZoneId)
-    {
-        if (string.IsNullOrWhiteSpace(timeZoneId)) return TimeZoneInfo.Utc;
-        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Eastern Standard Time"] = "America/New_York",
-            ["Central Standard Time"] = "America/Chicago",
-            ["Mountain Standard Time"] = "America/Denver",
-            ["Pacific Standard Time"] = "America/Los_Angeles"
-        };
-        var id = aliases.TryGetValue(timeZoneId.Trim(), out var mapped) ? mapped : timeZoneId.Trim();
-        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
-        catch (TimeZoneNotFoundException) { return TimeZoneInfo.Utc; }
-        catch (InvalidTimeZoneException) { return TimeZoneInfo.Utc; }
     }
 
     private sealed record TimedTrade(Trade Trade, DateTimeOffset ExitLocal, DateTimeOffset EntryLocal, DateOnly ExitDate);

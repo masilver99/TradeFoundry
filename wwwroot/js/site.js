@@ -8,22 +8,39 @@ document.addEventListener("DOMContentLoaded", () => {
   initializePeriodSummary();
   initializePnlCalendar();
   initializeSidebarResize();
+  initializeImportDropzones();
 
-  const fileInput = document.querySelector("#import-file");
-  const dropZone = fileInput?.closest(".drop-zone");
-  if (fileInput && dropZone) {
+  const filter = document.querySelector("#trade-filter");
+  const table = document.querySelector("#trade-table");
+  if (filter && table) {
+    filter.addEventListener("input", () => {
+      const needle = filter.value.trim().toLowerCase();
+      table.querySelectorAll("tbody tr").forEach(row => {
+        row.hidden = needle.length > 0 && !row.textContent.toLowerCase().includes(needle);
+      });
+    });
+  }
+});
+
+function initializeImportDropzones() {
+  document.querySelectorAll("[data-import-dropzone]").forEach(dropZone => {
+    const fileInput = dropZone.querySelector("input[type=file]");
+    if (!fileInput) return;
+    const preview = dropZone.dataset.previewTarget ? document.querySelector(dropZone.dataset.previewTarget) : null;
+
     fileInput.addEventListener("change", () => {
       const file = fileInput.files?.[0];
       if (!file) return;
-      dropZone.querySelector("strong").textContent = file.name;
-      const preview = document.querySelector("#import-preview");
+      const label = dropZone.querySelector("strong");
+      if (label) label.textContent = file.name;
       if (!preview) return;
       const reader = new FileReader();
       reader.onload = () => {
         const lines = String(reader.result || "").replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean).slice(0, 4);
-        const header = (lines[0] || "").toLowerCase();
-        const detected = header.includes("activitytype") ? "Sierra Chart fills" : header.includes("open") && header.includes("high") && header.includes("low") && header.includes("close") ? "OHLCV bars" : header.includes("trade #") || header.includes("trade number") ? "TradingView Strategy Tester" : "TradingView account history";
-        preview.textContent = `Preview · ${detected}\n${lines.join("\n")}\n\nReview the journal context, grouping, and bar interval, then submit to commit.`;
+        const header = (lines[0] || "").toLowerCase().replace(/\s+/g, "");
+        const isSierraBars = header.includes("date") && header.includes("time") && header.includes("open") && header.includes("high") && header.includes("low") && header.includes("last");
+        const detected = header.includes("activitytype") ? "Sierra Chart fills" : isSierraBars ? "Sierra Chart OHLC bars" : header.includes("open") && header.includes("high") && header.includes("low") && (header.includes("close") || header.includes("last")) ? "OHLCV bars" : header.includes("trade#") || header.includes("tradenumber") ? "TradingView Strategy Tester" : "TradingView account history";
+        preview.textContent = `Preview · ${detected}\n${lines.join("\n")}\n\nReview the symbol and interval, then submit to commit.`;
         preview.hidden = false;
       };
       reader.readAsText(file.slice(0, 12000));
@@ -39,22 +56,17 @@ document.addEventListener("DOMContentLoaded", () => {
     dropZone.addEventListener("drop", event => {
       const files = event.dataTransfer?.files;
       if (!files?.length) return;
-      fileInput.files = files;
+      try {
+        const transfer = new DataTransfer();
+        transfer.items.add(files[0]);
+        fileInput.files = transfer.files;
+      } catch {
+        fileInput.files = files;
+      }
       fileInput.dispatchEvent(new Event("change", { bubbles: true }));
     });
-  }
-
-  const filter = document.querySelector("#trade-filter");
-  const table = document.querySelector("#trade-table");
-  if (filter && table) {
-    filter.addEventListener("input", () => {
-      const needle = filter.value.trim().toLowerCase();
-      table.querySelectorAll("tbody tr").forEach(row => {
-        row.hidden = needle.length > 0 && !row.textContent.toLowerCase().includes(needle);
-      });
-    });
-  }
-});
+  });
+}
 
 function initializeSidebarResize() {
   const app = document.querySelector(".tf-app");

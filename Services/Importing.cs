@@ -13,17 +13,26 @@ public sealed class ImportService
 
     public ImportService(TradeFoundryDb database) => _database = database;
 
-    public async Task<ImportResult> ImportAsync(Guid journalId, string fileName, Stream content, string requestedType, string groupingPolicy, string interval, CancellationToken cancellationToken = default, string benchmarkSymbol = "SPY")
+    public async Task<ImportResult> ImportAsync(Guid journalId, string fileName, Stream content, string requestedType, string groupingPolicy, string interval, CancellationToken cancellationToken = default, string benchmarkSymbol = "SPY", string barSymbol = "", string? timeZone = null)
     {
         using var memory = new MemoryStream();
         await content.CopyToAsync(memory, cancellationToken);
         var text = Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF');
-        var journalTimeZone = _database.GetJournal(journalId)?.TimeZone ?? "UTC";
-        var parsed = Parse(text, requestedType, interval, journalTimeZone, benchmarkSymbol, _database.GetInstrumentConfiguration());
-        return _database.CommitImport(journalId, fileName, parsed, groupingPolicy, interval);
+        return ImportText(journalId, fileName, text, requestedType, groupingPolicy, interval, benchmarkSymbol, barSymbol, timeZone);
     }
 
-    public ParsedImport Parse(string text, string requestedType = "auto", string interval = "source", string timeZone = "UTC", string benchmarkSymbol = "SPY", InstrumentConfiguration? configuration = null)
+    public ImportResult ImportText(Guid journalId, string fileName, string text, string requestedType, string groupingPolicy, string interval, string benchmarkSymbol = "SPY", string barSymbol = "", string? timeZone = null)
+    {
+        text = (text ?? string.Empty).TrimStart('\uFEFF');
+        var journal = _database.GetJournal(journalId);
+        var journalTimeZone = TimeZoneCatalog.CanonicalId(journal?.TimeZone ?? "UTC");
+        var requestedTimeZone = string.IsNullOrWhiteSpace(timeZone) ? TimeZoneCatalog.Auto : timeZone;
+        var importTimeZone = ResolveSourceTimeZone(text, requestedType, requestedTimeZone, journalTimeZone);
+        var parsed = Parse(text, requestedType, interval, importTimeZone, benchmarkSymbol, _database.GetInstrumentConfiguration(), barSymbol);
+        return _database.CommitImport(journalId, fileName, parsed, groupingPolicy, interval, importTimeZone);
+    }
+
+    public ParsedImport Parse(string text, string requestedType = "auto", string interval = "source", string timeZone = "UTC", string benchmarkSymbol = "SPY", InstrumentConfiguration? configuration = null, string barSymbol = "")
     {
         configuration ??= InstrumentConfiguration.Empty;
         var result = new ParsedImport();
@@ -44,7 +53,8 @@ public sealed class ImportService
             ImportSource.TradingViewAccount => ParseTradingViewAccount(lines, headerLine, headers, delimiter, timeZone, configuration),
             ImportSource.TradingViewStrategy => ParseTradingViewStrategy(lines, headerLine, headers, delimiter, timeZone, configuration),
             ImportSource.Benchmark => ParseBenchmark(lines, headerLine, headers, delimiter, timeZone, benchmarkSymbol),
-            _ => ParseBars(lines, headerLine, headers, delimiter, interval, timeZone)
+            ImportSource.SierraBars => ParseBars(lines, headerLine, headers, delimiter, interval, timeZone, barSymbol, TradeFoundryConstants.SierraOhlcBars),
+            _ => ParseBars(lines, headerLine, headers, delimiter, interval, timeZone, barSymbol, TradeFoundryConstants.OhlcvBars)
         };
         return result;
     }
@@ -318,18 +328,22 @@ public sealed class ImportService
         return result;
     }
 
-    private static ParsedImport ParseBars(string[] lines, string headerLine, string[] headers, char delimiter, string interval, string timeZone)
+    private static ParsedImport ParseBars(string[] lines, string headerLine, string[] headers, char delimiter, string interval, string timeZone, string barSymbol, string sourceType)
     {
-        var result = NewResult(TradeFoundryConstants.OhlcvBars);
-        interval = string.IsNullOrWhiteSpace(interval) ? "source" : interval.Trim();
-        foreach (var (row, rowNumber) in Rows(lines, headerLine, headers, delimiter))
+        var result = NewResult(sourceType);
+        var rows = Rows(lines, headerLine, headers, delimiter).ToArray();
+        var requiresInterval = sourceType.Equals(TradeFoundryConstants.SierraOhlcBars, StringComparison.Ordinal);
+        interval = ResolveBarInterval(interval, rows, headers, timeZone, requiresInterval);
+        result.ResolvedBarInterval = interval;
+        foreach (var (row, rowNumber) in rows)
         {
             var payload = JsonSerializer.Serialize(row);
-            var symbol = CleanSymbol(Value(row, headers, "symbol", "ticker", "instrument"));
-            var dateText = Value(row, headers, "datetime", "timestamp", "date-time", "date", "time");
+            var symbol = NormalizeBarSymbol(Value(row, headers, "symbol", "ticker", "instrument"));
+            if (string.IsNullOrWhiteSpace(symbol)) symbol = NormalizeBarSymbol(barSymbol);
+            var dateText = BarDateTimeText(row, headers);
             if (!TryDate(dateText, timeZone, out var eventUtc))
             {
-                result.Warnings.Add($"OHLCV row {rowNumber}: timestamp could not be parsed.");
+                result.Warnings.Add($"OHLC row {rowNumber}: date and time could not be parsed.");
                 result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = Fingerprint(result.SourceType, row), RowNumber = rowNumber, PayloadJson = payload });
                 continue;
             }
@@ -339,14 +353,72 @@ public sealed class ImportService
             var close = DecimalOrNull(Value(row, headers, "close", "last"));
             if (string.IsNullOrWhiteSpace(symbol) || !open.HasValue || !high.HasValue || !low.HasValue || !close.HasValue)
             {
-                result.Warnings.Add($"OHLCV row {rowNumber}: symbol and OHLC values are required.");
+                result.Warnings.Add($"OHLC row {rowNumber}: symbol and Open, High, Low, and Last/Close values are required.");
                 result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = Fingerprint(result.SourceType, row), RowNumber = rowNumber, PayloadJson = payload });
                 continue;
             }
-            var bar = new BarDraft { Symbol = symbol, Interval = interval, EventUtc = eventUtc, Open = open.Value, High = high.Value, Low = low.Value, Close = close.Value, Volume = LongOrNull(Value(row, headers, "volume", "vol")) };
+            if (high.Value < Math.Max(open.Value, close.Value) || low.Value > Math.Min(open.Value, close.Value) || high.Value < low.Value)
+            {
+                result.Warnings.Add($"OHLC row {rowNumber}: High/Low do not contain the Open and Close values; the raw row was retained.");
+                result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = Fingerprint(result.SourceType, row), RowNumber = rowNumber, PayloadJson = payload });
+                continue;
+            }
+            var bar = new BarDraft
+            {
+                Symbol = symbol,
+                Interval = interval,
+                EventUtc = eventUtc,
+                Open = open.Value,
+                High = high.Value,
+                Low = low.Value,
+                Close = close.Value,
+                Volume = LongOrNull(Value(row, headers, "volume", "vol")),
+                NumberOfTrades = LongOrNull(Value(row, headers, "numberoftrades", "trades")),
+                BidVolume = LongOrNull(Value(row, headers, "bidvolume", "bidvol")),
+                AskVolume = LongOrNull(Value(row, headers, "askvolume", "askvol"))
+            };
             result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = $"{symbol}\u001f{interval}\u001f{eventUtc:O}", RowNumber = rowNumber, PayloadJson = payload, Bar = bar });
         }
         return result;
+    }
+
+    private static string ResolveBarInterval(string interval, IReadOnlyList<(Dictionary<string, string> Row, int Number)> rows, string[] headers, string timeZone, bool required)
+    {
+        if (!BarIntervals.IsAuto(interval)) return BarIntervals.Normalize(interval, allowSource: !required);
+        if (!required) return BarIntervals.Source;
+
+        var timestamps = rows
+            .Take(32)
+            .Select(item => BarDateTimeText(item.Row, headers))
+            .Select(value => TryDate(value, timeZone, out var timestamp) ? timestamp : (DateTimeOffset?)null)
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value)
+            .OrderBy(value => value)
+            .ToArray();
+        var minuteDifferences = timestamps
+            .Zip(timestamps.Skip(1), (first, second) => (second - first).TotalMinutes)
+            .Where(minutes => minutes >= 1 && minutes <= 10080)
+            .Select(minutes => (int)Math.Round(minutes, MidpointRounding.AwayFromZero))
+            .Where(minutes => minutes >= 1)
+            .ToArray();
+        var inferredMinutes = minuteDifferences
+            .GroupBy(minutes => minutes)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key)
+            .Select(group => group.Key)
+            .FirstOrDefault();
+        if (inferredMinutes < 1)
+            throw new FormatException("The bar interval could not be inferred from the first rows. Enter an interval such as 1m, 5m, or 1h and import again.");
+        return BarIntervals.Format(inferredMinutes);
+    }
+
+    private static string BarDateTimeText(Dictionary<string, string> row, string[] headers)
+    {
+        var combined = Value(row, headers, "datetime", "timestamp", "date-time", "dateandtime");
+        if (!string.IsNullOrWhiteSpace(combined)) return combined;
+        var date = Value(row, headers, "date");
+        var time = Value(row, headers, "time");
+        return string.IsNullOrWhiteSpace(time) ? date : $"{date} {time}".Trim();
     }
 
     private static IEnumerable<(Dictionary<string, string> Row, int Number)> Rows(string[] lines, string headerLine, string[] headers, char delimiter)
@@ -371,6 +443,7 @@ public sealed class ImportService
             TradeFoundryConstants.TradingViewAccount or TradeFoundryConstants.TradingViewStrategy => TradeFoundryConstants.TradingView,
             TradeFoundryConstants.BenchmarkSeries => TradeFoundryConstants.Benchmark,
             TradeFoundryConstants.OhlcvBars => TradeFoundryConstants.Ohlcv,
+            TradeFoundryConstants.SierraOhlcBars => TradeFoundryConstants.SierraChart,
             _ => string.Empty
         }
     };
@@ -386,6 +459,7 @@ public sealed class ImportService
     {
         var request = NormalizeHeader(requestedType);
         if (request is "sierra" or "sierrachart" or "sierracfills") return ImportSource.Sierra;
+        if (request is "sierrabars" or "sierraohlc" or "sierraohlcbars" or "sierrachartbars") return ImportSource.SierraBars;
         if (request is "tradingviewstrategy" or "strategy" or "strategytester") return ImportSource.TradingViewStrategy;
         if (request is "tradingviewaccount" or "account" or "broker") return ImportSource.TradingViewAccount;
         if (request is "benchmark" or "benchmarkseries" or "benchmarkdaily") return ImportSource.Benchmark;
@@ -393,8 +467,86 @@ public sealed class ImportService
         if (headers.Contains("activitytype") || headers.Contains("fillexecutionserviceid")) return ImportSource.Sierra;
         if ((headers.Contains("trade") || headers.Contains("tradenumber")) && (headers.Contains("netpnl") || headers.Contains("profit") || headers.Contains("entryprice"))) return ImportSource.TradingViewStrategy;
         if ((headers.Contains("adjclose") || headers.Contains("adjustedclose") || headers.Contains("totalreturn") || headers.Contains("totalreturnvalue")) && (headers.Contains("date") || headers.Contains("datetime") || headers.Contains("timestamp"))) return ImportSource.Benchmark;
-        if (headers.Contains("open") && headers.Contains("high") && headers.Contains("low") && headers.Contains("close")) return ImportSource.Bars;
+        if (headers.Contains("open") && headers.Contains("high") && headers.Contains("low") && (headers.Contains("close") || headers.Contains("last"))) return ImportSource.Bars;
         return ImportSource.TradingViewAccount;
+    }
+
+    private static string ResolveSourceTimeZone(string text, string requestedType, string requestedTimeZone, string journalTimeZone)
+    {
+        var canonical = TimeZoneCatalog.CanonicalId(requestedTimeZone);
+        if (!TimeZoneCatalog.IsAuto(canonical))
+        {
+            if (!TimeZoneCatalog.TryResolve(canonical, out _))
+                throw new FormatException("The selected source timezone is not supported.");
+            return canonical;
+        }
+
+        if (!TryReadHeader(text, out var lines, out var headerLine, out var headers, out var delimiter))
+            return journalTimeZone;
+
+        var source = DetectSource(headers, requestedType);
+        if (source == ImportSource.Sierra)
+        {
+            if (LooksLikeSierraFileExport(lines, headerLine, headers, delimiter))
+                return "UTC";
+
+            // Sierra's display-time Save Log As files do not carry a marker
+            // distinguishing them from an exchange export whose multiplier is
+            // one. Preserve the journal-timezone default for display prices;
+            // users can explicitly choose UTC when the file came from File →
+            // Export but has no detectable fixed-point price.
+            return journalTimeZone;
+        }
+
+        // Sierra chart-bar files are normally written in the chart timezone.
+        // Other unzoned sources use the journal timezone unless the user
+        // explicitly selects another source timezone.
+        return journalTimeZone;
+    }
+
+    private static bool TryReadHeader(string text, out string[] lines, out string headerLine, out string[] headers, out char delimiter)
+    {
+        lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        headerLine = lines.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(headerLine))
+        {
+            headers = Array.Empty<string>();
+            delimiter = ',';
+            return false;
+        }
+
+        delimiter = ChooseDelimiter(headerLine);
+        headers = ParseDelimitedLine(headerLine, delimiter).Select(NormalizeHeader).ToArray();
+        return headers.Length > 0;
+    }
+
+    private static bool LooksLikeSierraFileExport(string[] lines, string headerLine, string[] headers, char delimiter)
+    {
+        foreach (var (row, _) in Rows(lines, headerLine, headers, delimiter))
+        {
+            var symbol = CleanSymbol(Value(row, headers, "symbol", "ticker", "instrument"));
+            var orderActionSource = Value(row, headers, "orderactionsource");
+            foreach (var field in new[] { "fillprice", "price", "price2" })
+            {
+                var rawText = Value(row, headers, field);
+                if (!TryDecimal(rawText, out var rawPrice) || rawPrice == 0m)
+                    continue;
+
+                if (SierraPriceNormalizer.DetermineScale(rawPrice, symbol, orderActionSource) > 1m)
+                    return true;
+
+                // Sierra's exchange-native export commonly preserves a
+                // fixed-point representation with several trailing digits.
+                // This catches symbols whose configured multiplier is not
+                // available to the importer while avoiding ordinary display
+                // prices from Save Log As.
+                var decimalPoint = rawText.IndexOf('.', StringComparison.Ordinal);
+                if (decimalPoint >= 0 && rawText.Length - decimalPoint - 1 >= 6)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static char ChooseDelimiter(string header) => header.Count(x => x == '\t') > header.Count(x => x == ',') ? '\t' : ',';
@@ -437,6 +589,11 @@ public sealed class ImportService
     }
 
     private static string CleanSymbol(string value) => value.Replace("[Sim]", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+    private static string NormalizeBarSymbol(string value)
+    {
+        var cleaned = CleanSymbol(value);
+        return string.IsNullOrWhiteSpace(cleaned) ? string.Empty : InstrumentCatalog.ExtractRoot(cleaned);
+    }
     private static string NormalizeSide(string value)
     {
         if (value.Contains("buy", StringComparison.OrdinalIgnoreCase) || value.Contains("long", StringComparison.OrdinalIgnoreCase)) return "Buy";
@@ -472,23 +629,8 @@ public sealed class ImportService
         }
         if (!DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out var local) && !DateTime.TryParse(text, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out local))
             return false;
-        var zone = ResolveTimeZone(timeZoneId);
-        var unspecified = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
-        value = new DateTimeOffset(unspecified, zone.GetUtcOffset(unspecified)).ToUniversalTime();
+        value = TimeZoneCatalog.FromLocal(local, timeZoneId);
         return true;
-    }
-
-    private static TimeZoneInfo ResolveTimeZone(string id)
-    {
-        if (string.IsNullOrWhiteSpace(id)) return TimeZoneInfo.Utc;
-        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Eastern Standard Time"] = "America/New_York", ["Central Standard Time"] = "America/Chicago", ["Mountain Standard Time"] = "America/Denver", ["Pacific Standard Time"] = "America/Los_Angeles"
-        };
-        if (aliases.TryGetValue(id.Trim(), out var mapped)) id = mapped;
-        try { return TimeZoneInfo.FindSystemTimeZoneById(id.Trim()); }
-        catch (TimeZoneNotFoundException) { return TimeZoneInfo.Utc; }
-        catch (InvalidTimeZoneException) { return TimeZoneInfo.Utc; }
     }
     private static bool TryDecimal(string text, out decimal value)
     {
@@ -518,5 +660,5 @@ public sealed class ImportService
         return string.Empty;
     }
 
-    private enum ImportSource { Sierra, TradingViewAccount, TradingViewStrategy, Benchmark, Bars }
+    private enum ImportSource { Sierra, SierraBars, TradingViewAccount, TradingViewStrategy, Benchmark, Bars }
 }

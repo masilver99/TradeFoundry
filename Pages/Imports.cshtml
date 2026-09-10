@@ -6,6 +6,9 @@
     ViewData["PageKicker"] = "TRADEFOUNDRY / DATA";
     ViewData["ActiveNav"] = "imports";
     var action = $"/journal/{Model.JournalId:D}/imports";
+    var previousCalendarUrl = $"{action}?calendarStart={Model.Calendar.PreviousStartMonth:yyyy-MM-dd}&calendarSymbol={Uri.EscapeDataString(Model.CalendarSymbol)}";
+    var nextCalendarUrl = $"{action}?calendarStart={Model.Calendar.NextStartMonth:yyyy-MM-dd}&calendarSymbol={Uri.EscapeDataString(Model.CalendarSymbol)}";
+    var calendarWeekdays = new[] { "S", "M", "T", "W", "T", "F", "S" };
 }
 
 @if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
@@ -16,29 +19,130 @@
 <section class="row row-cards mb-3">
     <div class="col-xl-8">
         <div class="card tf-card">
-            <div class="card-header"><div><div class="tf-kicker">INGEST</div><h3 class="tf-card-title">Import records</h3></div></div>
+            <div class="card-header"><div><div class="tf-kicker">INGEST / TRADES</div><h3 class="tf-card-title">Import trade records</h3></div></div>
             <div class="card-body">
                 <form method="post" enctype="multipart/form-data" action="@($"{action}?handler=Import")">
                     @Html.AntiForgeryToken()
                     <input type="hidden" name="journalId" value="@Model.JournalId" />
                     <div class="row g-3">
-                        <div class="col-md-5"><label class="tf-import-dropzone" for="import-file"><strong>Drop a CSV or TSV here</strong><span>or choose an export file</span><input id="import-file" asp-for="ImportFile" type="file" accept=".csv,.tsv,.txt" required /></label><pre id="import-preview" class="tf-import-preview" hidden></pre></div>
+                        <div class="col-md-5"><label class="tf-import-dropzone" data-import-dropzone data-preview-target="#import-preview" for="import-file"><strong>Drop a CSV or TSV here</strong><span>or choose an export file</span><input id="import-file" asp-for="ImportFile" type="file" accept=".csv,.tsv,.txt" required /></label><pre id="import-preview" class="tf-import-preview" hidden></pre></div>
                         <div class="col-md-7">
                             <div class="row g-3">
-                                <div class="col-md-6"><label class="form-label">Format<select asp-for="RequestedType" class="form-select"><option value="auto">Auto-detect</option><option value="sierra">Sierra Chart fills + orders</option><option value="tradingview-account">TradingView account history</option><option value="tradingview-strategy">TradingView Strategy Tester</option><option value="benchmark">Benchmark daily series</option><option value="ohlcv">OHLCV bars</option></select></label></div>
+                                <div class="col-md-6"><label class="form-label">Format<select asp-for="RequestedType" class="form-select"><option value="auto">Auto-detect</option><option value="sierra">Sierra Chart fills + orders</option><option value="tradingview-account">TradingView account history</option><option value="tradingview-strategy">TradingView Strategy Tester</option><option value="benchmark">Benchmark daily series</option></select></label></div>
                                 <div class="col-md-6"><label class="form-label">Grouping<select asp-for="GroupingPolicy" class="form-select"><option value="flat_to_flat">Flat-to-flat</option><option value="fifo_lots">FIFO lots (phase 2)</option><option value="source_defined">Source-defined rows</option></select></label></div>
-                                <div class="col-md-6"><label class="form-label">Bar interval<input asp-for="BarInterval" class="form-control" placeholder="source, 1m, 5m…" /></label></div>
                                 <div class="col-md-6"><label class="form-label">Benchmark ticker<input asp-for="BenchmarkSymbol" class="form-control" placeholder="^GSPC" /></label></div>
+                                <div class="col-md-6"><label class="form-label">Source timezone<select asp-for="ImportTimeZone" class="form-select">@foreach (var timeZone in Model.ImportTimeZones){<option value="@timeZone.Id">@timeZone.Label</option>}</select></label><div class="form-hint">Auto-detect is recommended. Sierra <em>File &rarr; Export</em> is UTC; <em>Save Log As</em> uses Sierra&rsquo;s visible timezone. Other files use @Model.Journal?.TimeZone.</div></div>
                                 <div class="col-12"><button class="btn btn-primary" type="submit">Import &amp; rebuild</button></div>
                             </div>
                         </div>
                     </div>
                 </form>
-                <p class="text-secondary small mb-0 mt-3">Imports are deduplicated per journal. Raw rows remain linked to typed fills, order events, balances, benchmark points, and derived trades; Undo removes one batch and rebuilds the affected evidence. Analysis automatically downloads the default S&amp;P 500 daily benchmark when completed trades exist.</p>
+                <p class="text-secondary small mb-0 mt-3">Trade imports are deduplicated per journal. Raw rows remain linked to typed fills, order events, balances, benchmark points, and derived trades; Undo removes one batch and rebuilds the affected evidence. Auto-detect identifies Sierra&rsquo;s exchange-native <em>File &rarr; Export</em> format as UTC; use the journal timezone for <em>File &rarr; Save Log As</em>. Explicit offsets in the file still take precedence.</p>
             </div>
         </div>
     </div>
-    <div class="col-xl-4"><div class="card tf-card tf-phase-card h-100"><div class="card-body"><div class="tf-kicker">WORKSPACE RULE</div><h3 class="tf-card-title mb-3">Evidence stays connected.</h3><p class="text-secondary small mb-0">Sierra fills, order events, TradingView histories, benchmark series, strategy trades, and OHLCV bars remain separate source adapters inside the active journal.</p></div></div></div>
+    <div class="col-xl-4"><div class="card tf-card tf-phase-card h-100"><div class="card-body"><div class="tf-kicker">WORKSPACE RULE</div><h3 class="tf-card-title mb-3">Evidence stays connected.</h3><p class="text-secondary small mb-0">Sierra fills, order events, TradingView histories, benchmark series, and strategy trades remain separate source adapters inside the active journal.</p></div></div></div>
+</section>
+
+<section class="row row-cards mb-3">
+    <div class="col-xl-8">
+        <div class="card tf-card">
+            <div class="card-header tf-ohlc-card-header">
+                <div><div class="tf-kicker">INGEST / MARKET DATA</div><h3 class="tf-card-title">Import Sierra Chart OHLC bars</h3></div>
+                <div class="tf-ohlc-header-actions"><span class="text-secondary">CSV, TSV, or paste</span><form method="post" action="@($"{action}?handler=ClearOhlc")" onsubmit="return confirm('Clear all shared OHLC bars and OHLC import records? Trade records will not be changed.');"><input type="hidden" name="journalId" value="@Model.JournalId" />@Html.AntiForgeryToken()<button class="btn btn-danger btn-sm" type="submit">Clear OHLC data</button></form></div>
+            </div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" action="@($"{action}?handler=ImportBars")">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="journalId" value="@Model.JournalId" />
+                    <div class="row g-3">
+                        <div class="col-lg-5">
+                            <label class="tf-import-dropzone" data-import-dropzone data-preview-target="#bar-import-preview" for="bar-import-file"><strong>Drop a Sierra bar file here</strong><span>or choose an export file</span><input id="bar-import-file" asp-for="BarImportFile" type="file" accept=".csv,.tsv,.txt" /></label>
+                            <pre id="bar-import-preview" class="tf-import-preview" hidden></pre>
+                        </div>
+                        <div class="col-lg-7">
+                            <label class="form-label" for="bar-import-text">Paste OHLC rows <span class="text-secondary">(optional if a file is selected)</span></label>
+                            <textarea id="bar-import-text" asp-for="BarText" class="form-control tf-import-textarea" rows="9" placeholder="Date, Time, Open, High, Low, Last, Volume, NumberOfTrades, BidVolume, AskVolume&#xA;2026/8/16, 18:00:00, 7809.00, 7809.75, 7804.50, 7805.50, 1053, 755, 573, 480"></textarea>
+                        </div>
+                    </div>
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-4"><label class="form-label">CME symbol / root<input asp-for="BarSymbol" class="form-control" placeholder="MES" required /></label><div class="form-hint">Enter the CME root, such as MES, ES, or NQ. Contract symbols such as MESZ26 are normalized to the root.</div></div>
+                        <div class="col-md-4"><label class="form-label">Bar interval <span class="text-secondary">(optional)</span><input asp-for="BarImportInterval" class="form-control" list="bar-interval-options" placeholder="Auto-detect" /></label><datalist id="bar-interval-options"><option value="auto">Auto-detect from first rows</option><option value="1m">1 minute</option><option value="5m">5 minutes</option><option value="15m">15 minutes</option><option value="30m">30 minutes</option><option value="1h">1 hour</option><option value="4h">4 hours</option><option value="1d">1 day</option></datalist><div class="form-hint">Auto-detection uses the spacing between the first valid rows. Override it if the file has gaps.</div></div>
+                        <div class="col-md-4"><label class="form-label">Source timezone<select asp-for="BarImportTimeZone" class="form-select">@foreach (var timeZone in Model.BarImportTimeZones){<option value="@timeZone.Id">@timeZone.Label</option>}</select></label><div class="form-hint">Auto-detect uses @Model.Journal?.TimeZone. Choose UTC only when Sierra wrote the bars with its UTC option.</div></div>
+                        <div class="col-12 d-flex align-items-center gap-3"><button class="btn btn-primary" type="submit">Import bars</button><span class="text-secondary small">Bars are shared across journals and deduplicated by CME root, interval, and timestamp.</span></div>
+                    </div>
+                </form>
+                <p class="text-secondary small mb-0 mt-3">The importer accepts Sierra’s standard Date + Time, Open, High, Low, Last, Volume, NumberOfTrades, BidVolume, and AskVolume columns. Sierra bar exports normally use the chart timezone; the Write Bar and Study Data study can instead write UTC. Auto-detect uses the journal timezone for bars, and explicit offsets in the file take precedence. The original row remains in journal import provenance while the normalized bar data is shared across journals. If earlier bars were imported with the wrong timezone, clear and re-import them to correct their stored UTC timestamps.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card tf-card tf-ohlc-calendar-card h-100">
+            <div class="card-header"><div><div class="tf-kicker">BAR COVERAGE</div><h3 class="tf-card-title">OHLC calendar</h3></div></div>
+            <div class="card-body">
+                <form method="get" action="@action" class="tf-ohlc-calendar-instrument">
+                    <input type="hidden" name="calendarStart" value="@Model.Calendar.StartMonth.ToString("yyyy-MM-dd")" />
+                    <label class="form-label" for="calendar-symbol">Instrument</label>
+                    <select id="calendar-symbol" asp-for="CalendarSymbol" class="form-select tf-ohlc-calendar-select" onchange="this.form.submit()" disabled="@(Model.OhlcSymbols.Count == 0 ? "disabled" : null)">
+                        @if (Model.OhlcSymbols.Count == 0)
+                        {
+                            <option value="">No instruments imported</option>
+                        }
+                        else
+                        {
+                            @foreach (var symbol in Model.OhlcSymbols)
+                            {
+                                <option value="@symbol">@symbol</option>
+                            }
+                        }
+                    </select>
+                </form>
+
+                <div class="tf-ohlc-calendar-toolbar">
+                    <span class="tf-ohlc-calendar-range">@Model.Calendar.RangeLabel</span>
+                    <div class="tf-ohlc-calendar-nav">
+                        <a href="@previousCalendarUrl" aria-label="Previous three months" title="Previous three months">←</a>
+                        <a href="@nextCalendarUrl" aria-label="Next three months" title="Next three months">→</a>
+                    </div>
+                </div>
+
+                <div class="tf-ohlc-calendar-months">
+                    @foreach (var month in Model.Calendar.Months)
+                    {
+                        <div class="tf-ohlc-calendar-month">
+                            <div class="tf-ohlc-calendar-month-name">@month.Label</div>
+                            <div class="tf-ohlc-calendar-weekdays" aria-label="Days of week">
+                                @foreach (var weekday in calendarWeekdays)
+                                {
+                                    <span class="tf-ohlc-calendar-weekday">@weekday</span>
+                                }
+                            </div>
+                            <div class="tf-ohlc-calendar-days">
+                                @foreach (var cell in month.Cells)
+                                {
+                                    if (cell.Date.HasValue)
+                                    {
+                                        <span class="tf-ohlc-calendar-day" data-coverage="@cell.Coverage" title="@cell.Title" aria-label="@cell.Title">@cell.Date.Value.Day</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="tf-ohlc-calendar-day tf-ohlc-calendar-leading" aria-hidden="true"></span>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="tf-ohlc-calendar-legend" aria-label="OHLC coverage legend">
+                    <span class="tf-ohlc-calendar-legend-item"><span class="tf-ohlc-calendar-swatch" data-coverage="none"></span>No data</span>
+                    <span class="tf-ohlc-calendar-legend-item"><span class="tf-ohlc-calendar-swatch" data-coverage="partial"></span>Partial</span>
+                    <span class="tf-ohlc-calendar-legend-item"><span class="tf-ohlc-calendar-swatch" data-coverage="full"></span>Full</span>
+                </div>
+                <p class="tf-ohlc-calendar-note mb-0">Green is near-complete coverage for a normal 390-minute session at that bar interval; yellow indicates a partial session.</p>
+            </div>
+        </div>
+    </div>
 </section>
 
 <section class="card tf-card">
@@ -58,7 +162,7 @@
             <div class="table-responsive"><table class="table table-vcenter tf-table"><thead><tr><th>File</th><th>Trading app / source</th><th>Imported</th><th>Rows</th><th>Status</th><th></th></tr></thead><tbody>
             @foreach (var batch in Model.Results.Items)
             {
-                <tr><td><strong>@batch.FileName</strong><small>@batch.Id</small></td><td><strong>@TradeFoundryConstants.SourceApplicationName(batch.SourceApplication)</strong><small>@batch.SourceType</small></td><td>@batch.ImportedUtc.ToLocalTime().ToString("MMM d, yyyy HH:mm")</td><td>@batch.NewRows new · @batch.DuplicateRows dup<small>@batch.TotalRows total</small></td><td><span class="tf-status tf-status-closed">@batch.Status</span>@if (!string.IsNullOrWhiteSpace(batch.Message)){<small>@batch.Message</small>}</td><td><form method="post" action="@($"{action}?handler=UndoImport")" onsubmit="return confirm('Remove this import batch and rebuild derived trades?');">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><input type="hidden" name="batchId" value="@batch.Id" /><button class="btn btn-sm btn-outline-danger" type="submit">Undo</button></form></td></tr>
+                <tr><td><strong>@batch.FileName</strong><small>@batch.Id</small></td><td><strong>@TradeFoundryConstants.SourceApplicationName(batch.SourceApplication)</strong><small>@batch.SourceType</small></td><td>@TimeZoneCatalog.Format(batch.ImportedUtc, Model.Journal?.TimeZone, "MMM d, yyyy HH:mm")</td><td>@batch.NewRows new · @batch.DuplicateRows dup<small>@batch.TotalRows total</small></td><td><span class="tf-status tf-status-closed">@batch.Status</span>@if (!string.IsNullOrWhiteSpace(batch.Message)){<small>@batch.Message</small>}</td><td><form method="post" action="@($"{action}?handler=UndoImport")" onsubmit="return confirm('Remove this import batch and rebuild derived trades?');">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><input type="hidden" name="batchId" value="@batch.Id" /><button class="btn btn-sm btn-outline-danger" type="submit">Undo</button></form></td></tr>
             }
             </tbody></table></div>
         }

@@ -11,6 +11,7 @@ public static class TradeFoundryConstants
     public const string Ohlcv = "ohlcv";
     public const string YahooFinanceBenchmarkSource = "Yahoo Finance chart API";
     public const string SierraFills = "Sierra Chart fills";
+    public const string SierraOhlcBars = "Sierra Chart OHLC bars";
     public const string TradingViewAccount = "TradingView account history";
     public const string TradingViewStrategy = "TradingView Strategy Tester";
     public const string OhlcvBars = "OHLCV bars";
@@ -259,6 +260,73 @@ public sealed class Bar
     public decimal Low { get; init; }
     public decimal Close { get; init; }
     public long? Volume { get; init; }
+    public long? NumberOfTrades { get; init; }
+    public long? BidVolume { get; init; }
+    public long? AskVolume { get; init; }
+}
+
+public sealed class BarSeriesInfo
+{
+    public string Symbol { get; init; } = string.Empty;
+    public string Interval { get; init; } = BarIntervals.Source;
+    public int IntervalMinutes { get; init; }
+    public DateTimeOffset? FirstEventUtc { get; init; }
+    public DateTimeOffset? LastEventUtc { get; init; }
+    public long BarCount { get; init; }
+    public string Label => BarIntervals.Label(Interval);
+}
+
+public sealed class BarQueryResult
+{
+    public IReadOnlyList<Bar> Bars { get; init; } = Array.Empty<Bar>();
+    public IReadOnlyList<BarSeriesInfo> AvailableSeries { get; init; } = Array.Empty<BarSeriesInfo>();
+    public string RequestedInterval { get; init; } = BarIntervals.Source;
+    public string ResolvedInterval { get; init; } = BarIntervals.Source;
+    public bool IsConsolidated { get; init; }
+    public bool IsCoarserThanRequested { get; init; }
+    public string AvailabilityNote { get; init; } = string.Empty;
+}
+
+public sealed class OhlcCalendar
+{
+    public DateOnly StartMonth { get; init; }
+    public IReadOnlyList<OhlcCalendarMonth> Months { get; init; } = Array.Empty<OhlcCalendarMonth>();
+    public DateOnly PreviousStartMonth => StartMonth.AddMonths(-3);
+    public DateOnly NextStartMonth => StartMonth.AddMonths(3);
+    public string RangeLabel => Months.Count == 0
+        ? StartMonth.ToString("MMMM yyyy", CultureInfo.InvariantCulture)
+        : $"{StartMonth:MMM yyyy} – {Months[^1].Month:MMM yyyy}";
+}
+
+public sealed class OhlcCalendarMonth
+{
+    public DateOnly Month { get; init; }
+    public IReadOnlyList<OhlcCalendarCell> Cells { get; init; } = Array.Empty<OhlcCalendarCell>();
+    public string Label => Month.ToString("MMMM yyyy", CultureInfo.InvariantCulture);
+}
+
+public sealed class OhlcCalendarCell
+{
+    public DateOnly? Date { get; init; }
+    public string Coverage { get; init; } = "none";
+    public long BarCount { get; init; }
+    public int SeriesCount { get; init; }
+    public string StatusLabel => Coverage switch
+    {
+        "full" => "Full data",
+        "partial" => "Partial data",
+        _ => "No data"
+    };
+    public string Title => !Date.HasValue
+        ? string.Empty
+        : $"{Date.Value.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture)} · {StatusLabel} · {BarCount:N0} bar(s) across {SeriesCount} series";
+}
+
+public sealed class OhlcClearResult
+{
+    public long BarCount { get; init; }
+    public long SeriesCount { get; init; }
+    public long ImportBatchCount { get; init; }
 }
 
 public sealed class JournalOverview
@@ -328,6 +396,8 @@ public sealed class ImportResult
 {
     public ImportBatch Batch { get; init; } = new();
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+    public string? ResolvedBarInterval { get; init; }
+    public string ResolvedTimeZone { get; init; } = "UTC";
 }
 
 public sealed class FillDraft
@@ -439,6 +509,9 @@ public sealed class BarDraft
     public decimal Low { get; init; }
     public decimal Close { get; init; }
     public long? Volume { get; init; }
+    public long? NumberOfTrades { get; init; }
+    public long? BidVolume { get; init; }
+    public long? AskVolume { get; init; }
 }
 
 public sealed class ImportedTradeDraft
@@ -486,6 +559,7 @@ public sealed class ParsedImport
 {
     public string SourceType { get; init; } = string.Empty;
     public string SourceApplication { get; init; } = string.Empty;
+    public string? ResolvedBarInterval { get; set; }
     public List<ParsedRecord> Records { get; } = new();
     public List<ImportedTradeDraft> Trades { get; } = new();
     public List<string> Warnings { get; } = new();

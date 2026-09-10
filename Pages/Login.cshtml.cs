@@ -32,6 +32,7 @@ public class LoginModel : PageModel
     public async Task<IActionResult> OnPostAsync()
     {
         if (!_database.HasOwner()) return RedirectToPage("/Setup");
+        Password ??= string.Empty;
         var hash = _database.GetOwnerPasswordHash();
         if (hash is null || !PasswordService.Verify(Password, hash))
         {

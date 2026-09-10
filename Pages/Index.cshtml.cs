@@ -87,7 +87,7 @@ public class IndexModel : PageModel
         if (_database.GetJournal(journalId) is null) return NotFound();
         if (!_database.HasImportBatch(journalId, batchId)) return NotFound();
         _database.RemoveImportBatch(batchId);
-        TempData["FlashMessage"] = "The import was removed and derived trades were rebuilt.";
+        TempData["FlashMessage"] = "The import was removed and derived trades were rebuilt. Shared market bars remain available to other journals.";
         TempData["FlashKind"] = "success";
         return Redirect($"/journal/{journalId:D}/overview");
     }

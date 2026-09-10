@@ -96,9 +96,13 @@ public sealed class TradeFoundryDb
             "CREATE TABLE IF NOT EXISTS benchmark_points (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, series_id TEXT NOT NULL REFERENCES benchmark_series(id) ON DELETE CASCADE, import_batch_id TEXT NULL REFERENCES import_batches(id) ON DELETE SET NULL, source_type TEXT NOT NULL, source_key TEXT NOT NULL, event_utc TEXT NOT NULL, value TEXT NOT NULL, source_time_text TEXT NOT NULL DEFAULT '', row_number INTEGER NOT NULL, UNIQUE(journal_id, source_type, source_key), UNIQUE(series_id, event_utc))",
             "CREATE INDEX IF NOT EXISTS ix_benchmark_points_series_time ON benchmark_points(series_id, event_utc)",
             "CREATE TABLE IF NOT EXISTS bar_series (id TEXT PRIMARY KEY, symbol TEXT NOT NULL, interval TEXT NOT NULL, series_key TEXT NOT NULL UNIQUE, created_utc TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS ix_bar_series_symbol_interval ON bar_series(symbol, interval)",
             "CREATE TABLE IF NOT EXISTS journal_bar_series (journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, series_id TEXT NOT NULL REFERENCES bar_series(id) ON DELETE CASCADE, PRIMARY KEY(journal_id, series_id))",
-            "CREATE TABLE IF NOT EXISTS bars (id TEXT PRIMARY KEY, series_id TEXT NOT NULL REFERENCES bar_series(id) ON DELETE CASCADE, import_batch_id TEXT NULL REFERENCES import_batches(id) ON DELETE SET NULL, event_utc TEXT NOT NULL, open TEXT NOT NULL, high TEXT NOT NULL, low TEXT NOT NULL, close TEXT NOT NULL, volume INTEGER NULL, UNIQUE(series_id, event_utc))",
-            "CREATE INDEX IF NOT EXISTS ix_bars_series_time ON bars(series_id, event_utc)"
+            "CREATE INDEX IF NOT EXISTS ix_journal_bar_series_series ON journal_bar_series(series_id, journal_id)",
+            "CREATE TABLE IF NOT EXISTS bars (id TEXT PRIMARY KEY, series_id TEXT NOT NULL REFERENCES bar_series(id) ON DELETE CASCADE, import_batch_id TEXT NULL REFERENCES import_batches(id) ON DELETE SET NULL, event_utc TEXT NOT NULL, open TEXT NOT NULL, high TEXT NOT NULL, low TEXT NOT NULL, close TEXT NOT NULL, volume INTEGER NULL, number_of_trades INTEGER NULL, bid_volume INTEGER NULL, ask_volume INTEGER NULL, UNIQUE(series_id, event_utc))",
+            "CREATE INDEX IF NOT EXISTS ix_bars_series_time ON bars(series_id, event_utc)",
+            "CREATE TABLE IF NOT EXISTS bar_imports (import_batch_id TEXT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE, bar_id TEXT NOT NULL REFERENCES bars(id) ON DELETE CASCADE, PRIMARY KEY(import_batch_id, bar_id))",
+            "CREATE INDEX IF NOT EXISTS ix_bar_imports_bar ON bar_imports(bar_id)"
         };
         foreach (var statement in statements)
         {
@@ -152,6 +156,9 @@ public sealed class TradeFoundryDb
         EnsureColumn(connection, "trades", "entry_chase_points", "TEXT NULL");
         EnsureColumn(connection, "trades", "exit_chase_points", "TEXT NULL");
         EnsureColumn(connection, "trades", "instrument", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "bars", "number_of_trades", "INTEGER NULL");
+        EnsureColumn(connection, "bars", "bid_volume", "INTEGER NULL");
+        EnsureColumn(connection, "bars", "ask_volume", "INTEGER NULL");
 
         SeedInstrumentConfiguration(connection);
         }
@@ -966,21 +973,290 @@ public sealed class TradeFoundryDb
 
     public IReadOnlyList<Bar> GetBarsForTrade(Guid journalId, string symbol, DateTimeOffset start, DateTimeOffset end, string interval = "source")
     {
+        var normalizedSymbol = InstrumentCatalog.ExtractRoot(symbol);
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT b.id, b.series_id, s.symbol, s.interval, b.event_utc, b.open, b.high, b.low, b.close, b.volume FROM bars b JOIN bar_series s ON s.id = b.series_id JOIN journal_bar_series jbs ON jbs.series_id = s.id WHERE jbs.journal_id = $journal AND s.symbol = $symbol AND ($interval = '' OR s.interval = $interval) AND b.event_utc >= $start AND b.event_utc <= $end ORDER BY b.event_utc";
-        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
-        command.Parameters.AddWithValue("$symbol", symbol);
+        // Market bars are shared across journals. The journal argument remains
+        // for API compatibility with the journal-scoped trade pages.
+        command.CommandText = "SELECT b.id, b.series_id, s.symbol, s.interval, b.event_utc, b.open, b.high, b.low, b.close, b.volume, b.number_of_trades, b.bid_volume, b.ask_volume FROM bars b JOIN bar_series s ON s.id = b.series_id WHERE s.symbol = $symbol AND ($interval = '' OR s.interval = $interval) AND b.event_utc >= $start AND b.event_utc <= $end ORDER BY b.event_utc, b.id";
+        command.Parameters.AddWithValue("$symbol", normalizedSymbol);
         command.Parameters.AddWithValue("$interval", interval);
         command.Parameters.AddWithValue("$start", start.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$end", end.ToString("O", CultureInfo.InvariantCulture));
         using var reader = command.ExecuteReader();
         var bars = new List<Bar>();
         while (reader.Read()) bars.Add(ReadBar(reader));
-        return bars;
+        return bars.GroupBy(x => x.EventUtc).Select(x => x.First()).ToArray();
     }
 
-    public ImportResult CommitImport(Guid journalId, string fileName, ParsedImport parsed, string groupingPolicy, string interval)
+    public IReadOnlyList<BarSeriesInfo> GetBarSeries(Guid journalId, string symbol)
+    {
+        var normalizedSymbol = InstrumentCatalog.ExtractRoot(symbol);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT s.symbol, s.interval, COUNT(DISTINCT b.event_utc), MIN(b.event_utc), MAX(b.event_utc) FROM bar_series s LEFT JOIN bars b ON b.series_id = s.id WHERE s.symbol = $symbol GROUP BY s.symbol, s.interval ORDER BY CASE WHEN s.interval = 'source' THEN 1 ELSE 0 END, s.interval";
+        command.Parameters.AddWithValue("$symbol", normalizedSymbol);
+        using var reader = command.ExecuteReader();
+        var series = new List<BarSeriesInfo>();
+        while (reader.Read())
+        {
+            var interval = reader.GetString(1);
+            series.Add(new BarSeriesInfo
+            {
+                Symbol = reader.GetString(0),
+                Interval = interval,
+                IntervalMinutes = BarIntervals.TryGetMinutes(interval, out var minutes) ? minutes : 0,
+                BarCount = reader.GetInt64(2),
+                FirstEventUtc = reader.IsDBNull(3) ? null : ParseDate(reader.GetString(3)),
+                LastEventUtc = reader.IsDBNull(4) ? null : ParseDate(reader.GetString(4))
+            });
+        }
+        return series;
+    }
+
+    public IReadOnlyList<string> GetOhlcSymbols()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT DISTINCT symbol FROM bar_series WHERE length(trim(symbol)) > 0 ORDER BY symbol COLLATE NOCASE";
+        using var reader = command.ExecuteReader();
+        var symbols = new List<string>();
+        while (reader.Read()) symbols.Add(reader.GetString(0));
+        return symbols;
+    }
+
+    public OhlcCalendar GetOhlcCalendar(DateOnly startMonth, string symbol = "")
+    {
+        var firstMonth = new DateOnly(startMonth.Year, startMonth.Month, 1);
+        var rangeStart = new DateTimeOffset(firstMonth.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+        var rangeEnd = new DateTimeOffset(firstMonth.AddMonths(3).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+        var normalizedSymbol = string.IsNullOrWhiteSpace(symbol) ? string.Empty : InstrumentCatalog.ExtractRoot(symbol);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT s.symbol, s.interval, substr(b.event_utc, 1, 10), COUNT(*) FROM bars b JOIN bar_series s ON s.id = b.series_id WHERE ($symbol = '' OR s.symbol = $symbol) AND b.event_utc >= $start AND b.event_utc < $end GROUP BY s.symbol, s.interval, substr(b.event_utc, 1, 10) ORDER BY s.symbol COLLATE NOCASE, s.interval, substr(b.event_utc, 1, 10)";
+        command.Parameters.AddWithValue("$symbol", normalizedSymbol);
+        command.Parameters.AddWithValue("$start", rangeStart.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$end", rangeEnd.ToString("O", CultureInfo.InvariantCulture));
+        using var reader = command.ExecuteReader();
+        var rows = new List<(string SeriesKey, DateOnly Date, long BarCount, int IntervalMinutes)>();
+        while (reader.Read())
+        {
+            if (!DateOnly.TryParseExact(reader.GetString(2), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                continue;
+
+            var seriesSymbol = reader.GetString(0);
+            var interval = reader.GetString(1);
+            rows.Add(($"{seriesSymbol}\u001f{interval}", date, reader.GetInt64(3), BarIntervals.TryGetMinutes(interval, out var minutes) ? minutes : 0));
+        }
+
+        var coverageByDate = rows
+            .GroupBy(x => x.Date)
+            .ToDictionary(
+                group => group.Key,
+                group => new OhlcCalendarCell
+                {
+                    Date = group.Key,
+                    Coverage = group.Any(x => IsFullCalendarDay(x.BarCount, x.IntervalMinutes)) ? "full" : "partial",
+                    BarCount = checked(group.Sum(x => x.BarCount)),
+                    SeriesCount = group.Select(x => x.SeriesKey).Distinct(StringComparer.Ordinal).Count()
+                });
+
+        var months = Enumerable.Range(0, 3)
+            .Select(offset => BuildCalendarMonth(firstMonth.AddMonths(offset), coverageByDate))
+            .ToArray();
+        return new OhlcCalendar { StartMonth = firstMonth, Months = months };
+    }
+
+    public OhlcClearResult ClearOhlcData()
+    {
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        long Count(string sql, params (string Name, string Value)[] parameters)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = sql;
+            foreach (var parameter in parameters)
+                command.Parameters.AddWithValue(parameter.Name, parameter.Value);
+            return Convert.ToInt64(command.ExecuteScalar() ?? 0L, CultureInfo.InvariantCulture);
+        }
+
+        var result = new OhlcClearResult
+        {
+            BarCount = Count("SELECT COUNT(*) FROM bars"),
+            SeriesCount = Count("SELECT COUNT(*) FROM bar_series"),
+            ImportBatchCount = Count(
+                "SELECT COUNT(*) FROM import_batches WHERE source_type IN ($sierra, $legacy)",
+                ("$sierra", TradeFoundryConstants.SierraOhlcBars),
+                ("$legacy", TradeFoundryConstants.OhlcvBars))
+        };
+
+        foreach (var sql in new[]
+        {
+            "DELETE FROM journal_bar_series",
+            "DELETE FROM bar_imports",
+            "DELETE FROM bars",
+            "DELETE FROM bar_series"
+        })
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = sql;
+            command.ExecuteNonQuery();
+        }
+
+        using (var raw = connection.CreateCommand())
+        {
+            raw.Transaction = transaction;
+            raw.CommandText = "DELETE FROM raw_records WHERE import_batch_id IN (SELECT id FROM import_batches WHERE source_type IN ($sierra, $legacy))";
+            raw.Parameters.AddWithValue("$sierra", TradeFoundryConstants.SierraOhlcBars);
+            raw.Parameters.AddWithValue("$legacy", TradeFoundryConstants.OhlcvBars);
+            raw.ExecuteNonQuery();
+        }
+
+        using (var batches = connection.CreateCommand())
+        {
+            batches.Transaction = transaction;
+            batches.CommandText = "DELETE FROM import_batches WHERE source_type IN ($sierra, $legacy)";
+            batches.Parameters.AddWithValue("$sierra", TradeFoundryConstants.SierraOhlcBars);
+            batches.Parameters.AddWithValue("$legacy", TradeFoundryConstants.OhlcvBars);
+            batches.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return result;
+    }
+
+    public BarQueryResult GetBarWindow(Guid journalId, string symbol, DateTimeOffset start, DateTimeOffset end, string requestedInterval = BarIntervals.Source)
+    {
+        var requested = BarIntervals.Normalize(requestedInterval);
+        var available = GetBarSeries(journalId, symbol);
+        var fullyCovered = available.Where(x => x.FirstEventUtc.HasValue && x.LastEventUtc.HasValue && x.FirstEventUtc.Value <= start && x.LastEventUtc.Value >= end).ToArray();
+        var overlapping = available.Where(x => x.FirstEventUtc.HasValue && x.LastEventUtc.HasValue && x.FirstEventUtc.Value <= end && x.LastEventUtc.Value >= start).ToArray();
+        var candidates = fullyCovered.Length > 0 ? fullyCovered : overlapping.Length > 0 ? overlapping : available.ToArray();
+        var requestedMinutes = BarIntervals.TryGetMinutes(requested, out var targetMinutes) ? targetMinutes : 0;
+        var selected = SelectBarSeries(candidates, requestedMinutes);
+        if (selected is null)
+        {
+            return new BarQueryResult
+            {
+                AvailableSeries = available,
+                RequestedInterval = requested,
+                AvailabilityNote = "No bar data is available for this symbol."
+            };
+        }
+
+        var sourceBars = GetBarsForTrade(journalId, symbol, start, end, selected.Interval);
+        var sourceMinutes = selected.IntervalMinutes;
+        var consolidated = requestedMinutes > 0 && sourceMinutes > 0 && sourceMinutes < requestedMinutes;
+        var coarser = requestedMinutes > 0 && sourceMinutes > requestedMinutes;
+        var bars = consolidated ? ConsolidateBars(sourceBars, requestedMinutes) : sourceBars;
+        var note = string.Empty;
+        if (coarser)
+        {
+            note = $"Only {selected.Label} data was available for this trade window; the requested {BarIntervals.Label(requested)} timeframe was not available.";
+        }
+        else if (consolidated)
+        {
+            note = $"Displaying {BarIntervals.Label(requested)} bars consolidated from {selected.Label} data.";
+        }
+
+        return new BarQueryResult
+        {
+            Bars = bars,
+            AvailableSeries = available,
+            RequestedInterval = requested,
+            ResolvedInterval = consolidated ? requested : selected.Interval,
+            IsConsolidated = consolidated,
+            IsCoarserThanRequested = coarser,
+            AvailabilityNote = note
+        };
+    }
+
+    private static BarSeriesInfo? SelectBarSeries(IReadOnlyList<BarSeriesInfo> available, int requestedMinutes)
+    {
+        if (available.Count == 0) return null;
+        if (requestedMinutes == 0)
+            return available.Where(x => x.IntervalMinutes > 0).OrderBy(x => x.IntervalMinutes).FirstOrDefault()
+                ?? available.FirstOrDefault(x => x.Interval.Equals(BarIntervals.Source, StringComparison.OrdinalIgnoreCase));
+
+        return available.FirstOrDefault(x => x.IntervalMinutes == requestedMinutes)
+            ?? available.Where(x => x.IntervalMinutes > 0 && x.IntervalMinutes < requestedMinutes && requestedMinutes % x.IntervalMinutes == 0)
+                .OrderByDescending(x => x.IntervalMinutes)
+                .FirstOrDefault()
+            ?? available.Where(x => x.IntervalMinutes > requestedMinutes).OrderBy(x => x.IntervalMinutes).FirstOrDefault()
+            ?? available.Where(x => x.IntervalMinutes > 0).OrderBy(x => Math.Abs(x.IntervalMinutes - requestedMinutes)).FirstOrDefault()
+            ?? available.FirstOrDefault(x => x.Interval.Equals(BarIntervals.Source, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IReadOnlyList<Bar> ConsolidateBars(IReadOnlyList<Bar> source, int targetMinutes)
+    {
+        if (source.Count == 0) return Array.Empty<Bar>();
+        var ticksPerBucket = TimeSpan.TicksPerMinute * (long)targetMinutes;
+        return source
+            .OrderBy(x => x.EventUtc)
+            .GroupBy(x => x.EventUtc.UtcDateTime.Ticks / ticksPerBucket)
+            .Select(group =>
+            {
+                var items = group.OrderBy(x => x.EventUtc).ToArray();
+                var first = items[0];
+                var last = items[^1];
+                return new Bar
+                {
+                    SeriesId = first.SeriesId,
+                    Symbol = first.Symbol,
+                    Interval = BarIntervals.Format(targetMinutes),
+                    EventUtc = new DateTimeOffset(new DateTime(group.Key * ticksPerBucket, DateTimeKind.Utc)),
+                    Open = first.Open,
+                    High = items.Max(x => x.High),
+                    Low = items.Min(x => x.Low),
+                    Close = last.Close,
+                    Volume = SumBars(items.Select(x => x.Volume)),
+                    NumberOfTrades = SumBars(items.Select(x => x.NumberOfTrades)),
+                    BidVolume = SumBars(items.Select(x => x.BidVolume)),
+                    AskVolume = SumBars(items.Select(x => x.AskVolume))
+                };
+            })
+            .ToArray();
+    }
+
+    private static OhlcCalendarMonth BuildCalendarMonth(DateOnly month, IReadOnlyDictionary<DateOnly, OhlcCalendarCell> coverageByDate)
+    {
+        var cells = new List<OhlcCalendarCell>();
+        for (var leading = 0; leading < (int)month.DayOfWeek; leading++)
+            cells.Add(new OhlcCalendarCell());
+
+        for (var day = 1; day <= DateTime.DaysInMonth(month.Year, month.Month); day++)
+        {
+            var date = new DateOnly(month.Year, month.Month, day);
+            cells.Add(coverageByDate.TryGetValue(date, out var coverage)
+                ? coverage
+                : new OhlcCalendarCell { Date = date });
+        }
+
+        while (cells.Count % 7 != 0)
+            cells.Add(new OhlcCalendarCell());
+
+        return new OhlcCalendarMonth { Month = month, Cells = cells };
+    }
+
+    private static bool IsFullCalendarDay(long barCount, int intervalMinutes)
+    {
+        if (intervalMinutes <= 0) return barCount > 0;
+        var minutes = intervalMinutes;
+        var minimumExpected = Math.Max(1L, (390L + minutes - 1) / minutes);
+        var threshold = Math.Max(1L, (long)Math.Ceiling(minimumExpected * 0.9d));
+        return barCount >= threshold;
+    }
+
+    private static long? SumBars(IEnumerable<long?> values)
+    {
+        var present = values.Where(x => x.HasValue).Select(x => x!.Value).ToArray();
+        return present.Length == 0 ? null : checked(present.Sum());
+    }
+
+    public ImportResult CommitImport(Guid journalId, string fileName, ParsedImport parsed, string groupingPolicy, string interval, string? sourceTimeZone = null)
     {
         var batchId = Guid.NewGuid();
         var importedUtc = DateTimeOffset.UtcNow;
@@ -989,6 +1265,8 @@ public sealed class TradeFoundryDb
         var insertedFills = 0;
         var insertedOrderEvents = 0;
         var messages = new List<string>(parsed.Warnings);
+        if (!string.IsNullOrWhiteSpace(sourceTimeZone))
+            messages.Add($"Source timezone: {TimeZoneCatalog.CanonicalId(sourceTimeZone)}.");
 
         using (var connection = OpenConnection())
         using (var transaction = connection.BeginTransaction())
@@ -1054,7 +1332,13 @@ public sealed class TradeFoundryDb
             RebuildFlatTrades(journalId, groupingPolicy);
 
         var batchResult = GetImport(batchId) ?? throw new InvalidOperationException("The import batch could not be read after commit.");
-        return new ImportResult { Batch = batchResult, Warnings = parsed.Warnings };
+        return new ImportResult
+        {
+            Batch = batchResult,
+            Warnings = parsed.Warnings,
+            ResolvedBarInterval = parsed.ResolvedBarInterval,
+            ResolvedTimeZone = TimeZoneCatalog.CanonicalId(sourceTimeZone)
+        };
     }
 
     public void RemoveImportBatch(Guid batchId)
@@ -1086,7 +1370,8 @@ public sealed class TradeFoundryDb
                 "DELETE FROM account_balance_events WHERE import_batch_id = $batch",
                 "DELETE FROM benchmark_points WHERE import_batch_id = $batch",
                 "DELETE FROM fills WHERE import_batch_id = $batch",
-                "DELETE FROM bars WHERE import_batch_id = $batch",
+                // Bar rows are shared market data. They must survive removal of
+                // one journal's import so other journals can continue to use them.
                 "DELETE FROM raw_records WHERE import_batch_id = $batch",
                 "DELETE FROM import_batches WHERE id = $batch"
             })
@@ -1443,8 +1728,11 @@ public sealed class TradeFoundryDb
         using (var find = connection.CreateCommand())
         {
             find.Transaction = transaction;
-            find.CommandText = "SELECT id FROM bar_series WHERE series_key = $key";
-            find.Parameters.AddWithValue("$key", seriesKey);
+            // Bar series are market data, not journal-owned evidence. Reuse one
+            // series for every journal that imports or views the same symbol.
+            find.CommandText = "SELECT id FROM bar_series WHERE symbol = $symbol AND interval = $interval ORDER BY created_utc, id LIMIT 1";
+            find.Parameters.AddWithValue("$symbol", bar.Symbol);
+            find.Parameters.AddWithValue("$interval", bar.Interval);
             seriesId = find.ExecuteScalar() as string ?? string.Empty;
         }
         if (string.IsNullOrEmpty(seriesId))
@@ -1468,19 +1756,40 @@ public sealed class TradeFoundryDb
             link.Parameters.AddWithValue("$series", seriesId);
             link.ExecuteNonQuery();
         }
-        using var insert = connection.CreateCommand();
-        insert.Transaction = transaction;
-        insert.CommandText = "INSERT OR IGNORE INTO bars (id, series_id, import_batch_id, event_utc, open, high, low, close, volume) VALUES ($id, $series, $batch, $event, $open, $high, $low, $close, $volume)";
-        insert.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
-        insert.Parameters.AddWithValue("$series", seriesId);
-        insert.Parameters.AddWithValue("$batch", batchId.ToString("D"));
-        insert.Parameters.AddWithValue("$event", bar.EventUtc.ToString("O", CultureInfo.InvariantCulture));
-        insert.Parameters.AddWithValue("$open", NumberFormat.Decimal(bar.Open));
-        insert.Parameters.AddWithValue("$high", NumberFormat.Decimal(bar.High));
-        insert.Parameters.AddWithValue("$low", NumberFormat.Decimal(bar.Low));
-        insert.Parameters.AddWithValue("$close", NumberFormat.Decimal(bar.Close));
-        AddNullable(insert, "$volume", bar.Volume);
-        insert.ExecuteNonQuery();
+        var eventText = bar.EventUtc.ToString("O", CultureInfo.InvariantCulture);
+        var barId = Guid.NewGuid().ToString("D");
+        using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = "INSERT OR IGNORE INTO bars (id, series_id, import_batch_id, event_utc, open, high, low, close, volume, number_of_trades, bid_volume, ask_volume) VALUES ($id, $series, $batch, $event, $open, $high, $low, $close, $volume, $numberOfTrades, $bidVolume, $askVolume)";
+            insert.Parameters.AddWithValue("$id", barId);
+            insert.Parameters.AddWithValue("$series", seriesId);
+            insert.Parameters.AddWithValue("$batch", batchId.ToString("D"));
+            insert.Parameters.AddWithValue("$event", eventText);
+            insert.Parameters.AddWithValue("$open", NumberFormat.Decimal(bar.Open));
+            insert.Parameters.AddWithValue("$high", NumberFormat.Decimal(bar.High));
+            insert.Parameters.AddWithValue("$low", NumberFormat.Decimal(bar.Low));
+            insert.Parameters.AddWithValue("$close", NumberFormat.Decimal(bar.Close));
+            AddNullable(insert, "$volume", bar.Volume);
+            AddNullable(insert, "$numberOfTrades", bar.NumberOfTrades);
+            AddNullable(insert, "$bidVolume", bar.BidVolume);
+            AddNullable(insert, "$askVolume", bar.AskVolume);
+            if (insert.ExecuteNonQuery() == 0)
+            {
+                using var existing = connection.CreateCommand();
+                existing.Transaction = transaction;
+                existing.CommandText = "SELECT id FROM bars WHERE series_id = $series AND event_utc = $event";
+                existing.Parameters.AddWithValue("$series", seriesId);
+                existing.Parameters.AddWithValue("$event", eventText);
+                barId = existing.ExecuteScalar() as string ?? throw new InvalidOperationException("The existing bar could not be resolved after deduplication.");
+            }
+        }
+        using var provenance = connection.CreateCommand();
+        provenance.Transaction = transaction;
+        provenance.CommandText = "INSERT OR IGNORE INTO bar_imports (import_batch_id, bar_id) VALUES ($batch, $bar)";
+        provenance.Parameters.AddWithValue("$batch", batchId.ToString("D"));
+        provenance.Parameters.AddWithValue("$bar", barId);
+        provenance.ExecuteNonQuery();
     }
 
     private static void InsertDerivedTrade(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, PositionState state, string groupingPolicy, int sequence, OrderLifecycleIndex orderLifecycles)
@@ -1798,6 +2107,7 @@ public sealed class TradeFoundryDb
             TradeFoundryConstants.TradingViewAccount or TradeFoundryConstants.TradingViewStrategy => TradeFoundryConstants.TradingView,
             TradeFoundryConstants.BenchmarkSeries => TradeFoundryConstants.Benchmark,
             TradeFoundryConstants.OhlcvBars => TradeFoundryConstants.Ohlcv,
+            TradeFoundryConstants.SierraOhlcBars => TradeFoundryConstants.SierraChart,
             _ => string.Empty
         };
     }
@@ -1814,7 +2124,7 @@ public sealed class TradeFoundryDb
 
     private static Bar ReadBar(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), SeriesId = Guid.Parse(reader.GetString(1)), Symbol = reader.GetString(2), Interval = reader.GetString(3), EventUtc = ParseDate(reader.GetString(4)), Open = ParseDecimal(reader.GetString(5)), High = ParseDecimal(reader.GetString(6)), Low = ParseDecimal(reader.GetString(7)), Close = ParseDecimal(reader.GetString(8)), Volume = reader.IsDBNull(9) ? null : reader.GetInt64(9)
+        Id = Guid.Parse(reader.GetString(0)), SeriesId = Guid.Parse(reader.GetString(1)), Symbol = reader.GetString(2), Interval = reader.GetString(3), EventUtc = ParseDate(reader.GetString(4)), Open = ParseDecimal(reader.GetString(5)), High = ParseDecimal(reader.GetString(6)), Low = ParseDecimal(reader.GetString(7)), Close = ParseDecimal(reader.GetString(8)), Volume = reader.IsDBNull(9) ? null : reader.GetInt64(9), NumberOfTrades = reader.IsDBNull(10) ? null : reader.GetInt64(10), BidVolume = reader.IsDBNull(11) ? null : reader.GetInt64(11), AskVolume = reader.IsDBNull(12) ? null : reader.GetInt64(12)
     };
 
     private static Fill ScaleFill(Fill fill, int quantity)

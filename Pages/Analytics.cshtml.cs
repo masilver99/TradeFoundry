@@ -143,7 +143,7 @@ public class AnalyticsModel : PageModel
     {
         if (Journal is null) return;
 
-        var timeZone = ResolveTimeZone(Journal.TimeZone);
+        var timeZone = TimeZoneCatalog.Resolve(Journal.TimeZone);
         var daily = Trades
             .Where(trade => trade.ExitUtc.HasValue)
             .GroupBy(trade => DateInZone(trade.ExitUtc!.Value, timeZone))
@@ -192,21 +192,4 @@ public class AnalyticsModel : PageModel
         return DateOnly.FromDateTime(local.DateTime);
     }
 
-    private static TimeZoneInfo ResolveTimeZone(string? timeZoneId)
-    {
-        if (string.IsNullOrWhiteSpace(timeZoneId)) return TimeZoneInfo.Utc;
-
-        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Eastern Standard Time"] = "America/New_York",
-            ["Central Standard Time"] = "America/Chicago",
-            ["Mountain Standard Time"] = "America/Denver",
-            ["Pacific Standard Time"] = "America/Los_Angeles"
-        };
-        var id = aliases.TryGetValue(timeZoneId.Trim(), out var mapped) ? mapped : timeZoneId.Trim();
-
-        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
-        catch (TimeZoneNotFoundException) { return TimeZoneInfo.Utc; }
-        catch (InvalidTimeZoneException) { return TimeZoneInfo.Utc; }
-    }
 }

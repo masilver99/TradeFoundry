@@ -1,5 +1,6 @@
 @page "/journal/{journalId:guid}/analytics"
 @using System.Globalization
+@using TradeFoundry.Core
 @model TradeFoundry.Pages.AnalyticsModel
 @{
     ViewData["Title"] = "Analysis";
@@ -28,7 +29,7 @@
 
         var source = status.IsAutomatic ? "Yahoo Finance" : "manual import";
         var updated = status.LastFetchedUtc.HasValue
-            ? $"updated {status.LastFetchedUtc.Value.ToLocalTime():MMM d, yyyy HH:mm}"
+            ? $"updated {TimeZoneCatalog.Format(status.LastFetchedUtc.Value, Model.Journal?.TimeZone, "MMM d, yyyy HH:mm")}"
             : "manual import";
         return $"{status.Symbol} · {status.PointCount:N0} daily points · {source} · {updated}";
     }

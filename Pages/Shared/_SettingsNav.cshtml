@@ -1,0 +1,15 @@
+@model Guid
+@{
+    var current = ViewData["SettingsSection"]?.ToString() ?? string.Empty;
+    string SettingsPath(string section) => $"/journal/{Model:D}/settings/{section}";
+}
+
+<nav class="tf-settings-nav" aria-label="Settings sections">
+    <a class="@(string.IsNullOrEmpty(current) ? "active" : string.Empty)" href="@($"/journal/{Model:D}/settings")">Settings home</a>
+    <a class="@(current == "journal" ? "active" : string.Empty)" href="@SettingsPath("journal")">Journal</a>
+    <a class="@(current == "instruments" ? "active" : string.Empty)" href="@SettingsPath("instruments")">Instruments</a>
+    <a class="@(current == "sources" ? "active" : string.Empty)" href="@SettingsPath("sources")">Import sources</a>
+    <a class="@(current == "workspace" ? "active" : string.Empty)" href="@SettingsPath("workspace")">Workspace</a>
+    <a class="@(current == "access" ? "active" : string.Empty)" href="@SettingsPath("access")">Access</a>
+    <a class="@(current == "instance" ? "active" : string.Empty)" href="@SettingsPath("instance")">Instance</a>
+</nav>

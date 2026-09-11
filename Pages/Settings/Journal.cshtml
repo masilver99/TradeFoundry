@@ -1,0 +1,97 @@
+@page "/journal/{journalId:guid}/settings/journal"
+@model TradeFoundry.Pages.Settings.JournalModel
+@{
+    ViewData["Title"] = "Journal settings";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / SETTINGS / JOURNAL";
+    ViewData["ActiveNav"] = "settings";
+    ViewData["SettingsSection"] = "journal";
+}
+
+@await Html.PartialAsync("_SettingsNav", Model.JournalId)
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
+}
+@if (!ViewData.ModelState.IsValid)
+{
+    <div class="alert tf-alert error" role="alert">@Html.ValidationSummary(excludePropertyErrors: false)</div>
+}
+
+<div class="tf-settings-intro">
+    <div>
+        <div class="tf-kicker">ACTIVE JOURNAL</div>
+        <h3 class="tf-settings-heading">Journal identity and defaults</h3>
+        <p class="text-secondary mb-0">Describe what this journal is for and set the defaults used by its analysis and imports.</p>
+    </div>
+</div>
+
+<div class="card tf-card">
+    <div class="card-body">
+        <form method="post" action="@($"/journal/{Model.JournalId:D}/settings/journal?handler=Save")" class="row g-3">
+            @Html.AntiForgeryToken()
+            <input type="hidden" asp-for="JournalId" />
+            <div class="col-md-8">
+                <label class="form-label" asp-for="Name">Name</label>
+                <input asp-for="Name" class="form-control" required />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" asp-for="ExecutionContext">Execution context</label>
+                <select asp-for="ExecutionContext" class="form-select">
+                    <option value="live">Live</option>
+                    <option value="paper">Paper</option>
+                    <option value="replay">Replay</option>
+                    <option value="backtest">Backtest</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="col-12">
+                <label class="form-label" asp-for="DescriptionMarkdown">Description</label>
+                <div class="tf-markdown-editor" data-markdown-editor>
+                    <div class="tf-markdown-toolbar" role="toolbar" aria-label="Markdown formatting">
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="bold" title="Bold"><strong>B</strong></button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="italic" title="Italic"><em>I</em></button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="heading" title="Heading">H</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="link" title="Link">↗</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="unordered-list" title="Bullet list">•</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="ordered-list" title="Numbered list">1.</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="quote" title="Quote">❯</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="code" title="Code">&lt;/&gt;</button>
+                        <span class="tf-markdown-toolbar-spacer"></span>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-tab="write" aria-pressed="true">Write</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-tab="preview" aria-pressed="false">Preview</button>
+                    </div>
+                    <textarea asp-for="DescriptionMarkdown" class="form-control tf-markdown-input" rows="14" data-markdown-input placeholder="What is this journal for? Add setup notes, rules, or context using Markdown."></textarea>
+                    <div class="tf-markdown-preview tf-markdown-prose" data-markdown-preview hidden></div>
+                </div>
+                <div class="form-hint">Markdown is supported. The source is stored with the journal, so your notes remain portable and easy to edit.</div>
+                <span asp-validation-for="DescriptionMarkdown" class="text-danger"></span>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" asp-for="Labels">Labels</label>
+                <input asp-for="Labels" class="form-control" placeholder="algo, ORB, experimental" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" asp-for="TimeZone">Timezone</label>
+                <input asp-for="TimeZone" class="form-control" required />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" asp-for="Currency">Currency</label>
+                <input asp-for="Currency" class="form-control" required />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" asp-for="StartingEquity">Starting equity <span class="text-secondary">(optional)</span></label>
+                <input asp-for="StartingEquity" class="form-control" type="number" step="0.01" min="0" placeholder="Auto from balance" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" asp-for="GroupingPolicy">Grouping policy</label>
+                <select asp-for="GroupingPolicy" class="form-select">
+                    <option value="flat_to_flat">Flat-to-flat</option>
+                    <option value="fifo_lots">FIFO lots (phase 2)</option>
+                    <option value="source_defined">Source-defined rows</option>
+                </select>
+            </div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Save journal settings</button></div>
+        </form>
+    </div>
+</div>

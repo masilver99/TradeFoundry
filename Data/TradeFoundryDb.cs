@@ -16,7 +16,7 @@ namespace TradeFoundry.Data;
 public sealed class TradeFoundryDb
 {
     private const string DerivedFillSource = "Derived fills";
-    private const string JournalColumns = "id, name, execution_context, labels, timezone, currency, grouping_policy, starting_equity, created_utc";
+    private const string JournalColumns = "id, name, execution_context, labels, description_markdown, timezone, currency, grouping_policy, starting_equity, created_utc";
     private const string ImportColumns = "id, journal_id, file_name, source_application, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message";
     private const string TradeColumns = "id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, instrument, review_key";
     private const string FillColumns = "id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, row_number, instrument, point_value, tick_size";
@@ -73,7 +73,7 @@ public sealed class TradeFoundryDb
         var statements = new[]
         {
             "CREATE TABLE IF NOT EXISTS app_users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, created_utc TEXT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS journals (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES app_users(id), name TEXT NOT NULL, execution_context TEXT NOT NULL, labels TEXT NOT NULL DEFAULT '', timezone TEXT NOT NULL DEFAULT 'UTC', currency TEXT NOT NULL DEFAULT 'USD', grouping_policy TEXT NOT NULL DEFAULT 'flat_to_flat', starting_equity TEXT NULL, created_utc TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
+            "CREATE TABLE IF NOT EXISTS journals (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES app_users(id), name TEXT NOT NULL, execution_context TEXT NOT NULL, labels TEXT NOT NULL DEFAULT '', description_markdown TEXT NOT NULL DEFAULT '', timezone TEXT NOT NULL DEFAULT 'UTC', currency TEXT NOT NULL DEFAULT 'USD', grouping_policy TEXT NOT NULL DEFAULT 'flat_to_flat', starting_equity TEXT NULL, created_utc TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
             "CREATE INDEX IF NOT EXISTS ix_journals_owner ON journals(owner_user_id, archived, created_utc)",
             "CREATE TABLE IF NOT EXISTS instruments (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, default_commission TEXT NULL, point_value TEXT NOT NULL, tick_size TEXT NOT NULL DEFAULT '0', created_utc TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS source_instrument_mappings (id TEXT PRIMARY KEY, application_key TEXT NOT NULL, match_regex TEXT NOT NULL, instrument_code TEXT NOT NULL REFERENCES instruments(code), commission_override TEXT NULL, position INTEGER NOT NULL DEFAULT 0, created_utc TEXT NOT NULL, UNIQUE(application_key, match_regex))",
@@ -120,6 +120,7 @@ public sealed class TradeFoundryDb
         // The application started without migrations, so keep schema upgrades
         // additive and idempotent for existing local SQLite files.
         EnsureColumn(connection, "journals", "starting_equity", "TEXT NULL");
+        EnsureColumn(connection, "journals", "description_markdown", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "import_batches", "source_application", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "benchmark_series", "provider", "TEXT NOT NULL DEFAULT 'Imported CSV'");
         EnsureColumn(connection, "benchmark_series", "source_url", "TEXT NOT NULL DEFAULT ''");
@@ -505,7 +506,7 @@ public sealed class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT j.id, j.name, j.execution_context, j.labels, j.timezone, j.currency, j.grouping_policy, j.starting_equity, j.created_utc FROM journals j JOIN mcp_token_journals g ON g.journal_id = j.id JOIN mcp_access_tokens t ON t.id = g.token_id WHERE t.id = $token AND t.revoked_utc IS NULL AND j.archived = 0 ORDER BY j.created_utc";
+        command.CommandText = "SELECT j.id, j.name, j.execution_context, j.labels, j.description_markdown, j.timezone, j.currency, j.grouping_policy, j.starting_equity, j.created_utc FROM journals j JOIN mcp_token_journals g ON g.journal_id = j.id JOIN mcp_access_tokens t ON t.id = g.token_id WHERE t.id = $token AND t.revoked_utc IS NULL AND j.archived = 0 ORDER BY j.created_utc";
         command.Parameters.AddWithValue("$token", tokenId.ToString("D"));
         var journals = new List<Journal>();
         using var reader = command.ExecuteReader();
@@ -513,7 +514,7 @@ public sealed class TradeFoundryDb
         return journals;
     }
 
-    public Journal CreateJournal(string name, string executionContext, string labels, string timeZone, string currency, string groupingPolicy, decimal? startingEquity = null)
+    public Journal CreateJournal(string name, string executionContext, string labels, string timeZone, string currency, string groupingPolicy, decimal? startingEquity = null, string descriptionMarkdown = "")
     {
         var journal = new Journal
         {
@@ -521,6 +522,7 @@ public sealed class TradeFoundryDb
             Name = string.IsNullOrWhiteSpace(name) ? "My futures journal" : name.Trim(),
             ExecutionContext = string.IsNullOrWhiteSpace(executionContext) ? "live" : executionContext.Trim().ToLowerInvariant(),
             Labels = labels?.Trim() ?? string.Empty,
+            DescriptionMarkdown = descriptionMarkdown?.Trim() ?? string.Empty,
             TimeZone = string.IsNullOrWhiteSpace(timeZone) ? "UTC" : timeZone.Trim(),
             Currency = string.IsNullOrWhiteSpace(currency) ? "USD" : currency.Trim().ToUpperInvariant(),
             GroupingPolicy = string.IsNullOrWhiteSpace(groupingPolicy) ? "flat_to_flat" : groupingPolicy.Trim(),
@@ -529,12 +531,13 @@ public sealed class TradeFoundryDb
         };
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO journals (id, owner_user_id, name, execution_context, labels, timezone, currency, grouping_policy, starting_equity, created_utc) VALUES ($id, $owner, $name, $context, $labels, $timezone, $currency, $grouping, $startingEquity, $created)";
+        command.CommandText = "INSERT INTO journals (id, owner_user_id, name, execution_context, labels, description_markdown, timezone, currency, grouping_policy, starting_equity, created_utc) VALUES ($id, $owner, $name, $context, $labels, $description, $timezone, $currency, $grouping, $startingEquity, $created)";
         command.Parameters.AddWithValue("$id", journal.Id.ToString("D"));
         command.Parameters.AddWithValue("$owner", TradeFoundryConstants.OwnerUserId);
         command.Parameters.AddWithValue("$name", journal.Name);
         command.Parameters.AddWithValue("$context", journal.ExecutionContext);
         command.Parameters.AddWithValue("$labels", journal.Labels);
+        command.Parameters.AddWithValue("$description", journal.DescriptionMarkdown);
         command.Parameters.AddWithValue("$timezone", journal.TimeZone);
         command.Parameters.AddWithValue("$currency", journal.Currency);
         command.Parameters.AddWithValue("$grouping", journal.GroupingPolicy);
@@ -554,16 +557,17 @@ public sealed class TradeFoundryDb
         command.ExecuteNonQuery();
     }
 
-    public bool UpdateJournal(Guid journalId, string name, string executionContext, string labels, string timeZone, string currency, string groupingPolicy, decimal? startingEquity = null)
+    public bool UpdateJournal(Guid journalId, string name, string executionContext, string labels, string timeZone, string currency, string groupingPolicy, decimal? startingEquity = null, string descriptionMarkdown = "")
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE journals SET name = $name, execution_context = $context, labels = $labels, timezone = $timezone, currency = $currency, grouping_policy = $grouping, starting_equity = $startingEquity WHERE id = $id AND owner_user_id = $owner AND archived = 0";
+        command.CommandText = "UPDATE journals SET name = $name, execution_context = $context, labels = $labels, description_markdown = $description, timezone = $timezone, currency = $currency, grouping_policy = $grouping, starting_equity = $startingEquity WHERE id = $id AND owner_user_id = $owner AND archived = 0";
         command.Parameters.AddWithValue("$id", journalId.ToString("D"));
         command.Parameters.AddWithValue("$owner", TradeFoundryConstants.OwnerUserId);
         command.Parameters.AddWithValue("$name", string.IsNullOrWhiteSpace(name) ? "My futures journal" : name.Trim());
         command.Parameters.AddWithValue("$context", string.IsNullOrWhiteSpace(executionContext) ? "live" : executionContext.Trim().ToLowerInvariant());
         command.Parameters.AddWithValue("$labels", labels?.Trim() ?? string.Empty);
+        command.Parameters.AddWithValue("$description", descriptionMarkdown?.Trim() ?? string.Empty);
         command.Parameters.AddWithValue("$timezone", string.IsNullOrWhiteSpace(timeZone) ? "UTC" : timeZone.Trim());
         command.Parameters.AddWithValue("$currency", string.IsNullOrWhiteSpace(currency) ? "USD" : currency.Trim().ToUpperInvariant());
         command.Parameters.AddWithValue("$grouping", string.IsNullOrWhiteSpace(groupingPolicy) ? "flat_to_flat" : groupingPolicy.Trim());
@@ -2335,7 +2339,7 @@ public sealed class TradeFoundryDb
 
     private static Journal ReadJournal(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), Name = reader.GetString(1), ExecutionContext = reader.GetString(2), Labels = reader.GetString(3), TimeZone = reader.GetString(4), Currency = reader.GetString(5), GroupingPolicy = reader.GetString(6), StartingEquity = NullableDecimal(reader, 7), CreatedUtc = ParseDate(reader.GetString(8))
+        Id = Guid.Parse(reader.GetString(0)), Name = reader.GetString(1), ExecutionContext = reader.GetString(2), Labels = reader.GetString(3), DescriptionMarkdown = reader.GetString(4), TimeZone = reader.GetString(5), Currency = reader.GetString(6), GroupingPolicy = reader.GetString(7), StartingEquity = NullableDecimal(reader, 8), CreatedUtc = ParseDate(reader.GetString(9))
     };
 
     private static string InferSourceApplication(string sourceApplication, string sourceType)

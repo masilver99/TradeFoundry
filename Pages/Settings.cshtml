@@ -1,203 +1,80 @@
 @page "/journal/{journalId:guid}/settings"
 @model TradeFoundry.Pages.SettingsModel
-@using System.Globalization
-@using TradeFoundry.Core
 @{
     ViewData["Title"] = "Settings";
     ViewData["PageKicker"] = "TRADEFOUNDRY / INSTANCE";
     ViewData["ActiveNav"] = "settings";
 }
 
-@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
-{
-    <div class="alert tf-alert @(Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
-}
+@await Html.PartialAsync("_SettingsNav", Model.JournalId)
+
+<div class="tf-settings-intro">
+    <div>
+        <div class="tf-kicker">CONFIGURATION</div>
+        <h3 class="tf-settings-heading">Configure @Model.Journal!.Name</h3>
+        <p class="text-secondary mb-0">Settings are grouped by concern so this area can grow without turning into one long form.</p>
+    </div>
+</div>
 
 <section class="row row-cards">
-    <div class="col-xl-8">
-        <div class="card tf-card">
-            <div class="card-header"><div><div class="tf-kicker">ACTIVE JOURNAL</div><h3 class="tf-card-title">Journal settings</h3></div></div>
+    <div class="col-md-6 col-xl-4">
+        <a class="card tf-card tf-settings-card" href="@($"/journal/{Model.JournalId:D}/settings/journal")">
             <div class="card-body">
-                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=Save")" class="row g-3">
-                    @Html.AntiForgeryToken()
-                    <input type="hidden" asp-for="JournalId" />
-                    <div class="col-md-8"><label class="form-label">Name<input asp-for="Name" class="form-control" required /></label></div>
-                    <div class="col-md-4"><label class="form-label">Execution context<select asp-for="ExecutionContext" class="form-select"><option value="live">Live</option><option value="paper">Paper</option><option value="replay">Replay</option><option value="backtest">Backtest</option><option value="other">Other</option></select></label></div>
-                    <div class="col-md-6"><label class="form-label">Labels<input asp-for="Labels" class="form-control" placeholder="algo, ORB, experimental" /></label></div>
-                    <div class="col-md-3"><label class="form-label">Timezone<input asp-for="TimeZone" class="form-control" required /></label></div>
-                    <div class="col-md-3"><label class="form-label">Currency<input asp-for="Currency" class="form-control" required /></label></div>
-                    <div class="col-md-3"><label class="form-label">Starting equity <span class="text-secondary">(optional)</span><input asp-for="StartingEquity" class="form-control" type="number" step="0.01" min="0" placeholder="Auto from balance" /></label></div>
-                    <div class="col-md-3"><label class="form-label">Grouping policy<select asp-for="GroupingPolicy" class="form-select"><option value="flat_to_flat">Flat-to-flat</option><option value="fifo_lots">FIFO lots (phase 2)</option><option value="source_defined">Source-defined rows</option></select></label></div>
-                    <div class="col-12"><button class="btn btn-primary" type="submit">Save settings</button></div>
-                </form>
+                <div class="tf-settings-card-icon">✦</div>
+                <h3 class="tf-card-title">Journal</h3>
+                <p class="text-secondary">Name, Markdown description, execution context, labels, timezone, currency, and trade grouping.</p>
+                <span class="tf-settings-card-link">Open journal settings →</span>
             </div>
-        </div>
-        <div class="card tf-card tf-phase-card">
-            <div class="card-header"><div><div class="tf-kicker">INSTRUMENTS</div><h3 class="tf-card-title">Instrument definitions</h3></div></div>
-            <div class="card-body">
-                <p class="text-secondary small">These values are stored with normalized fills and trades. Commission is per contract; leave it blank to retain a fee reported by the import when one is available.</p>
-                <div class="table-responsive">
-                    <table class="table table-vcenter tf-table">
-                        <thead><tr><th>Instrument</th><th>Default commission / contract</th><th>Point value</th><th>Tick size</th><th></th></tr></thead>
-                        <tbody>
-                        @foreach (var instrument in Model.Instruments)
-                        {
-                            <tr>
-                                <td colspan="5">
-                                    <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=SaveInstrument")" class="row g-2 align-items-end">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="journalId" value="@Model.JournalId" />
-                                        <input type="hidden" name="instrumentId" value="@instrument.Id" />
-                                        <div class="col-sm-3"><label class="form-label">Code<input class="form-control form-control-sm" name="code" value="@instrument.Code" required maxlength="32" /></label></div>
-                                        <div class="col-sm-3"><label class="form-label">Commission<input class="form-control form-control-sm" name="defaultCommission" type="number" step="0.01" min="0" value="@(instrument.DefaultCommission?.ToString("0.########", CultureInfo.InvariantCulture))" placeholder="Imported fee" /></label></div>
-                                        <div class="col-sm-2"><label class="form-label">$/point<input class="form-control form-control-sm" name="pointValue" type="number" step="0.000001" min="0.000001" value="@instrument.PointValue.ToString("0.########", CultureInfo.InvariantCulture)" required /></label></div>
-                                        <div class="col-sm-2"><label class="form-label">Tick size<input class="form-control form-control-sm" name="tickSize" type="number" step="0.000001" min="0" value="@instrument.TickSize.ToString("0.########", CultureInfo.InvariantCulture)" /></label></div>
-                                        <div class="col-sm-2 d-flex gap-2"><button class="btn btn-sm btn-primary" type="submit">Save</button><button class="btn btn-sm btn-outline-danger" type="submit" formaction="@($"/journal/{Model.JournalId:D}/settings?handler=DeleteInstrument")" formmethod="post" name="instrumentId" value="@instrument.Id" onclick="return confirm('Remove this instrument?');">Remove</button></div>
-                                    </form>
-                                </td>
-                            </tr>
-                        }
-                        <tr>
-                            <td colspan="5">
-                                <div class="tf-kicker mb-2">ADD INSTRUMENT</div>
-                                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=SaveInstrument")" class="row g-2 align-items-end">
-                                    @Html.AntiForgeryToken()
-                                    <input type="hidden" name="journalId" value="@Model.JournalId" />
-                                    <div class="col-sm-3"><label class="form-label">Code<input class="form-control form-control-sm" name="code" placeholder="e.g. ZB" required maxlength="32" /></label></div>
-                                    <div class="col-sm-3"><label class="form-label">Commission<input class="form-control form-control-sm" name="defaultCommission" type="number" step="0.01" min="0" placeholder="Optional" /></label></div>
-                                    <div class="col-sm-2"><label class="form-label">$/point<input class="form-control form-control-sm" name="pointValue" type="number" step="0.000001" min="0.000001" placeholder="e.g. 31.25" required /></label></div>
-                                    <div class="col-sm-2"><label class="form-label">Tick size<input class="form-control form-control-sm" name="tickSize" type="number" step="0.000001" min="0" placeholder="Optional" /></label></div>
-                                    <div class="col-sm-2"><button class="btn btn-sm btn-outline-primary" type="submit">Add instrument</button></div>
-                                </form>
-                            </td>
-                        </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        <div class="card tf-card tf-phase-card">
-            <div class="card-header"><div><div class="tf-kicker">IMPORT APPLICATION</div><h3 class="tf-card-title">Sierra Chart</h3></div><span class="badge bg-blue-lt">sierra_chart</span></div>
-            <div class="card-body">
-                <p class="text-secondary small">Map the imported Sierra Chart <code>Symbol</code> to an instrument. Mappings are checked from top to bottom; a commission override is per contract and takes precedence over the instrument default.</p>
-                <div class="table-responsive">
-                    <table class="table table-vcenter tf-table">
-                        <thead><tr><th>Match regex</th><th>Instrument</th><th>Commission override / contract</th><th></th></tr></thead>
-                        <tbody>
-                        @foreach (var mapping in Model.SierraChartMappings)
-                        {
-                            <tr>
-                                <td colspan="4">
-                                    <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=SaveSierraMapping")" class="row g-2 align-items-end">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="journalId" value="@Model.JournalId" />
-                                        <input type="hidden" name="mappingId" value="@mapping.Id" />
-                                        <input type="hidden" name="position" value="@mapping.Position" />
-                                        <div class="col-md-5"><label class="form-label">Regex<input class="form-control form-control-sm font-monospace" name="matchRegex" value="@mapping.MatchRegex" required maxlength="512" /></label></div>
-                                        <div class="col-md-3"><label class="form-label">Instrument<select class="form-select form-select-sm" name="instrumentCode" required>@foreach (var instrument in Model.Instruments){<option value="@instrument.Code" selected="@(instrument.Code.Equals(mapping.InstrumentCode, StringComparison.OrdinalIgnoreCase))">@instrument.Code</option>}</select></label></div>
-                                        <div class="col-md-3"><label class="form-label">Override<input class="form-control form-control-sm" name="commissionOverride" type="number" step="0.01" min="0" value="@(mapping.CommissionOverride?.ToString("0.########", CultureInfo.InvariantCulture))" placeholder="Use instrument default" /></label></div>
-                                        <div class="col-md-1 d-flex gap-2"><button class="btn btn-sm btn-primary" type="submit">Save</button><button class="btn btn-sm btn-outline-danger" type="submit" formaction="@($"/journal/{Model.JournalId:D}/settings?handler=DeleteSierraMapping")" formmethod="post" name="mappingId" value="@mapping.Id" onclick="return confirm('Remove this mapping?');">×</button></div>
-                                    </form>
-                                </td>
-                            </tr>
-                        }
-                        <tr>
-                            <td colspan="4">
-                                <div class="tf-kicker mb-2">ADD MAPPING</div>
-                                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=SaveSierraMapping")" class="row g-2 align-items-end">
-                                    @Html.AntiForgeryToken()
-                                    <input type="hidden" name="journalId" value="@Model.JournalId" />
-                                    <input type="hidden" name="position" value="@Model.SierraChartMappings.Count" />
-                                    <div class="col-md-5"><label class="form-label">Regex<input class="form-control form-control-sm font-monospace" name="matchRegex" placeholder="e.g. (?&lt;!\w)MES" required maxlength="512" /></label></div>
-                                    <div class="col-md-3"><label class="form-label">Instrument<select class="form-select form-select-sm" name="instrumentCode" required>@foreach (var instrument in Model.Instruments){<option value="@instrument.Code">@instrument.Code</option>}</select></label></div>
-                                    <div class="col-md-3"><label class="form-label">Override<input class="form-control form-control-sm" name="commissionOverride" type="number" step="0.01" min="0" placeholder="Optional" /></label></div>
-                                    <div class="col-md-1"><button class="btn btn-sm btn-outline-primary" type="submit">Add</button></div>
-                                </form>
-                            </td>
-                        </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        <div class="card tf-card tf-phase-card">
-            <div class="card-header"><div><div class="tf-kicker">LOCAL INSTANCE</div><h3 class="tf-card-title">Storage</h3></div></div>
-            <div class="card-body"><dl class="tf-definition-list"><dt>Database size</dt><dd>@Model.DatabaseSize</dd><dt>Location</dt><dd class="text-break">@Model.DatabasePath</dd></dl></div>
-        </div>
+        </a>
     </div>
-    <div class="col-xl-4">
-        <div class="card tf-card">
-            <div class="card-header"><div><div class="tf-kicker">WORKSPACE</div><h3 class="tf-card-title">Create another journal</h3></div></div>
+    <div class="col-md-6 col-xl-4">
+        <a class="card tf-card tf-settings-card" href="@($"/journal/{Model.JournalId:D}/settings/instruments")">
             <div class="card-body">
-                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=CreateJournal")" class="row g-3">
-                    @Html.AntiForgeryToken()
-                    <div class="col-12"><label class="form-label">Name<input asp-for="NewJournalName" class="form-control" placeholder="e.g. NQ Replay" required /></label></div>
-                    <div class="col-12"><label class="form-label">Execution context<select asp-for="NewExecutionContext" class="form-select"><option value="live">Live</option><option value="paper">Paper</option><option value="replay">Replay</option><option value="backtest">Backtest</option><option value="other">Other</option></select></label></div>
-                    <div class="col-12"><label class="form-label">Labels<input asp-for="NewLabels" class="form-control" placeholder="algo, study" /></label></div>
-                    <div class="col-12"><button class="btn btn-outline-secondary" type="submit">Create journal</button></div>
-                </form>
+                <div class="tf-settings-card-icon">◎</div>
+                <h3 class="tf-card-title">Instruments</h3>
+                <p class="text-secondary">Define point values, tick sizes, and default commissions used during normalization.</p>
+                <span class="tf-settings-card-link">Open instrument settings →</span>
             </div>
-        </div>
-        <div class="card tf-card">
-            <div class="card-header"><div><div class="tf-kicker">LOCAL INSTANCE</div><h3 class="tf-card-title">Change password</h3></div></div>
+        </a>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <a class="card tf-card tf-settings-card" href="@($"/journal/{Model.JournalId:D}/settings/sources")">
             <div class="card-body">
-                <p class="text-secondary small">Use an empty new password if you prefer passwordless access on this local instance.</p>
-                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=ChangePassword")" class="row g-3">
-                    @Html.AntiForgeryToken()
-                    <input type="hidden" name="journalId" value="@Model.JournalId" />
-                    <div class="col-12"><label class="form-label">Current password<input class="form-control" name="CurrentPassword" type="password" autocomplete="current-password" /></label></div>
-                    <div class="col-12"><label class="form-label">New password<input class="form-control" name="NewPassword" type="password" autocomplete="new-password" /></label></div>
-                    <div class="col-12"><label class="form-label">Confirm new password<input class="form-control" name="ConfirmNewPassword" type="password" autocomplete="new-password" /></label></div>
-                    <div class="col-12"><button class="btn btn-outline-primary" type="submit">Change password</button></div>
-                </form>
+                <div class="tf-settings-card-icon">⌁</div>
+                <h3 class="tf-card-title">Import sources</h3>
+                <p class="text-secondary">Map source symbols to configured instruments and control import-specific overrides.</p>
+                <span class="tf-settings-card-link">Open source settings →</span>
             </div>
-        </div>
-        <div class="card tf-card">
-            <div class="card-header"><div><div class="tf-kicker">LOCAL AI ACCESS</div><h3 class="tf-card-title">MCP server</h3></div><span class="badge @(Model.McpEnabled ? "bg-green-lt" : "bg-secondary-lt")">@(Model.McpEnabled ? "enabled" : "disabled")</span></div>
+        </a>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <a class="card tf-card tf-settings-card" href="@($"/journal/{Model.JournalId:D}/settings/workspace")">
             <div class="card-body">
-                <p class="text-secondary small">Read-only tokens are separate from your TradeFoundry password and can see only the journals selected below. The MCP server never exposes raw import rows or changes journal data.</p>
-                <dl class="tf-definition-list"><dt>Endpoint</dt><dd class="text-break"><code>@Model.McpEndpoint</code></dd><dt>Transport</dt><dd>Stateless Streamable HTTP · loopback only</dd></dl>
-                @if (!Model.McpEnabled)
-                {
-                    <div class="alert tf-alert mb-3">Set <code>Mcp:Enabled</code> to <code>true</code> and restart TradeFoundry before connecting an AI client.</div>
-                }
-                @if (!string.IsNullOrWhiteSpace(Model.NewMcpToken))
-                {
-                    <div class="mb-3">
-                        <label class="form-label">New token — shown once<input class="form-control font-monospace" value="@Model.NewMcpToken" readonly autocomplete="off" /></label>
-                    </div>
-                }
-                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=CreateMcpToken")" class="row g-3 mb-3">
-                    @Html.AntiForgeryToken()
-                    <input type="hidden" name="journalId" value="@Model.JournalId" />
-                    <div class="col-12"><label class="form-label">Client name<input asp-for="McpTokenName" class="form-control" maxlength="100" required /></label></div>
-                    <div class="col-12">
-                        <div class="form-label">Allowed journals</div>
-                        @foreach (var journal in Model.Journals)
-                        {
-                            <label class="form-check mb-1"><input class="form-check-input" type="checkbox" name="McpJournalIds" value="@journal.Id" checked="@(journal.Id == Model.JournalId ? "checked" : null)" /><span class="form-check-label">@journal.Name <span class="text-secondary">(@journal.ExecutionContext)</span></span></label>
-                        }
-                    </div>
-                    <div class="col-12"><button class="btn btn-outline-primary" type="submit">Generate read-only token</button></div>
-                </form>
-                @if (Model.McpTokens.Count > 0)
-                {
-                    <div class="tf-kicker mb-2">ISSUED TOKENS</div>
-                    @foreach (var token in Model.McpTokens)
-                    {
-                        <div class="border-top py-2">
-                            <div class="d-flex justify-content-between gap-2"><div><strong>@token.Name</strong><div class="small text-secondary"><code>@token.TokenPrefix…</code> · @token.JournalIds.Count journal(s) · created @token.CreatedUtc.ToString("yyyy-MM-dd")</div>@if (token.LastUsedUtc.HasValue){<div class="small text-secondary">Last used @token.LastUsedUtc.Value.ToString("yyyy-MM-dd HH:mm 'UTC'")</div>}</div>@if (token.IsRevoked){<span class="badge bg-secondary-lt align-self-start">revoked</span>}else{<form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=RevokeMcpToken")" onsubmit="return confirm('Revoke this MCP token?');">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><input type="hidden" name="tokenId" value="@token.Id" /><button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button></form>}</div>
-                        </div>
-                    }
-                }
+                <div class="tf-settings-card-icon">⌂</div>
+                <h3 class="tf-card-title">Workspace</h3>
+                <p class="text-secondary">Create and manage the local journals available in this TradeFoundry workspace.</p>
+                <span class="tf-settings-card-link">Open workspace settings →</span>
             </div>
-        </div>
-        @if (Model.Journals.Count > 1)
-        {
-            <div class="card tf-card border-danger">
-                <div class="card-header"><div><div class="tf-kicker text-danger">LIFECYCLE</div><h3 class="tf-card-title">Archive this journal</h3></div></div>
-                <div class="card-body"><p class="text-secondary small">Archived journals disappear from the active selector but their data remains in the database.</p><form method="post" action="@($"/journal/{Model.JournalId:D}/settings?handler=Archive")" onsubmit="return confirm('Archive this journal?');">@Html.AntiForgeryToken()<input type="hidden" asp-for="JournalId" /><button class="btn btn-outline-danger" type="submit">Archive @Model.Journal?.Name</button></form></div>
+        </a>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <a class="card tf-card tf-settings-card" href="@($"/journal/{Model.JournalId:D}/settings/access")">
+            <div class="card-body">
+                <div class="tf-settings-card-icon">⌑</div>
+                <h3 class="tf-card-title">Access</h3>
+                <p class="text-secondary">Change the local owner password and manage read-only MCP connections.</p>
+                <span class="tf-settings-card-link">Open access settings →</span>
             </div>
-        }
+        </a>
+    </div>
+    <div class="col-md-6 col-xl-4">
+        <a class="card tf-card tf-settings-card" href="@($"/journal/{Model.JournalId:D}/settings/instance")">
+            <div class="card-body">
+                <div class="tf-settings-card-icon">◌</div>
+                <h3 class="tf-card-title">Instance</h3>
+                <p class="text-secondary">Review local storage details and archive the current journal when it is no longer active.</p>
+                <span class="tf-settings-card-link">Open instance settings →</span>
+            </div>
+        </a>
     </div>
 </section>

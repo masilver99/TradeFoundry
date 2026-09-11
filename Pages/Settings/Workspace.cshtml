@@ -1,0 +1,58 @@
+@page "/journal/{journalId:guid}/settings/workspace"
+@model TradeFoundry.Pages.Settings.WorkspaceModel
+@{
+    ViewData["Title"] = "Workspace settings";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / SETTINGS / WORKSPACE";
+    ViewData["ActiveNav"] = "settings";
+    ViewData["SettingsSection"] = "workspace";
+}
+
+@await Html.PartialAsync("_SettingsNav", Model.JournalId)
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
+}
+
+<div class="tf-settings-intro">
+    <div>
+        <div class="tf-kicker">LOCAL WORKSPACE</div>
+        <h3 class="tf-settings-heading">Manage journals</h3>
+        <p class="text-secondary mb-0">Each journal keeps its own description, defaults, imports, trades, and analysis context.</p>
+    </div>
+</div>
+
+<section class="row row-cards">
+    <div class="col-xl-5">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">WORKSPACE</div><h3 class="tf-card-title">Create another journal</h3></div></div>
+            <div class="card-body">
+                <form method="post" action="@($"/journal/{Model.JournalId:D}/settings/workspace?handler=CreateJournal")" class="row g-3">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="journalId" value="@Model.JournalId" />
+                    <div class="col-12"><label class="form-label">Name<input asp-for="NewJournalName" class="form-control" placeholder="e.g. NQ Replay" required /></label></div>
+                    <div class="col-12"><label class="form-label">Execution context<select asp-for="NewExecutionContext" class="form-select"><option value="live">Live</option><option value="paper">Paper</option><option value="replay">Replay</option><option value="backtest">Backtest</option><option value="other">Other</option></select></label></div>
+                    <div class="col-12"><label class="form-label">Labels<input asp-for="NewLabels" class="form-control" placeholder="algo, study" /></label></div>
+                    <div class="col-12"><button class="btn btn-outline-primary" type="submit">Create journal</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-7">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">ACTIVE JOURNALS</div><h3 class="tf-card-title">Your local workspace</h3></div></div>
+            <div class="list-group list-group-flush">
+                @foreach (var journal in Model.Journals)
+                {
+                    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3" href="@($"/journal/{journal.Id:D}/overview")">
+                        <span><strong>@journal.Name</strong><span class="d-block small text-secondary">@journal.ExecutionContext · @journal.Currency@(string.IsNullOrWhiteSpace(journal.Labels) ? string.Empty : $" · {journal.Labels}")</span></span>
+                        @if (journal.Id == Model.JournalId)
+                        {
+                            <span class="badge bg-blue-lt">current</span>
+                        }
+                    </a>
+                }
+            </div>
+        </div>
+    </div>
+</section>

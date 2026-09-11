@@ -9,6 +9,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializePnlCalendar();
   initializeSidebarResize();
   initializeImportDropzones();
+  initializeMarkdownEditors();
 
   const filter = document.querySelector("#trade-filter");
   const table = document.querySelector("#trade-table");
@@ -66,6 +67,162 @@ function initializeImportDropzones() {
       fileInput.dispatchEvent(new Event("change", { bubbles: true }));
     });
   });
+}
+
+function initializeMarkdownEditors() {
+  document.querySelectorAll("[data-markdown-editor]").forEach(editor => {
+    const input = editor.querySelector("[data-markdown-input]");
+    const preview = editor.querySelector("[data-markdown-preview]");
+    if (!input || !preview) return;
+
+    const updatePreview = () => {
+      preview.innerHTML = renderMarkdownPreview(input.value);
+    };
+
+    editor.querySelectorAll("[data-markdown-action]").forEach(button => {
+      button.addEventListener("click", () => {
+        input.focus();
+        applyMarkdownAction(input, button.dataset.markdownAction || "");
+        updatePreview();
+      });
+    });
+
+    editor.querySelectorAll("[data-markdown-tab]").forEach(button => {
+      button.addEventListener("click", () => {
+        const previewMode = button.dataset.markdownTab === "preview";
+        editor.querySelectorAll("[data-markdown-tab]").forEach(tab => tab.setAttribute("aria-pressed", String(tab === button)));
+        input.hidden = previewMode;
+        preview.hidden = !previewMode;
+        if (previewMode) updatePreview();
+      });
+    });
+
+    input.addEventListener("input", updatePreview);
+  });
+}
+
+function applyMarkdownAction(input, action) {
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  const selected = input.value.slice(start, end);
+  const fallback = action === "link" ? "link text" : action === "code" ? "code" : "text";
+  const value = selected || fallback;
+  let before = "";
+  let after = "";
+
+  switch (action) {
+    case "bold":
+      before = "**";
+      after = "**";
+      break;
+    case "italic":
+      before = "_";
+      after = "_";
+      break;
+    case "heading":
+      before = "### ";
+      break;
+    case "link":
+      before = "[";
+      after = "](https://)";
+      break;
+    case "unordered-list":
+      before = "- ";
+      break;
+    case "ordered-list":
+      before = "1. ";
+      break;
+    case "quote":
+      before = "> ";
+      break;
+    case "code":
+      before = "`";
+      after = "`";
+      break;
+    default:
+      return;
+  }
+
+  input.setRangeText(`${before}${value}${after}`, start, end, "select");
+  const cursor = start + before.length + value.length + after.length;
+  if (!selected && action === "link") input.setSelectionRange(start + before.length + value.length + 2, cursor - 1);
+  else input.setSelectionRange(cursor, cursor);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function renderMarkdownPreview(markdown) {
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  const output = [];
+  let inCode = false;
+  let codeLanguage = "";
+
+  for (const line of lines) {
+    const fence = line.match(/^\s*```\s*([\w-]*)\s*$/);
+    if (fence) {
+      if (inCode) output.push("</code></pre>");
+      else {
+        codeLanguage = fence[1] || "";
+        output.push(`<pre><code${codeLanguage ? ` class="language-${escapeMarkdownHtml(codeLanguage)}"` : ""}>`);
+      }
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) {
+      output.push(escapeMarkdownHtml(line) + "\n");
+      continue;
+    }
+
+    const heading = line.match(/^\s*(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      output.push(`<h${heading[1].length}>${renderMarkdownInline(heading[2])}</h${heading[1].length}>`);
+      continue;
+    }
+    if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) {
+      output.push("<hr>");
+      continue;
+    }
+    const quote = line.match(/^\s*>\s?(.*)$/);
+    if (quote) {
+      output.push(`<blockquote>${renderMarkdownInline(quote[1])}</blockquote>`);
+      continue;
+    }
+    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+    if (unordered) {
+      output.push(`<ul><li>${renderMarkdownInline(unordered[1])}</li></ul>`);
+      continue;
+    }
+    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (ordered) {
+      output.push(`<ol><li>${renderMarkdownInline(ordered[1])}</li></ol>`);
+      continue;
+    }
+    if (!line.trim()) continue;
+    output.push(`<p>${renderMarkdownInline(line)}</p>`);
+  }
+
+  if (inCode) output.push("</code></pre>");
+  return output.join("") || '<p class="text-secondary">Nothing to preview yet.</p>';
+}
+
+function renderMarkdownInline(value) {
+  let result = escapeMarkdownHtml(value);
+  result = result.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:|\/|#)[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
+  result = result.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  result = result.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+  result = result.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<em>$1</em>");
+  result = result.replace(/(?<!_)_([^_]+)_(?!_)/g, "<em>$1</em>");
+  return result;
+}
+
+function escapeMarkdownHtml(value) {
+  return String(value || "").replace(/[&<>\"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character]);
 }
 
 function initializeSidebarResize() {

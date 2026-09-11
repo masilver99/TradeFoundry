@@ -1,0 +1,75 @@
+@page "/journal/{journalId:guid}/settings/sources"
+@model TradeFoundry.Pages.Settings.SourcesModel
+@{
+    ViewData["Title"] = "Import source settings";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / SETTINGS / IMPORT SOURCES";
+    ViewData["ActiveNav"] = "settings";
+    ViewData["SettingsSection"] = "sources";
+}
+
+@await Html.PartialAsync("_SettingsNav", Model.JournalId)
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
+}
+
+<div class="tf-settings-intro">
+    <div>
+        <div class="tf-kicker">IMPORT APPLICATION</div>
+        <h3 class="tf-settings-heading">Source mappings</h3>
+        <p class="text-secondary mb-0">Mappings connect imported source symbols to instrument definitions. They are checked from top to bottom.</p>
+    </div>
+</div>
+
+<div class="card tf-card">
+    <div class="card-header"><div><div class="tf-kicker">SIERRA CHART</div><h3 class="tf-card-title">Symbol mappings</h3></div><span class="badge bg-blue-lt">sierra_chart</span></div>
+    <div class="card-body">
+        <p class="text-secondary small">A commission override is per contract and takes precedence over the instrument default.</p>
+        <div class="table-responsive">
+            <table class="table table-vcenter tf-table">
+                <thead><tr><th>Match regex</th><th>Instrument</th><th>Commission override / contract</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var mapping in Model.SierraChartMappings)
+                {
+                    <tr>
+                        <td colspan="4">
+                            <form method="post" action="@($"/journal/{Model.JournalId:D}/settings/sources?handler=SaveSierraMapping")" class="row g-2 align-items-end">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="journalId" value="@Model.JournalId" />
+                                <input type="hidden" name="mappingId" value="@mapping.Id" />
+                                <input type="hidden" name="position" value="@mapping.Position" />
+                                <div class="col-md-5"><label class="form-label">Regex<input class="form-control form-control-sm font-monospace" name="matchRegex" value="@mapping.MatchRegex" required maxlength="512" /></label></div>
+                                <div class="col-md-3"><label class="form-label">Instrument<select class="form-select form-select-sm" name="instrumentCode" required>@foreach (var instrument in Model.Instruments){<option value="@instrument.Code" selected="@(instrument.Code.Equals(mapping.InstrumentCode, StringComparison.OrdinalIgnoreCase))">@instrument.Code</option>}</select></label></div>
+                                <div class="col-md-3"><label class="form-label">Override<input class="form-control form-control-sm" name="commissionOverride" type="number" step="0.01" min="0" value="@(mapping.CommissionOverride?.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture))" placeholder="Use instrument default" /></label></div>
+                                <div class="col-md-1 d-flex gap-2"><button class="btn btn-sm btn-primary" type="submit">Save</button><button class="btn btn-sm btn-outline-danger" type="submit" formaction="@($"/journal/{Model.JournalId:D}/settings/sources?handler=DeleteSierraMapping")" formmethod="post" name="mappingId" value="@mapping.Id" onclick="return confirm('Remove this mapping?');">×</button></div>
+                            </form>
+                        </td>
+                    </tr>
+                }
+                <tr>
+                    <td colspan="4">
+                        <div class="tf-kicker mb-2">ADD MAPPING</div>
+                        @if (Model.Instruments.Count == 0)
+                        {
+                            <p class="text-secondary small mb-0">Add an instrument before creating a source mapping.</p>
+                        }
+                        else
+                        {
+                            <form method="post" action="@($"/journal/{Model.JournalId:D}/settings/sources?handler=SaveSierraMapping")" class="row g-2 align-items-end">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="journalId" value="@Model.JournalId" />
+                                <input type="hidden" name="position" value="@Model.SierraChartMappings.Count" />
+                                <div class="col-md-5"><label class="form-label">Regex<input class="form-control form-control-sm font-monospace" name="matchRegex" placeholder="e.g. (?&lt;!\w)MES" required maxlength="512" /></label></div>
+                                <div class="col-md-3"><label class="form-label">Instrument<select class="form-select form-select-sm" name="instrumentCode" required>@foreach (var instrument in Model.Instruments){<option value="@instrument.Code">@instrument.Code</option>}</select></label></div>
+                                <div class="col-md-3"><label class="form-label">Override<input class="form-control form-control-sm" name="commissionOverride" type="number" step="0.01" min="0" placeholder="Optional" /></label></div>
+                                <div class="col-md-1"><button class="btn btn-sm btn-outline-primary" type="submit">Add</button></div>
+                            </form>
+                        }
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

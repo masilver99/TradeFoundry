@@ -1,6 +1,34 @@
 # TradeFoundry
 
-TradeFoundry is a local-first futures trading journal. It imports Sierra Chart Trade Activity fills and order events, TradingView account or Strategy Tester exports, benchmark daily series, and OHLCV bars for chart snippets. The phase 1 ledger is intentionally read-only: raw rows stay linked to typed source evidence and deterministic flat-to-flat trades.
+TradeFoundry is a local-first futures trading journal. It currently imports Sierra Chart Trade Activity exports, but there are plans to add TradingView and NinjaTrader exports.
+
+The GitHub repo is accepting pull requests, but the primary repo is self hosted and private. 
+
+The code is copyrighted CC BY-NC 4.0. The code is free to modify and use as long as it attributed and not used for commercial purposes. https://creativecommons.org/licenses/by-nc/4.0/deed.en
+
+Much of the code has been written with AI, and it has left some rough edges due to the speed of development, but these rough edges are slowly being smoothed out and the UI is slowing being polished.  
+
+I'm already using it to view stats on my trading.
+
+Eventually, there will be a docker image to self host and a shell application for those that want to run it locally as an app.
+
+## Current Status
+
+This is pre-alpha software and breaking changes are a constant refrain. 
+
+## Features
+
+- Imports Sierra Chart trade activity
+  - Sierra Chart is famous for it's rich trade activity export since it tracks SL and TP adjustements, order cancellations, MAE, etc.
+- Copious charts and statistics, including
+  - Calendar view
+  - Quarterly view to assist with taxes (US only)
+  - Tons of performance metrics
+  - Numerous charts
+- Daybook
+  - This contains all your trades and allows you to edit or make changes
+  - This is still in very heavy development and will probably change a fair amount
+- Optional MCP Server to allow readonly access to your trades by AI
 
 ## Run locally
 

@@ -151,8 +151,9 @@ public class AnalyticsModel : PageModel
     {
         if (Journal is null) return;
 
-        var daily = JournalAnalysisService.BuildDailyRealized(Trades, Journal.TimeZone)
-            .ToDictionary(day => day.Date, day => (day.NetPnl, day.TradeCount));
+        var daily = DailyTradeAggregation.Build(Trades, Journal.TimeZone)
+            .Where(day => day.CompletedTradeCount > 0)
+            .ToDictionary(day => day.Date, day => (NetPnl: day.RealizedNetPnl, TradeCount: day.CompletedTradeCount));
 
         PnlCalendarMonths = daily.Keys
             .GroupBy(date => new { date.Year, date.Month })

@@ -68,8 +68,11 @@ public static class TearSheetPeriods
     public static TearSheetPeriodData Build(IEnumerable<Trade> source, string? timeZoneId)
     {
         var timeZone = TimeZoneCatalog.Resolve(timeZoneId);
-        var trades = source
-            .Where(trade => trade.ExitUtc.HasValue)
+        var completedTrades = DailyTradeAggregation.Build(source, timeZoneId ?? "UTC")
+            .Where(day => day.CompletedTradeCount > 0)
+            .SelectMany(day => day.CompletedTrades)
+            .ToArray();
+        var trades = completedTrades
             .OrderBy(trade => trade.ExitUtc)
             .ThenBy(trade => trade.Sequence)
             .Select(trade =>

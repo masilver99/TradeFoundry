@@ -89,6 +89,12 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_status_time ON trades(journal_id, status, entry_utc)",
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_symbol_time ON trades(journal_id, symbol, entry_utc)",
             "CREATE TABLE IF NOT EXISTS trade_fill_allocations (trade_id TEXT NOT NULL REFERENCES trades(id) ON DELETE CASCADE, fill_id TEXT NOT NULL REFERENCES fills(id) ON DELETE CASCADE, quantity INTEGER NOT NULL, PRIMARY KEY(trade_id, fill_id))",
+            "CREATE TABLE IF NOT EXISTS trade_review_annotations (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, review_note TEXT NOT NULL DEFAULT '', setup TEXT NOT NULL DEFAULT '', tags_json TEXT NOT NULL DEFAULT '[]', planned_entry_price TEXT NULL, planned_stop_price TEXT NULL, planned_target_price TEXT NULL, planned_risk_points TEXT NULL, planned_risk_currency TEXT NULL, plan_adherence TEXT NOT NULL DEFAULT '', process_rating INTEGER NULL, mistakes TEXT NOT NULL DEFAULT '', lessons TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL, UNIQUE(journal_id, review_key))",
+            "CREATE INDEX IF NOT EXISTS ix_trade_review_annotations_journal ON trade_review_annotations(journal_id, updated_utc DESC)",
+            "CREATE TABLE IF NOT EXISTS trade_review_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', reason TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS ix_trade_review_history_trade ON trade_review_history(journal_id, review_key, revision DESC)",
+            "CREATE TABLE IF NOT EXISTS trade_review_attachments (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, storage_key TEXT NOT NULL, original_file_name TEXT NOT NULL, content_type TEXT NOT NULL, length INTEGER NOT NULL, created_utc TEXT NOT NULL, removed_utc TEXT NULL)",
+            "CREATE INDEX IF NOT EXISTS ix_trade_review_attachments_trade ON trade_review_attachments(journal_id, review_key, created_utc DESC)",
             "CREATE TABLE IF NOT EXISTS order_events (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', internal_order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', side TEXT NOT NULL DEFAULT '', open_close TEXT NOT NULL DEFAULT '', price TEXT NULL, price2 TEXT NULL, quantity INTEGER NULL, filled_quantity INTEGER NULL, fill_price TEXT NULL, position_quantity INTEGER NULL, note TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, fees TEXT NOT NULL DEFAULT '0', row_number INTEGER NOT NULL, instrument TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_order_events_journal_order_time ON order_events(journal_id, account, symbol, internal_order_id, event_utc, row_number)",
             "CREATE INDEX IF NOT EXISTS ix_order_events_journal_parent ON order_events(journal_id, parent_order_id, event_utc)",
@@ -883,6 +889,215 @@ public sealed class TradeFoundryDb
         return trades;
     }
 
+    public IReadOnlyDictionary<string, TradeReviewAnnotation> GetTradeReviewAnnotations(Guid journalId)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        var annotations = new Dictionary<string, TradeReviewAnnotation>(StringComparer.Ordinal);
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, plan_adherence, process_rating, mistakes, lessons, updated_utc FROM trade_review_annotations WHERE journal_id = $journal";
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var annotation = ReadTradeReview(reader);
+                annotations[annotation.ReviewKey] = annotation;
+            }
+        }
+
+        // A source-removal tombstone has no active row, but its revision still
+        // matters when a later import reintroduces the same stable review key.
+        using (var history = connection.CreateCommand())
+        {
+            history.CommandText = "SELECT review_key, MAX(revision) FROM trade_review_history WHERE journal_id = $journal GROUP BY review_key";
+            history.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            using var reader = history.ExecuteReader();
+            while (reader.Read())
+            {
+                var reviewKey = reader.GetString(0);
+                if (!annotations.ContainsKey(reviewKey))
+                {
+                    annotations[reviewKey] = EmptyTradeReview(journalId, reviewKey, reader.GetInt32(1));
+                }
+            }
+        }
+
+        return annotations;
+    }
+
+    public TradeReviewAnnotation? GetTradeReview(Guid journalId, string reviewKey)
+    {
+        if (string.IsNullOrWhiteSpace(reviewKey)) return null;
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, plan_adherence, process_rating, mistakes, lessons, updated_utc FROM trade_review_annotations WHERE journal_id = $journal AND review_key = $reviewKey";
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            command.Parameters.AddWithValue("$reviewKey", reviewKey);
+            using var reader = command.ExecuteReader();
+            if (reader.Read()) return ReadTradeReview(reader);
+        }
+
+        using var history = connection.CreateCommand();
+        history.CommandText = "SELECT MAX(revision) FROM trade_review_history WHERE journal_id = $journal AND review_key = $reviewKey";
+        history.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        history.Parameters.AddWithValue("$reviewKey", reviewKey);
+        var value = history.ExecuteScalar();
+        return value is null or DBNull ? null : EmptyTradeReview(journalId, reviewKey, Convert.ToInt32(value, CultureInfo.InvariantCulture));
+    }
+
+    public IReadOnlyList<TradeReviewHistoryEntry> GetTradeReviewHistory(Guid journalId, string reviewKey)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, journal_id, review_key, revision, action, before_json, after_json, reason, created_utc FROM trade_review_history WHERE journal_id = $journal AND review_key = $reviewKey ORDER BY revision DESC, created_utc DESC";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$reviewKey", reviewKey);
+        using var reader = command.ExecuteReader();
+        var history = new List<TradeReviewHistoryEntry>();
+        while (reader.Read()) history.Add(ReadTradeReviewHistory(reader));
+        return history;
+    }
+
+    public TradeReviewSaveResult SaveTradeReview(Guid journalId, string reviewKey, TradeReviewPatch patch, string action = "saved")
+    {
+        if (string.IsNullOrWhiteSpace(reviewKey)) throw new ArgumentException("A review key is required.", nameof(reviewKey));
+        if (patch.ExpectedRevision < 0) throw new ArgumentOutOfRangeException(nameof(patch.ExpectedRevision));
+        if (patch.ProcessRating is < 1 or > 5) throw new ArgumentOutOfRangeException(nameof(patch.ProcessRating), "Process rating must be between 1 and 5.");
+        if (patch.PlannedRiskPoints is < 0m || patch.PlannedRiskCurrency is < 0m) throw new ArgumentOutOfRangeException(nameof(patch), "Planned risk cannot be negative.");
+        if (!string.IsNullOrWhiteSpace(patch.PlanAdherence) && !new[] { "adhered", "partial", "broken" }.Contains(patch.PlanAdherence, StringComparer.OrdinalIgnoreCase))
+            throw new ArgumentException("Plan adherence must be Adhered, Partial, or Broken.", nameof(patch));
+        _ = GetTradeByReviewKey(journalId, reviewKey) ?? throw new InvalidOperationException("The trade for this review could not be found.");
+
+        var normalized = NormalizeReviewPatch(patch);
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var current = ReadTradeReviewOrHistoryRevision(connection, transaction, journalId, reviewKey);
+        if (patch.ExpectedRevision != current.Revision)
+        {
+            InsertTradeReviewHistory(connection, transaction, journalId, reviewKey, current.Revision, "conflict", SerializeReview(current), JsonSerializer.Serialize(normalized), "Stale review revision.", DateTimeOffset.UtcNow);
+            transaction.Commit();
+            return new TradeReviewSaveResult { Conflict = true, Annotation = current };
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var annotation = AnnotationFromPatch(journalId, reviewKey, current.Revision + 1, normalized, now);
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "INSERT INTO trade_review_annotations (id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, plan_adherence, process_rating, mistakes, lessons, updated_utc) VALUES ($id, $journal, $reviewKey, $revision, $note, $setup, $tags, $plannedEntry, $plannedStop, $plannedTarget, $riskPoints, $riskCurrency, $adherence, $rating, $mistakes, $lessons, $updated) ON CONFLICT(journal_id, review_key) DO UPDATE SET revision = excluded.revision, review_note = excluded.review_note, setup = excluded.setup, tags_json = excluded.tags_json, planned_entry_price = excluded.planned_entry_price, planned_stop_price = excluded.planned_stop_price, planned_target_price = excluded.planned_target_price, planned_risk_points = excluded.planned_risk_points, planned_risk_currency = excluded.planned_risk_currency, plan_adherence = excluded.plan_adherence, process_rating = excluded.process_rating, mistakes = excluded.mistakes, lessons = excluded.lessons, updated_utc = excluded.updated_utc";
+            command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            command.Parameters.AddWithValue("$reviewKey", reviewKey);
+            command.Parameters.AddWithValue("$revision", annotation.Revision);
+            command.Parameters.AddWithValue("$note", annotation.ReviewNote);
+            command.Parameters.AddWithValue("$setup", annotation.Setup);
+            command.Parameters.AddWithValue("$tags", JsonSerializer.Serialize(annotation.Tags));
+            AddNullable(command, "$plannedEntry", annotation.PlannedEntryPrice);
+            AddNullable(command, "$plannedStop", annotation.PlannedStopPrice);
+            AddNullable(command, "$plannedTarget", annotation.PlannedTargetPrice);
+            AddNullable(command, "$riskPoints", annotation.PlannedRiskPoints);
+            AddNullable(command, "$riskCurrency", annotation.PlannedRiskCurrency);
+            command.Parameters.AddWithValue("$adherence", annotation.PlanAdherence);
+            AddNullable(command, "$rating", annotation.ProcessRating);
+            command.Parameters.AddWithValue("$mistakes", annotation.Mistakes);
+            command.Parameters.AddWithValue("$lessons", annotation.Lessons);
+            command.Parameters.AddWithValue("$updated", annotation.UpdatedUtc!.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+            command.ExecuteNonQuery();
+        }
+
+        InsertTradeReviewHistory(connection, transaction, journalId, reviewKey, annotation.Revision, action, SerializeReview(current), SerializeReview(annotation), normalized.Reason, now);
+        transaction.Commit();
+        return new TradeReviewSaveResult { Saved = true, Annotation = annotation };
+    }
+
+    public TradeReviewSaveResult RevertTradeReview(Guid journalId, string reviewKey, int expectedRevision, int targetRevision, string reason = "Reverted review")
+    {
+        var target = GetTradeReviewHistory(journalId, reviewKey).FirstOrDefault(x => x.Revision == targetRevision && !x.Action.Equals("conflict", StringComparison.OrdinalIgnoreCase));
+        if (target is null) throw new InvalidOperationException("The selected review history entry could not be found.");
+        TradeReviewAnnotation restored;
+        try
+        {
+            restored = string.IsNullOrWhiteSpace(target.AfterJson) || target.AfterJson == "{}"
+                ? EmptyTradeReview(journalId, reviewKey)
+                : JsonSerializer.Deserialize<TradeReviewAnnotation>(target.AfterJson) ?? EmptyTradeReview(journalId, reviewKey);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("The selected review history entry is not readable.");
+        }
+
+        return SaveTradeReview(journalId, reviewKey, PatchFromAnnotation(restored, expectedRevision, reason), "reverted");
+    }
+
+    public IReadOnlyList<TradeReviewAttachment> GetTradeReviewAttachments(Guid journalId, string reviewKey)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, journal_id, review_key, storage_key, original_file_name, content_type, length, created_utc FROM trade_review_attachments WHERE journal_id = $journal AND review_key = $reviewKey AND removed_utc IS NULL ORDER BY created_utc DESC";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$reviewKey", reviewKey);
+        using var reader = command.ExecuteReader();
+        var attachments = new List<TradeReviewAttachment>();
+        while (reader.Read()) attachments.Add(ReadTradeReviewAttachment(reader));
+        return attachments;
+    }
+
+    public TradeReviewAttachment? GetTradeReviewAttachment(Guid journalId, Guid attachmentId)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, journal_id, review_key, storage_key, original_file_name, content_type, length, created_utc FROM trade_review_attachments WHERE id = $id AND journal_id = $journal AND removed_utc IS NULL";
+        command.Parameters.AddWithValue("$id", attachmentId.ToString("D"));
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadTradeReviewAttachment(reader) : null;
+    }
+
+    public TradeReviewAttachment AddTradeReviewAttachment(Guid journalId, string reviewKey, string storageKey, string originalFileName, string contentType, long length)
+    {
+        if (string.IsNullOrWhiteSpace(reviewKey)) throw new ArgumentException("A review key is required.", nameof(reviewKey));
+        if (string.IsNullOrWhiteSpace(storageKey)) throw new ArgumentException("A storage key is required.", nameof(storageKey));
+        _ = GetTradeByReviewKey(journalId, reviewKey) ?? throw new InvalidOperationException("The trade for this review could not be found.");
+        var attachment = new TradeReviewAttachment
+        {
+            Id = Guid.NewGuid(), JournalId = journalId, ReviewKey = reviewKey, StorageKey = storageKey,
+            OriginalFileName = originalFileName, ContentType = contentType, Length = length, CreatedUtc = DateTimeOffset.UtcNow
+        };
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO trade_review_attachments (id, journal_id, review_key, storage_key, original_file_name, content_type, length, created_utc, removed_utc) VALUES ($id, $journal, $reviewKey, $storageKey, $fileName, $contentType, $length, $created, NULL)";
+        command.Parameters.AddWithValue("$id", attachment.Id.ToString("D"));
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$reviewKey", reviewKey);
+        command.Parameters.AddWithValue("$storageKey", storageKey);
+        command.Parameters.AddWithValue("$fileName", attachment.OriginalFileName);
+        command.Parameters.AddWithValue("$contentType", attachment.ContentType);
+        command.Parameters.AddWithValue("$length", attachment.Length);
+        command.Parameters.AddWithValue("$created", attachment.CreatedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+        return attachment;
+    }
+
+    public TradeReviewAttachment? RemoveTradeReviewAttachment(Guid journalId, Guid attachmentId)
+    {
+        var attachment = GetTradeReviewAttachment(journalId, attachmentId);
+        if (attachment is null) return null;
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE trade_review_attachments SET removed_utc = $removed WHERE id = $id AND journal_id = $journal AND removed_utc IS NULL";
+        command.Parameters.AddWithValue("$removed", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$id", attachmentId.ToString("D"));
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.ExecuteNonQuery();
+        return attachment;
+    }
+
     public IReadOnlyList<OrderEvent> GetOrderEvents(Guid journalId)
     {
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
@@ -1523,6 +1738,9 @@ public sealed class TradeFoundryDb
         using (var connection = OpenConnection())
         using (var transaction = connection.BeginTransaction())
         {
+            foreach (var reviewKey in ReadReviewKeysForImport(connection, transaction, journalId.Value, batchId))
+                RemoveTradeReviewForSource(connection, transaction, journalId.Value, reviewKey);
+
             foreach (var sql in new[]
             {
                 "DELETE FROM trade_fill_allocations WHERE trade_id IN (SELECT id FROM trades WHERE import_batch_id = $batch)",
@@ -2360,6 +2578,221 @@ public sealed class TradeFoundryDb
     {
         Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), FileName = reader.GetString(2), SourceApplication = InferSourceApplication(reader.IsDBNull(3) ? string.Empty : reader.GetString(3), reader.GetString(4)), SourceType = reader.GetString(4), ImportedUtc = ParseDate(reader.GetString(5)), TotalRows = reader.GetInt32(6), NewRows = reader.GetInt32(7), DuplicateRows = reader.GetInt32(8), Status = reader.GetString(9), Message = reader.GetString(10)
     };
+
+    private static TradeReviewAnnotation ReadTradeReview(SqliteDataReader reader)
+    {
+        IReadOnlyList<string> tags;
+        try
+        {
+            tags = JsonSerializer.Deserialize<string[]>(reader.GetString(6)) ?? Array.Empty<string>();
+        }
+        catch (JsonException)
+        {
+            tags = Array.Empty<string>();
+        }
+
+        return new TradeReviewAnnotation
+        {
+            JournalId = Guid.Parse(reader.GetString(1)),
+            ReviewKey = reader.GetString(2),
+            Revision = reader.GetInt32(3),
+            ReviewNote = reader.GetString(4),
+            Setup = reader.GetString(5),
+            Tags = tags,
+            PlannedEntryPrice = NullableDecimal(reader, 7),
+            PlannedStopPrice = NullableDecimal(reader, 8),
+            PlannedTargetPrice = NullableDecimal(reader, 9),
+            PlannedRiskPoints = NullableDecimal(reader, 10),
+            PlannedRiskCurrency = NullableDecimal(reader, 11),
+            PlanAdherence = reader.GetString(12),
+            ProcessRating = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+            Mistakes = reader.GetString(14),
+            Lessons = reader.GetString(15),
+            UpdatedUtc = ParseDate(reader.GetString(16))
+        };
+    }
+
+    private static TradeReviewHistoryEntry ReadTradeReviewHistory(SqliteDataReader reader) => new()
+    {
+        Id = Guid.Parse(reader.GetString(0)),
+        JournalId = Guid.Parse(reader.GetString(1)),
+        ReviewKey = reader.GetString(2),
+        Revision = reader.GetInt32(3),
+        Action = reader.GetString(4),
+        BeforeJson = reader.GetString(5),
+        AfterJson = reader.GetString(6),
+        Reason = reader.GetString(7),
+        CreatedUtc = ParseDate(reader.GetString(8))
+    };
+
+    private static TradeReviewAttachment ReadTradeReviewAttachment(SqliteDataReader reader) => new()
+    {
+        Id = Guid.Parse(reader.GetString(0)),
+        JournalId = Guid.Parse(reader.GetString(1)),
+        ReviewKey = reader.GetString(2),
+        StorageKey = reader.GetString(3),
+        OriginalFileName = reader.GetString(4),
+        ContentType = reader.GetString(5),
+        Length = reader.GetInt64(6),
+        CreatedUtc = ParseDate(reader.GetString(7))
+    };
+
+    private static TradeReviewAnnotation EmptyTradeReview(Guid journalId, string reviewKey, int revision = 0) => new()
+    {
+        JournalId = journalId,
+        ReviewKey = reviewKey,
+        Revision = revision
+    };
+
+    private static TradeReviewPatch NormalizeReviewPatch(TradeReviewPatch patch) => new()
+    {
+        ReviewNote = TrimTo(patch.ReviewNote, 4000),
+        Setup = TrimTo(patch.Setup, 240),
+        TagsText = string.Join(", ", ParseReviewTags(patch.TagsText)),
+        PlannedEntryPrice = patch.PlannedEntryPrice,
+        PlannedStopPrice = patch.PlannedStopPrice,
+        PlannedTargetPrice = patch.PlannedTargetPrice,
+        PlannedRiskPoints = patch.PlannedRiskPoints,
+        PlannedRiskCurrency = patch.PlannedRiskCurrency,
+        PlanAdherence = TrimTo(patch.PlanAdherence, 32).ToLowerInvariant(),
+        ProcessRating = patch.ProcessRating,
+        Mistakes = TrimTo(patch.Mistakes, 2000),
+        Lessons = TrimTo(patch.Lessons, 2000),
+        Reason = TrimTo(patch.Reason, 500),
+        ExpectedRevision = patch.ExpectedRevision
+    };
+
+    private static TradeReviewAnnotation AnnotationFromPatch(Guid journalId, string reviewKey, int revision, TradeReviewPatch patch, DateTimeOffset updatedUtc) => new()
+    {
+        JournalId = journalId,
+        ReviewKey = reviewKey,
+        Revision = revision,
+        ReviewNote = patch.ReviewNote,
+        Setup = patch.Setup,
+        Tags = ParseReviewTags(patch.TagsText),
+        PlannedEntryPrice = patch.PlannedEntryPrice,
+        PlannedStopPrice = patch.PlannedStopPrice,
+        PlannedTargetPrice = patch.PlannedTargetPrice,
+        PlannedRiskPoints = patch.PlannedRiskPoints,
+        PlannedRiskCurrency = patch.PlannedRiskCurrency,
+        PlanAdherence = patch.PlanAdherence,
+        ProcessRating = patch.ProcessRating,
+        Mistakes = patch.Mistakes,
+        Lessons = patch.Lessons,
+        UpdatedUtc = updatedUtc
+    };
+
+    private static TradeReviewPatch PatchFromAnnotation(TradeReviewAnnotation annotation, int expectedRevision, string reason) => new()
+    {
+        ReviewNote = annotation.ReviewNote,
+        Setup = annotation.Setup,
+        TagsText = string.Join(", ", annotation.Tags),
+        PlannedEntryPrice = annotation.PlannedEntryPrice,
+        PlannedStopPrice = annotation.PlannedStopPrice,
+        PlannedTargetPrice = annotation.PlannedTargetPrice,
+        PlannedRiskPoints = annotation.PlannedRiskPoints,
+        PlannedRiskCurrency = annotation.PlannedRiskCurrency,
+        PlanAdherence = annotation.PlanAdherence,
+        ProcessRating = annotation.ProcessRating,
+        Mistakes = annotation.Mistakes,
+        Lessons = annotation.Lessons,
+        Reason = reason,
+        ExpectedRevision = expectedRevision
+    };
+
+    private static IReadOnlyList<string> ParseReviewTags(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return Array.Empty<string>();
+        return text
+            .Split(new[] { ',', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(tag => TrimTo(tag, 80))
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(25)
+            .ToArray();
+    }
+
+    private static string TrimTo(string? value, int maxLength)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
+    }
+
+    private static string SerializeReview(TradeReviewAnnotation annotation) => JsonSerializer.Serialize(annotation);
+
+    private static TradeReviewAnnotation ReadTradeReviewOrHistoryRevision(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, string reviewKey)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "SELECT id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, plan_adherence, process_rating, mistakes, lessons, updated_utc FROM trade_review_annotations WHERE journal_id = $journal AND review_key = $reviewKey";
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            command.Parameters.AddWithValue("$reviewKey", reviewKey);
+            using var reader = command.ExecuteReader();
+            if (reader.Read()) return ReadTradeReview(reader);
+        }
+
+        using var history = connection.CreateCommand();
+        history.Transaction = transaction;
+        history.CommandText = "SELECT MAX(revision) FROM trade_review_history WHERE journal_id = $journal AND review_key = $reviewKey";
+        history.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        history.Parameters.AddWithValue("$reviewKey", reviewKey);
+        var value = history.ExecuteScalar();
+        return value is null or DBNull ? EmptyTradeReview(journalId, reviewKey) : EmptyTradeReview(journalId, reviewKey, Convert.ToInt32(value, CultureInfo.InvariantCulture));
+    }
+
+    private static void InsertTradeReviewHistory(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, string reviewKey, int revision, string action, string beforeJson, string afterJson, string reason, DateTimeOffset createdUtc)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "INSERT INTO trade_review_history (id, journal_id, review_key, revision, action, before_json, after_json, reason, created_utc) VALUES ($id, $journal, $reviewKey, $revision, $action, $before, $after, $reason, $created)";
+        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$reviewKey", reviewKey);
+        command.Parameters.AddWithValue("$revision", revision);
+        command.Parameters.AddWithValue("$action", action);
+        command.Parameters.AddWithValue("$before", string.IsNullOrWhiteSpace(beforeJson) ? "{}" : beforeJson);
+        command.Parameters.AddWithValue("$after", string.IsNullOrWhiteSpace(afterJson) ? "{}" : afterJson);
+        command.Parameters.AddWithValue("$reason", reason);
+        command.Parameters.AddWithValue("$created", createdUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    private static IReadOnlyList<string> ReadReviewKeysForImport(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, Guid batchId)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT DISTINCT review_key FROM trades WHERE journal_id = $journal AND review_key <> '' AND (import_batch_id = $batch OR EXISTS (SELECT 1 FROM trade_fill_allocations a JOIN fills f ON f.id = a.fill_id WHERE a.trade_id = trades.id AND f.import_batch_id = $batch))";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$batch", batchId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        var keys = new List<string>();
+        while (reader.Read()) keys.Add(reader.GetString(0));
+        return keys;
+    }
+
+    private static void RemoveTradeReviewForSource(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, string reviewKey)
+    {
+        var current = ReadTradeReviewOrHistoryRevision(connection, transaction, journalId, reviewKey);
+        InsertTradeReviewHistory(connection, transaction, journalId, reviewKey, current.Revision + 1, "source_removed", SerializeReview(current), "{}", "Source import was undone; review annotations were removed.", DateTimeOffset.UtcNow);
+
+        using (var annotation = connection.CreateCommand())
+        {
+            annotation.Transaction = transaction;
+            annotation.CommandText = "DELETE FROM trade_review_annotations WHERE journal_id = $journal AND review_key = $reviewKey";
+            annotation.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            annotation.Parameters.AddWithValue("$reviewKey", reviewKey);
+            annotation.ExecuteNonQuery();
+        }
+
+        using var attachments = connection.CreateCommand();
+        attachments.Transaction = transaction;
+        attachments.CommandText = "UPDATE trade_review_attachments SET removed_utc = $removed WHERE journal_id = $journal AND review_key = $reviewKey AND removed_utc IS NULL";
+        attachments.Parameters.AddWithValue("$removed", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        attachments.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        attachments.Parameters.AddWithValue("$reviewKey", reviewKey);
+        attachments.ExecuteNonQuery();
+    }
 
     private static Trade ReadTrade(SqliteDataReader reader) => new()
     {

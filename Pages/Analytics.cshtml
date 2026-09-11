@@ -49,7 +49,7 @@
 {
     <nav class="tf-chart-index tf-analysis-index" data-analysis-index aria-label="Analysis sections">
         <a href="#sc-trade-statistics" data-analysis-target="sc-trade-statistics">SC Trade Statistics</a>
-        <a href="#period-summary" data-analysis-target="period-summary">Period Summary</a>
+        <a href="#history" data-analysis-target="history">History</a>
         <a href="#period-breakdown" data-analysis-target="period-breakdown">Period Breakdown</a>
         <a href="#performance" data-analysis-target="performance">Performance</a>
         <a href="#risk" data-analysis-target="risk">Risk &amp; stability</a>
@@ -101,6 +101,19 @@
             </table>
         </div>
     </section>
+
+    <section id="history" class="tf-chart-section tf-history-section" aria-labelledby="history-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">HISTORY</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="history-heading">History</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="History" aria-expanded="false" aria-controls="history-description" aria-label="Show explanation for History"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="history-description" class="tf-section-info" hidden>Period Summary explains how the period performed. The P&amp;L Calendar shows which days contributed. Both open the same Daybook for review.</p>
+            </div>
+            <span><a class="btn btn-sm btn-outline-primary" asp-page="/Review" asp-route-journalId="@Model.JournalId">Open Daybook</a></span>
+        </div>
 
     <section id="period-summary" class="tf-chart-section tf-period-summary-section" aria-labelledby="period-summary-heading">
         <div class="tf-chart-section-heading">
@@ -160,7 +173,14 @@
                                         {
                                             <span class="tf-period-summary-toggle-spacer" aria-hidden="true"></span>
                                         }
-                                        <span>@periodRow.Label</span>
+                                        @if (periodRow.Level == "day")
+                                        {
+                                            <a class="tf-period-summary-day-link" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@periodRow.StartDate">@periodRow.Label</a>
+                                        }
+                                        else
+                                        {
+                                            <span>@periodRow.Label</span>
+                                        }
                                         @if (periodRow.Level is "year" or "quarter" or "month")
                                         {
                                             <small>@periodRow.StartDate@(periodRow.StartDate != periodRow.EndDate ? $" - {periodRow.EndDate}" : string.Empty)</small>
@@ -185,6 +205,59 @@
                 </table>
             </div>
         }
+    </section>
+
+    <div class="tf-history-calendar">
+        <article class="card tf-card tf-library-chart tf-library-chart-wide">
+            <div class="card-header"><div><div class="tf-kicker">P&amp;L CALENDAR</div><h3 class="tf-card-title">Monthly net P&amp;L by day</h3></div><span>@Model.Journal?.TimeZone · completed trades</span></div>
+            <div class="card-body">
+                <div class="tf-pnl-calendar" data-pnl-calendar data-pnl-currency="@Model.PnlCalendarCurrency" data-pnl-review-base="@($"/journal/{Model.JournalId:D}/review")">
+                    <div class="tf-pnl-calendar-toolbar">
+                        <div><div class="tf-kicker" data-pnl-calendar-kicker>MONTHLY</div><h5 class="tf-pnl-calendar-title" data-pnl-calendar-title aria-live="polite">Monthly net P&amp;L</h5></div>
+                        <button type="button" class="tf-pnl-calendar-back" data-pnl-calendar-back hidden>Back to months</button>
+                    </div>
+                    @if (Model.PnlCalendarMonths.Count == 0)
+                    {
+                        <div class="chart-empty">No completed-trade P&amp;L data is available yet.</div>
+                    }
+                    else
+                    {
+                        <div data-pnl-calendar-monthly>
+                            @foreach (var year in Model.PnlCalendarMonths.GroupBy(month => month.Year))
+                            {
+                                <section class="tf-pnl-calendar-year" aria-labelledby="history-pnl-calendar-year-@year.Key">
+                                    <div class="tf-pnl-calendar-year-heading"><h5 id="history-pnl-calendar-year-@year.Key">@year.Key</h5><span>@year.Sum(month => month.TradeCount) completed trades</span></div>
+                                    <div class="tf-pnl-month-grid">
+                                        @foreach (var month in year)
+                                        {
+                                            var tone = month.NetPnl > 0m ? "positive" : month.NetPnl < 0m ? "negative" : "flat";
+                                            var tradeLabel = month.TradeCount == 1 ? "trade" : "trades";
+                                            <button type="button" class="tf-pnl-month" data-pnl-month="@month.Key" data-tone="@tone" aria-label="@month.Label: @month.NetPnl.ToString("C2") net P&amp;L, @month.TradeCount @tradeLabel">
+                                                <span class="tf-pnl-month-label">@month.Label</span>
+                                                <strong class="tf-pnl-month-value @tone">@month.NetPnl.ToString("C2")</strong>
+                                                <small class="tf-pnl-month-meta">@month.TradeCount @tradeLabel</small>
+                                            </button>
+                                        }
+                                    </div>
+                                </section>
+                            }
+                        </div>
+                    }
+                    <div class="tf-pnl-calendar-daily" data-pnl-calendar-daily hidden aria-live="polite">
+                        <div class="tf-pnl-calendar-summary" data-pnl-calendar-summary></div>
+                        <div class="tf-pnl-calendar-weekdays" aria-hidden="true">
+                            @foreach (var weekday in new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" })
+                            {
+                                <span class="tf-pnl-calendar-weekday">@weekday</span>
+                            }
+                        </div>
+                        <div class="tf-pnl-calendar-days" data-pnl-calendar-days></div>
+                    </div>
+                    <script type="application/json" data-pnl-calendar-data>@Html.Raw(Model.PnlCalendarJson)</script>
+                </div>
+            </div>
+        </article>
+    </div>
     </section>
 
     <section id="period-breakdown" class="tf-chart-section tf-period-breakdown-section" aria-labelledby="period-breakdown-heading">
@@ -318,52 +391,6 @@
             <div class="tf-chart-grid">
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RHYTHM</div><h4 class="tf-card-title">Daily gross P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DailyChart)</div></article>
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">SEASONALITY</div><h4 class="tf-card-title">Monthly net P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">P&amp;L CALENDAR</div><h4 class="tf-card-title">Monthly net P&amp;L by day</h4></div><span>@Model.Journal?.TimeZone · completed trades</span></div><div class="card-body">
-                    <div class="tf-pnl-calendar" data-pnl-calendar data-pnl-currency="@Model.PnlCalendarCurrency">
-                        <div class="tf-pnl-calendar-toolbar">
-                            <div><div class="tf-kicker" data-pnl-calendar-kicker>MONTHLY</div><h5 class="tf-pnl-calendar-title" data-pnl-calendar-title aria-live="polite">Monthly net P&amp;L</h5></div>
-                            <button type="button" class="tf-pnl-calendar-back" data-pnl-calendar-back hidden>Back to months</button>
-                        </div>
-                        @if (Model.PnlCalendarMonths.Count == 0)
-                        {
-                            <div class="chart-empty">No completed-trade P&amp;L data is available yet.</div>
-                        }
-                        else
-                        {
-                            <div data-pnl-calendar-monthly>
-                                @foreach (var year in Model.PnlCalendarMonths.GroupBy(month => month.Year))
-                                {
-                                    <section class="tf-pnl-calendar-year" aria-labelledby="pnl-calendar-year-@year.Key">
-                                        <div class="tf-pnl-calendar-year-heading"><h5 id="pnl-calendar-year-@year.Key">@year.Key</h5><span>@year.Sum(month => month.TradeCount) completed trades</span></div>
-                                        <div class="tf-pnl-month-grid">
-                                            @foreach (var month in year)
-                                            {
-                                                var tone = month.NetPnl > 0m ? "positive" : month.NetPnl < 0m ? "negative" : "flat";
-                                                var tradeLabel = month.TradeCount == 1 ? "trade" : "trades";
-                                                <button type="button" class="tf-pnl-month" data-pnl-month="@month.Key" data-tone="@tone" aria-label="@month.Label: @month.NetPnl.ToString("C2") net P&amp;L, @month.TradeCount @tradeLabel">
-                                                    <span class="tf-pnl-month-label">@month.Label</span>
-                                                    <strong class="tf-pnl-month-value @tone">@month.NetPnl.ToString("C2")</strong>
-                                                    <small class="tf-pnl-month-meta">@month.TradeCount @tradeLabel</small>
-                                                </button>
-                                            }
-                                        </div>
-                                    </section>
-                                }
-                            </div>
-                        }
-                        <div class="tf-pnl-calendar-daily" data-pnl-calendar-daily hidden aria-live="polite">
-                            <div class="tf-pnl-calendar-summary" data-pnl-calendar-summary></div>
-                            <div class="tf-pnl-calendar-weekdays" aria-hidden="true">
-                                @foreach (var weekday in new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" })
-                                {
-                                    <span class="tf-pnl-calendar-weekday">@weekday</span>
-                                }
-                            </div>
-                            <div class="tf-pnl-calendar-days" data-pnl-calendar-days></div>
-                        </div>
-                        <script type="application/json" data-pnl-calendar-data>@Html.Raw(Model.PnlCalendarJson)</script>
-                    </div>
-                </div></article>
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">ANNUAL RETURNS</div><h4 class="tf-card-title">Yearly strategy vs benchmark</h4></div></div><div class="card-body">@Html.Raw(Model.AnnualReturnsChart)</div></article>
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RETURN SHAPE</div><h4 class="tf-card-title">Distribution of monthly returns</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyReturnsDistributionChart)</div></article>
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">ALPHA</div><h4 class="tf-card-title">Daily active returns</h4></div></div><div class="card-body">@Html.Raw(Model.DailyActiveReturnsChart)</div></article>

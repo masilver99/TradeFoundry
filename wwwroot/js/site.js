@@ -7,6 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeSectionInfo();
   initializePeriodSummary();
   initializePnlCalendar();
+  initializeReviewFocus();
   initializeSidebarResize();
   initializeImportDropzones();
   initializeMarkdownEditors();
@@ -666,7 +667,11 @@ function initializePnlCalendar() {
 
     (month.days || []).forEach(day => {
       const tone = day.netPnl > 0 ? "positive" : day.netPnl < 0 ? "negative" : "flat";
-      const dayNode = element("div", "tf-pnl-day", undefined);
+      const dayNode = element(day.tradeCount > 0 ? "a" : "div", "tf-pnl-day", undefined);
+      if (day.tradeCount > 0 && root.dataset.pnlReviewBase) {
+        dayNode.href = `${root.dataset.pnlReviewBase}?date=${encodeURIComponent(day.date)}`;
+        dayNode.title = "Open Daybook for this date";
+      }
       dayNode.dataset.tone = tone;
       dayNode.setAttribute("aria-label", day.tradeCount > 0
         ? `${day.date}: ${formatPnl(day.netPnl)}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}`
@@ -689,6 +694,18 @@ function initializePnlCalendar() {
   });
   back.addEventListener("click", renderMonthly);
   renderMonthly();
+}
+
+function initializeReviewFocus() {
+  const shell = document.querySelector("[data-focus]");
+  const focus = shell?.dataset.focus;
+  if (!shell || !focus) return;
+  const trade = document.getElementById(`review-${focus}`);
+  if (!trade) return;
+  window.requestAnimationFrame(() => {
+    trade.scrollIntoView({ block: "start", behavior: "smooth" });
+    trade.querySelector("textarea, input:not([type=hidden]), select")?.focus({ preventScroll: true });
+  });
 }
 
 function initializePlotlyCharts() {

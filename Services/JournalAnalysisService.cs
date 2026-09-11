@@ -421,12 +421,11 @@ public sealed class JournalAnalysisService
         return sanitized[..Math.Min(sanitized.Length, 1000)];
     }
 
-    public static IReadOnlyList<DailyPnl> BuildDailyRealized(IEnumerable<Trade> trades, string timeZoneId) => trades
-        .Where(trade => trade.ExitUtc.HasValue && trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase))
-        .GroupBy(trade => LocalDate(trade.ExitUtc!.Value, timeZoneId))
-        .OrderBy(group => group.Key)
-        .Select(group => new DailyPnl { Date = group.Key, NetPnl = group.Sum(trade => trade.NetPnl), TradeCount = group.Count() })
-        .ToArray();
+    public static IReadOnlyList<DailyPnl> BuildDailyRealized(IEnumerable<Trade> trades, string timeZoneId) =>
+        DailyTradeAggregation.Build(trades, timeZoneId)
+            .Where(day => day.CompletedTradeCount > 0)
+            .Select(day => new DailyPnl { Date = day.Date, NetPnl = day.RealizedNetPnl, TradeCount = day.CompletedTradeCount })
+            .ToArray();
 
     private static void ValidateFilterText(string? value, string name, int maximumLength)
     {

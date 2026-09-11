@@ -13,6 +13,7 @@ builder.Services.AddSingleton<TradeFoundryDb>();
 builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<McpTokenService>();
 builder.Services.AddSingleton<JournalAnalysisService>();
+builder.Services.AddSingleton<TradeReviewService>();
 builder.Services.AddHostedService<McpHostedService>();
 builder.Services.AddHttpClient<YahooFinanceBenchmarkProvider>(client =>
 {

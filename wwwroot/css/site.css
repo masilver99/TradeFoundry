@@ -582,3 +582,78 @@ button, input, select, textarea { font: inherit; }
   .tf-pnl-day { min-height: 4.25rem; padding: .4rem; }
   .tf-pnl-day-value { font-size: .58rem; }
 }
+
+.tf-history-section > .tf-period-summary-section { margin-top: 0; }
+.tf-history-calendar { margin-top: 16px; }
+.tf-period-summary-day-link { color: var(--tf-blue); text-decoration: none; }
+.tf-period-summary-day-link:hover, .tf-period-summary-day-link:focus-visible { text-decoration: underline; }
+.tf-pnl-day[href] { color: inherit; text-decoration: none; transition: border-color .15s ease, background-color .15s ease; }
+.tf-pnl-day[href]:hover, .tf-pnl-day[href]:focus-visible { border-color: var(--tf-blue); background: rgba(var(--tf-blue-rgb), .08); outline: 0; }
+
+.tf-review-shell { display: grid; gap: 18px; }
+.tf-review-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.tf-review-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 14px 16px; }
+.tf-review-date-form, .tf-review-day-nav { display: flex; align-items: flex-end; gap: 8px; }
+.tf-review-date-form .form-control { min-width: 160px; }
+.tf-review-date-form label { color: var(--tf-muted); font-size: 11px; }
+.tf-review-summary { display: grid; grid-template-columns: minmax(0, 1.8fr) repeat(3, minmax(100px, 1fr)); gap: 0; padding: 14px 16px; }
+.tf-review-summary > div { display: grid; gap: 3px; padding: 0 14px; border-right: 1px solid var(--tf-line); }
+.tf-review-summary > div:first-child { padding-left: 0; }
+.tf-review-summary > div:last-child { padding-right: 0; border-right: 0; }
+.tf-metric-label { color: var(--tf-muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.tf-review-empty { padding: 24px; }
+.tf-review-group { display: grid; gap: 12px; }
+.tf-section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.tf-section-heading h2 { margin: 2px 0 0; color: var(--tf-ink); font-size: 18px; }
+.tf-section-count { color: var(--tf-muted); font-size: 11px; }
+.tf-review-trade { overflow: hidden; }
+.tf-review-trade-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--tf-line); }
+.tf-review-trade-heading h3 a { color: var(--tf-ink); text-decoration: none; }
+.tf-review-trade-heading h3 a:hover, .tf-review-trade-heading h3 a:focus-visible { color: var(--tf-blue); }
+.tf-review-trade-heading p { font-size: 11px; line-height: 1.5; }
+.tf-review-trade-result { display: grid; justify-items: end; gap: 2px; text-align: right; }
+.tf-review-trade-result strong { font-size: 18px; }
+.tf-review-form { padding: 16px 18px 14px; }
+.tf-review-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 16px; }
+.tf-review-field { display: grid; align-content: start; gap: 5px; }
+.tf-review-field-wide { grid-column: 1 / -1; }
+.tf-review-field > label, .tf-review-fieldset legend { color: var(--tf-muted); font-size: 11px; font-weight: 600; }
+.tf-review-field input, .tf-review-field textarea, .tf-review-field select, .tf-review-inline-grid input { width: 100%; border: 1px solid var(--tf-line); border-radius: 4px; background: var(--tf-bg); color: var(--tf-ink); padding: 7px 9px; font-size: 12px; }
+.tf-review-field textarea { min-height: 58px; resize: vertical; }
+.tf-review-field input:focus, .tf-review-field textarea:focus, .tf-review-field select:focus, .tf-review-inline-grid input:focus { border-color: var(--tf-blue); outline: 0; box-shadow: 0 0 0 2px rgba(var(--tf-blue-rgb), .14); }
+.tf-review-field small { color: var(--tf-muted); font-size: 10px; line-height: 1.4; }
+.tf-review-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.tf-review-fieldset legend { float: none; width: auto; margin-bottom: 5px; }
+.tf-review-inline-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.tf-review-inline-grid label { display: grid; gap: 4px; color: var(--tf-muted); font-size: 10px; }
+.tf-review-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--tf-line); }
+.tf-review-actions > .text-secondary { margin-right: auto; font-size: 11px; }
+.tf-review-attachments { display: grid; gap: 7px; padding: 0 18px 14px; }
+.tf-review-attachment { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; }
+.tf-review-attachment a { color: var(--tf-blue); }
+.tf-review-history { margin: 0 18px 16px; padding-top: 12px; border-top: 1px solid var(--tf-line); color: var(--tf-muted); font-size: 11px; }
+.tf-review-history summary { cursor: pointer; color: var(--tf-blue); }
+.tf-review-history-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; }
+.tf-review-entry-card .card-body { display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 12px; }
+
+@media (max-width: 767.98px) {
+  .tf-review-header, .tf-review-toolbar, .tf-section-heading { align-items: flex-start; flex-direction: column; }
+  .tf-review-toolbar, .tf-review-date-form, .tf-review-day-nav { width: 100%; }
+  .tf-review-date-form { align-items: stretch; flex-wrap: wrap; }
+  .tf-review-date-form .form-control { flex: 1 1 150px; min-width: 0; }
+  .tf-review-day-nav { justify-content: space-between; }
+  .tf-review-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 0; }
+  .tf-review-summary > div { padding: 0 10px; border-right: 1px solid var(--tf-line); }
+  .tf-review-summary > div:nth-child(2n) { padding-right: 0; border-right: 0; }
+  .tf-review-summary > div:nth-child(2n+1) { padding-left: 0; }
+  .tf-review-summary > div:nth-child(-n+2) { padding-bottom: 10px; border-bottom: 1px solid var(--tf-line); }
+  .tf-review-trade-heading { flex-direction: column; }
+  .tf-review-trade-result { justify-items: start; text-align: left; }
+  .tf-review-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .tf-review-field-wide { grid-column: auto; }
+  .tf-review-inline-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tf-review-actions { align-items: stretch; flex-wrap: wrap; }
+  .tf-review-actions > .text-secondary { flex: 1 0 100%; }
+  .tf-review-actions .btn { flex: 1 1 auto; }
+  .tf-review-history-row { align-items: flex-start; flex-direction: column; gap: 4px; }
+}

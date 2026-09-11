@@ -415,6 +415,120 @@ public sealed class DailyPnl
     public int TradeCount { get; init; }
 }
 
+public sealed class DailyTradeSummary
+{
+    public DateOnly Date { get; init; }
+    public IReadOnlyList<Trade> CompletedTrades { get; init; } = Array.Empty<Trade>();
+    public IReadOnlyList<Trade> OpenTrades { get; init; } = Array.Empty<Trade>();
+    public decimal RealizedNetPnl => CompletedTrades.Sum(trade => trade.NetPnl);
+    public int CompletedTradeCount => CompletedTrades.Count;
+    public int OpenTradeCount => OpenTrades.Count;
+    public int TotalTradeCount => CompletedTradeCount + OpenTradeCount;
+}
+
+public sealed class TradeReviewAnnotation
+{
+    public Guid JournalId { get; init; }
+    public string ReviewKey { get; init; } = string.Empty;
+    public int Revision { get; init; }
+    public string ReviewNote { get; init; } = string.Empty;
+    public string Setup { get; init; } = string.Empty;
+    public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
+    public decimal? PlannedEntryPrice { get; init; }
+    public decimal? PlannedStopPrice { get; init; }
+    public decimal? PlannedTargetPrice { get; init; }
+    public decimal? PlannedRiskPoints { get; init; }
+    public decimal? PlannedRiskCurrency { get; init; }
+    public string PlanAdherence { get; init; } = string.Empty;
+    public int? ProcessRating { get; init; }
+    public string Mistakes { get; init; } = string.Empty;
+    public string Lessons { get; init; } = string.Empty;
+    public DateTimeOffset? UpdatedUtc { get; init; }
+    public bool HasContent => !string.IsNullOrWhiteSpace(ReviewNote)
+        || !string.IsNullOrWhiteSpace(Setup)
+        || Tags.Count > 0
+        || PlannedEntryPrice.HasValue
+        || PlannedStopPrice.HasValue
+        || PlannedTargetPrice.HasValue
+        || PlannedRiskPoints.HasValue
+        || PlannedRiskCurrency.HasValue
+        || !string.IsNullOrWhiteSpace(PlanAdherence)
+        || ProcessRating.HasValue
+        || !string.IsNullOrWhiteSpace(Mistakes)
+        || !string.IsNullOrWhiteSpace(Lessons);
+}
+
+public sealed class TradeReviewPatch
+{
+    public string ReviewNote { get; set; } = string.Empty;
+    public string Setup { get; set; } = string.Empty;
+    public string TagsText { get; set; } = string.Empty;
+    public decimal? PlannedEntryPrice { get; set; }
+    public decimal? PlannedStopPrice { get; set; }
+    public decimal? PlannedTargetPrice { get; set; }
+    public decimal? PlannedRiskPoints { get; set; }
+    public decimal? PlannedRiskCurrency { get; set; }
+    public string PlanAdherence { get; set; } = string.Empty;
+    public int? ProcessRating { get; set; }
+    public string Mistakes { get; set; } = string.Empty;
+    public string Lessons { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public int ExpectedRevision { get; set; }
+}
+
+public sealed class TradeReviewHistoryEntry
+{
+    public Guid Id { get; init; }
+    public Guid JournalId { get; init; }
+    public string ReviewKey { get; init; } = string.Empty;
+    public int Revision { get; init; }
+    public string Action { get; init; } = string.Empty;
+    public string Reason { get; init; } = string.Empty;
+    public string BeforeJson { get; init; } = "{}";
+    public string AfterJson { get; init; } = "{}";
+    public DateTimeOffset CreatedUtc { get; init; }
+}
+
+public sealed class TradeReviewAttachment
+{
+    public Guid Id { get; init; }
+    public Guid JournalId { get; init; }
+    public string ReviewKey { get; init; } = string.Empty;
+    public string StorageKey { get; init; } = string.Empty;
+    public string OriginalFileName { get; init; } = string.Empty;
+    public string ContentType { get; init; } = string.Empty;
+    public long Length { get; init; }
+    public DateTimeOffset CreatedUtc { get; init; }
+}
+
+public sealed class DailyReviewTrade
+{
+    public Trade Trade { get; init; } = new();
+    public TradeReviewAnnotation Annotation { get; init; } = new();
+    public IReadOnlyList<TradeReviewAttachment> Attachments { get; init; } = Array.Empty<TradeReviewAttachment>();
+    public IReadOnlyList<TradeReviewHistoryEntry> History { get; init; } = Array.Empty<TradeReviewHistoryEntry>();
+}
+
+public sealed class DailyReviewModel
+{
+    public Journal Journal { get; init; } = new();
+    public DateOnly Date { get; init; }
+    public IReadOnlyList<DailyReviewTrade> CompletedTrades { get; init; } = Array.Empty<DailyReviewTrade>();
+    public IReadOnlyList<DailyReviewTrade> OpenTrades { get; init; } = Array.Empty<DailyReviewTrade>();
+    public decimal RealizedNetPnl => CompletedTrades.Sum(item => item.Trade.NetPnl);
+    public int CompletedTradeCount => CompletedTrades.Count;
+    public int OpenTradeCount => OpenTrades.Count;
+    public DateOnly? PreviousDate { get; init; }
+    public DateOnly? NextDate { get; init; }
+}
+
+public sealed class TradeReviewSaveResult
+{
+    public bool Saved { get; init; }
+    public bool Conflict { get; init; }
+    public TradeReviewAnnotation Annotation { get; init; } = new();
+}
+
 public sealed class ImportResult
 {
     public ImportBatch Batch { get; init; } = new();

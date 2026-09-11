@@ -1,24 +1,106 @@
 @page "/journal/{journalId:guid}/review"
 @model TradeFoundry.Pages.ReviewModel
+@using System.Globalization
+@using TradeFoundry.Core
 @{
-    ViewData["Title"] = "Review";
-    ViewData["PageKicker"] = "TRADEFOUNDRY / REVIEW";
+    ViewData["Title"] = "Daily Review";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / HISTORY / DAYBOOK";
     ViewData["ActiveNav"] = "review";
+    var selectedDate = Model.Date ?? Model.Day.Date;
+    var dateText = selectedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    var allTrades = Model.Day.CompletedTrades.Concat(Model.Day.OpenTrades).ToArray();
+    ViewData["ReviewModel"] = Model;
 }
 
-<section class="row justify-content-center">
-    <div class="col-xl-8">
-        <div class="card tf-card tf-phase-card">
-            <div class="card-body p-4 p-md-5">
-                <div class="tf-kicker">NEXT WORKSPACE LAYER</div>
-                <h1 class="tf-hero-title">Review the decisions behind the numbers.</h1>
-                <p class="tf-lede mb-4">Notes, screenshots, setups, planned risk, and scorecards will attach to imported evidence here without changing the source record.</p>
-                <div class="row g-3">
-                    <div class="col-md-4"><div class="tf-review-tile"><strong>Notes</strong><span>Capture the why.</span></div></div>
-                    <div class="col-md-4"><div class="tf-review-tile"><strong>Setups</strong><span>Organize repeatable context.</span></div></div>
-                    <div class="col-md-4"><div class="tf-review-tile"><strong>Scorecards</strong><span>Review execution consistently.</span></div></div>
-                </div>
-            </div>
+<section class="tf-review-shell" data-focus="@Model.Focus">
+    <div class="tf-review-header">
+        <div>
+            <div class="tf-kicker">DAYBOOK / @Model.Day.Journal.Name</div>
+            <h1 class="tf-page-title mb-2">Daily review</h1>
+            <p class="tf-lede mb-0">Review the decisions behind imported evidence. Review notes never overwrite prices, fills, order events, or calculated trade data.</p>
+        </div>
+        <a class="btn btn-outline-secondary" asp-page="/Trades" asp-route-journalId="@Model.JournalId">Open ledger</a>
+    </div>
+
+    <div class="tf-review-toolbar card tf-card">
+        <form method="get" class="tf-review-date-form">
+            <input type="hidden" name="journalId" value="@Model.JournalId" />
+            <label class="form-label mb-1" for="review-date">Review date</label>
+            <input id="review-date" class="form-control" type="date" name="date" value="@dateText" />
+            <button class="btn btn-primary" type="submit">Go to date</button>
+        </form>
+        <div class="tf-review-day-nav" aria-label="Trading day navigation">
+            @if (Model.Day.PreviousDate.HasValue)
+            {
+                <a class="btn btn-outline-secondary" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.PreviousDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">← Previous day</a>
+            }
+            else
+            {
+                <span class="btn btn-outline-secondary disabled">← Previous day</span>
+            }
+            @if (Model.Day.NextDate.HasValue)
+            {
+                <a class="btn btn-outline-secondary" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">Next day →</a>
+            }
+            else
+            {
+                <span class="btn btn-outline-secondary disabled">Next day →</span>
+            }
         </div>
     </div>
+
+    @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@Model.ErrorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(Model.NoticeMessage))
+    {
+        <div class="alert alert-success" role="status">@Model.NoticeMessage</div>
+    }
+
+    <div class="tf-review-summary card tf-card">
+        <div>
+            <span class="tf-metric-label">Selected day</span>
+            <strong>@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture)</strong>
+        </div>
+        <div><span class="tf-metric-label">Completed</span><strong>@Model.Day.CompletedTradeCount</strong></div>
+        <div><span class="tf-metric-label">Open</span><strong>@Model.Day.OpenTradeCount</strong></div>
+        <div><span class="tf-metric-label">Realized net P&amp;L</span><strong class="@(Model.Day.RealizedNetPnl >= 0 ? "text-success" : "text-danger")">@Model.Day.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong></div>
+    </div>
+
+    @if (allTrades.Length == 0)
+    {
+        <div class="card tf-card tf-review-empty">
+            <h2 class="h4">No trades on this date.</h2>
+            <p class="mb-0 text-secondary">The date picker can reach empty dates. Use Previous day or Next day to jump between dates containing trades.</p>
+        </div>
+    }
+
+    @if (Model.Day.CompletedTrades.Count > 0)
+    {
+        <section class="tf-review-group" aria-labelledby="completed-heading">
+            <div class="tf-section-heading">
+                <div><div class="tf-kicker">REALIZED</div><h2 id="completed-heading">Completed trades</h2></div>
+                <span class="tf-section-count">@Model.Day.CompletedTradeCount trades · @Model.Day.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</span>
+            </div>
+            @foreach (var item in Model.Day.CompletedTrades)
+            {
+                @await Html.PartialAsync("_ReviewTrade", item)
+            }
+        </section>
+    }
+
+    @if (Model.Day.OpenTrades.Count > 0)
+    {
+        <section class="tf-review-group" aria-labelledby="open-heading">
+            <div class="tf-section-heading">
+                <div><div class="tf-kicker">UNREALIZED / OPEN</div><h2 id="open-heading">Open trades</h2></div>
+                <span class="tf-section-count">@Model.Day.OpenTradeCount trades · excluded from realized P&amp;L</span>
+            </div>
+            @foreach (var item in Model.Day.OpenTrades)
+            {
+                @await Html.PartialAsync("_ReviewTrade", item)
+            }
+        </section>
+    }
 </section>

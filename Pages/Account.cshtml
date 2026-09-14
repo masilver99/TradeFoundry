@@ -1,0 +1,118 @@
+@page "/journal/{journalId:guid}/account"
+@model TradeFoundry.Pages.AccountModel
+@using System.Globalization
+@using TradeFoundry.Core
+@{
+    ViewData["Title"] = "Account";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / ACCOUNT";
+    ViewData["ActiveNav"] = "account";
+    ViewData["UsesPlotly"] = false;
+    var journal = Model.Journal!;
+    var summary = Model.Ledger.Summary;
+    var isEditing = Model.EditingTransaction is not null;
+    var handler = isEditing ? "Update" : "Create";
+    var formAction = $"/journal/{journal.Id:D}/account?handler={handler}";
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind == "warning" ? "warning" : Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
+}
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-primary" href="@($"/journal/{journal.Id:D}/account")">Account</a>
+    <a class="btn btn-outline-secondary" href="@($"/journal/{journal.Id:D}/overview")">Back to overview</a>
+    <a class="btn btn-outline-secondary" href="@($"/journal/{journal.Id:D}/trades")">Trade ledger</a>
+</div>
+
+<section class="tf-page-intro mb-3">
+    <div>
+        <div class="tf-kicker">POOLED JOURNAL ACCOUNT</div>
+        <h1>Account balance</h1>
+        <p class="tf-lede">Track capital flows alongside realized trading results. Open trades and account cash-flow rows stay out of the trade-only equity chart.</p>
+    </div>
+    <div class="tf-page-meta"><span>@journal.Currency</span><span>@journal.TimeZone</span></div>
+</section>
+
+<section class="row row-cards mb-3" aria-label="Account summary">
+    <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric tf-metric-account"><div class="card-body"><div class="tf-metric-label">Calculated balance</div><div class="tf-metric-value @(summary.CurrentBalance is < 0m ? "negative" : "positive")">@(summary.CurrentBalance.HasValue ? Model.Money(summary.CurrentBalance.Value) : "—")</div><div class="tf-metric-note">Opening @Model.Money(summary.OpeningBalance ?? 0m)</div></div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Realized trading profit</div><div class="tf-metric-value @(summary.RealizedProfit < 0m ? "negative" : "positive")">@Model.Money(summary.RealizedProfit)</div><div class="tf-metric-note">Closed trades only · net of fees</div></div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Realized TWR</div><div class="tf-metric-value @(summary.RealizedTwrPercent is < 0m ? "negative" : "positive")">@(summary.RealizedTwrPercent.HasValue ? Model.Percent(summary.RealizedTwrPercent.Value) : "Unavailable")</div><div class="tf-metric-note">Cash flows excluded from performance</div></div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Deposits / withdrawals</div><div class="tf-metric-value">@Model.Money(summary.TotalDeposits) <span class="text-secondary">/</span> @Model.Money(summary.TotalWithdrawals)</div><div class="tf-metric-note">Positive entered amounts</div></div></div></div>
+</section>
+
+<section class="row row-cards mb-3" aria-label="Account reconciliation">
+    <div class="col-lg-4"><div class="card tf-card tf-account-status"><div class="card-body"><div class="tf-metric-label">Opening baseline</div><strong>@summary.OpeningBalanceSource</strong><p class="text-secondary mb-0">@Model.Money(summary.OpeningBalance ?? 0m) · imported and derived rows remain read-only.</p></div></div></div>
+    <div class="col-lg-4"><div class="card tf-card tf-account-status"><div class="card-body"><div class="tf-metric-label">Latest reported balance</div><strong>@(summary.LatestReportedBalance.HasValue ? Model.Money(summary.LatestReportedBalance.Value) : "No imported checkpoint")</strong><p class="text-secondary mb-0">Variance @(summary.LatestReportedVariance.HasValue ? Model.SignedMoney(summary.LatestReportedVariance.Value) : "—")</p></div></div></div>
+    <div class="col-lg-4"><div class="card tf-card tf-account-status"><div class="card-body"><div class="tf-metric-label">Activity</div><strong>@(summary.HasActivity ? "Account activity recorded" : "Opening balance only")</strong><p class="text-secondary mb-0">@(summary.LatestActivityUtc.HasValue ? $"Latest {Model.LocalDateTime(summary.LatestActivityUtc.Value)}" : "Add a deposit or import account evidence.")</p></div></div></div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(summary.StatusMessage))
+{
+    <div class="alert tf-alert warning tf-account-baseline-warning" role="status">@summary.StatusMessage</div>
+}
+
+<section class="card tf-card mb-3" id="account-entry-form">
+    <div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">MANUAL CASH FLOW</div><h2 class="tf-card-title">@(isEditing ? "Edit account entry" : "Add account entry")</h2></div><span class="text-secondary">@journal.TimeZone</span></div></div>
+    <div class="card-body">
+        <p class="text-secondary small">Enter a positive amount. A withdrawal can take the calculated balance below zero; the ledger will warn you without blocking the record.</p>
+        <form method="post" action="@formAction" class="row g-3 tf-account-entry-form">
+            @Html.AntiForgeryToken()
+            <div asp-validation-summary="All" class="col-12 text-danger small"></div>
+            @if (isEditing)
+            {
+                <input type="hidden" name="transactionId" value="@Model.EditingTransaction!.Id" />
+                <input type="hidden" name="expectedRevision" value="@Model.EditingTransaction.Revision" />
+            }
+            <div class="col-md-3"><label class="form-label" for="Input_Type">Type<select asp-for="Input.Type" class="form-select" id="Input_Type"><option value="Deposit">Deposit</option><option value="Withdrawal">Withdrawal</option></select></label><span asp-validation-for="Input.Type" class="text-danger small"></span></div>
+            <div class="col-md-3"><label class="form-label" for="Input_Amount">Amount<input asp-for="Input.Amount" class="form-control" id="Input_Amount" type="number" min="0.01" step="0.01" required /></label><span asp-validation-for="Input.Amount" class="text-danger small"></span></div>
+            <div class="col-md-3"><label class="form-label" for="Input_EffectiveLocal">Effective date / time<input class="form-control" id="Input_EffectiveLocal" name="Input.EffectiveLocal" type="datetime-local" value="@Model.Input.EffectiveLocal.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture)" required /></label><span asp-validation-for="Input.EffectiveLocal" class="text-danger small"></span></div>
+            <div class="col-md-3"><label class="form-label" for="Input_Note">Note <span class="text-secondary">(optional)</span><input asp-for="Input.Note" class="form-control" id="Input_Note" maxlength="500" placeholder="Funding, transfer, owner draw…" /></label><span asp-validation-for="Input.Note" class="text-danger small"></span></div>
+            <div class="col-12 tf-account-form-actions"><button class="btn btn-primary" type="submit">@(isEditing ? "Save changes" : "Add entry")</button>@if (isEditing){<a class="btn btn-outline-secondary" href="@($"/journal/{journal.Id:D}/account")">Cancel edit</a>}</div>
+        </form>
+    </div>
+</section>
+
+<section class="card tf-card" id="account-ledger">
+    <div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">AUDITABLE ACTIVITY</div><h2 class="tf-card-title">Account ledger</h2></div><span class="text-secondary">@Model.Ledger.TotalCount row(s)</span></div></div>
+    <div class="card-body p-0">
+        <div class="tf-table-wrap">
+            @if (Model.Ledger.Entries.Count == 0)
+            {
+                <div class="tf-empty m-3"><strong>No account rows yet.</strong>Add a deposit or import account-balance evidence to begin.</div>
+            }
+            else
+            {
+                <table class="table table-vcenter tf-table tf-account-table">
+                    <thead><tr><th>Date / time</th><th>Type</th><th>Description</th><th>Amount</th><th>Calculated balance</th><th>Reported balance</th><th>Variance</th><th>Source</th><th>Actions</th></tr></thead>
+                    <tbody>
+                    @foreach (var entry in Model.Ledger.Entries)
+                    {
+                        var amountClass = entry.Amount is < 0m ? "negative" : entry.Amount is > 0m ? "positive" : string.Empty;
+                        <tr class="@(entry.IsBeforeBaseline ? "tf-account-outside" : string.Empty)">
+                            <td>@Model.LocalDateTime(entry.EffectiveUtc)@if (entry.IsBeforeBaseline){<small>Outside inferred period</small>}</td>
+                            <td><span class="tf-account-type tf-account-type-@entry.Kind.Replace("_", "-", StringComparison.Ordinal)">@entry.Label</span>@if (entry.IsOpeningBaseline){<small>Opening baseline</small>}</td>
+                            <td>@if (entry.TradeId.HasValue){<a class="row-link" href="@($"/journal/{journal.Id:D}/trades/{entry.TradeId.Value:D}")">@entry.Description</a>}else{<strong>@entry.Description</strong>}@if (!string.IsNullOrWhiteSpace(entry.Account)){<small>@entry.Account</small>}</td>
+                            <td class="@amountClass">@(entry.Amount.HasValue ? Model.SignedMoney(entry.Amount.Value) : "—")</td>
+                            <td>@(entry.CalculatedBalance.HasValue ? Model.Money(entry.CalculatedBalance.Value) : "—")</td>
+                            <td>@(entry.ReportedBalance.HasValue ? Model.Money(entry.ReportedBalance.Value) : "—")</td>
+                            <td class="@(entry.Variance is < 0m ? "negative" : entry.Variance is > 0m ? "warning" : string.Empty)">@(entry.Variance.HasValue ? Model.SignedMoney(entry.Variance.Value) : "—")</td>
+                            <td><span class="tf-account-source">@entry.Source</span>@if (!string.IsNullOrWhiteSpace(entry.Note)){<small>@entry.Note</small>}</td>
+                            <td>@if (!entry.IsReadOnly && entry.TransactionId.HasValue){<div class="d-flex gap-1"><a class="btn btn-sm btn-outline-secondary" href="@($"/journal/{journal.Id:D}/account?edit={entry.TransactionId.Value:D}&page={Model.PageNumber}#account-entry-form")">Edit</a><form method="post" action="@($"/journal/{journal.Id:D}/account?handler=Delete")" onsubmit="return confirm('Delete this account entry? Its audit history will be retained.');">@Html.AntiForgeryToken()<input type="hidden" name="transactionId" value="@entry.TransactionId.Value" /><input type="hidden" name="expectedRevision" value="@entry.Revision" /><button class="btn btn-sm btn-outline-danger" type="submit">Delete</button></form></div>}else{<span class="text-secondary">Read-only</span>}</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+    @if (Model.Ledger.PageCount > 1)
+    {
+        <div class="card-footer"><ul class="pagination mb-0 justify-content-end tf-pagination">
+            @for (var pageNumber = 1; pageNumber <= Model.Ledger.PageCount; pageNumber++)
+            {
+                <li class="page-item @(pageNumber == Model.Ledger.Page ? "active" : string.Empty)"><a class="page-link" href="@($"/journal/{journal.Id:D}/account?page={pageNumber}#account-ledger")">@pageNumber</a></li>
+            }
+        </ul></div>
+    }
+</section>

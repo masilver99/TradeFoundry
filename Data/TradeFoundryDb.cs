@@ -18,10 +18,17 @@ public sealed class TradeFoundryDb
     private const string DerivedFillSource = "Derived fills";
     private const string JournalColumns = "id, name, execution_context, labels, description_markdown, timezone, currency, grouping_policy, starting_equity, created_utc";
     private const string ImportColumns = "id, journal_id, file_name, source_application, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message";
-    private const string TradeColumns = "id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, instrument, review_key";
+    private const string EffectiveFeesSql = "COALESCE(r.all_in_commission, t.fees)";
+    private const string EffectiveNetPnlSql = "CASE WHEN r.all_in_commission IS NOT NULL THEN CAST(t.gross_pnl AS REAL) - CAST(r.all_in_commission AS REAL) ELSE CAST(t.net_pnl AS REAL) END";
+    private const string EffectiveNetPnlTextSql = "CASE WHEN r.all_in_commission IS NOT NULL THEN CAST(CAST(t.gross_pnl AS REAL) - CAST(r.all_in_commission AS REAL) AS TEXT) ELSE t.net_pnl END";
+    private const string TradeFrom = "trades t LEFT JOIN trade_review_annotations r ON r.journal_id = t.journal_id AND r.review_key = t.review_key";
+    private const string TradeColumns = "t.id, t.journal_id, t.import_batch_id, t.source_type, t.source_key, t.grouping_policy, t.sequence, t.symbol, t.account, t.direction, t.entry_utc, t.exit_utc, t.entry_price, t.exit_price, t.quantity, t.closed_quantity, t.gross_points, t.average_points, t.gross_pnl, " + EffectiveFeesSql + " AS fees, " + EffectiveNetPnlTextSql + " AS net_pnl, t.mae_points, t.mfe_points, t.point_value, t.tick_size, t.initial_stop_price, t.initial_target_price, t.initial_risk_points, t.initial_risk_currency, t.r_multiple, t.exit_type, t.entry_order_price, t.exit_order_price, t.entry_chase_points, t.exit_chase_points, t.status, t.note, t.instrument, t.review_key";
+    private const string TradeReviewColumns = "id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc";
     private const string FillColumns = "id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, row_number, instrument, point_value, tick_size";
     private const string OrderEventColumns = "id, journal_id, import_batch_id, source_type, source_key, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, internal_order_id, service_order_id, parent_order_id, exchange_order_id, fill_execution_id, order_type, order_status, side, open_close, price, price2, quantity, filled_quantity, fill_price, position_quantity, note, client_order_id, time_in_force, username, is_automated, fees, row_number, instrument";
     private const string AccountBalanceColumns = "id, journal_id, import_batch_id, source_type, source_key, event_utc, transaction_utc, source_time_text, account, balance, note, row_number";
+    private const string AccountTransactionColumns = "id, journal_id, transaction_type, effective_utc, amount, note, revision, created_utc, updated_utc, deleted_utc";
+    private const string AccountTransactionHistoryColumns = "id, journal_id, transaction_id, revision, action, before_json, after_json, created_utc";
     private readonly string _connectionString;
     private readonly string _databasePath;
 
@@ -89,7 +96,7 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_status_time ON trades(journal_id, status, entry_utc)",
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_symbol_time ON trades(journal_id, symbol, entry_utc)",
             "CREATE TABLE IF NOT EXISTS trade_fill_allocations (trade_id TEXT NOT NULL REFERENCES trades(id) ON DELETE CASCADE, fill_id TEXT NOT NULL REFERENCES fills(id) ON DELETE CASCADE, quantity INTEGER NOT NULL, PRIMARY KEY(trade_id, fill_id))",
-            "CREATE TABLE IF NOT EXISTS trade_review_annotations (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, review_note TEXT NOT NULL DEFAULT '', setup TEXT NOT NULL DEFAULT '', tags_json TEXT NOT NULL DEFAULT '[]', planned_entry_price TEXT NULL, planned_stop_price TEXT NULL, planned_target_price TEXT NULL, planned_risk_points TEXT NULL, planned_risk_currency TEXT NULL, plan_adherence TEXT NOT NULL DEFAULT '', process_rating INTEGER NULL, mistakes TEXT NOT NULL DEFAULT '', lessons TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL, UNIQUE(journal_id, review_key))",
+            "CREATE TABLE IF NOT EXISTS trade_review_annotations (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, review_note TEXT NOT NULL DEFAULT '', setup TEXT NOT NULL DEFAULT '', tags_json TEXT NOT NULL DEFAULT '[]', planned_entry_price TEXT NULL, planned_stop_price TEXT NULL, planned_target_price TEXT NULL, planned_risk_points TEXT NULL, planned_risk_currency TEXT NULL, all_in_commission TEXT NULL, plan_adherence TEXT NOT NULL DEFAULT '', process_rating INTEGER NULL, mistakes TEXT NOT NULL DEFAULT '', lessons TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL, UNIQUE(journal_id, review_key))",
             "CREATE INDEX IF NOT EXISTS ix_trade_review_annotations_journal ON trade_review_annotations(journal_id, updated_utc DESC)",
             "CREATE TABLE IF NOT EXISTS trade_review_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', reason TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_trade_review_history_trade ON trade_review_history(journal_id, review_key, revision DESC)",
@@ -100,6 +107,10 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_order_events_journal_parent ON order_events(journal_id, parent_order_id, event_utc)",
             "CREATE TABLE IF NOT EXISTS account_balance_events (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', balance TEXT NULL, note TEXT NOT NULL DEFAULT '', row_number INTEGER NOT NULL, UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_account_balance_events_journal_time ON account_balance_events(journal_id, account, event_utc, row_number)",
+            "CREATE TABLE IF NOT EXISTS account_transactions (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, transaction_type TEXT NOT NULL CHECK(transaction_type IN ('deposit', 'withdrawal')), effective_utc TEXT NOT NULL, amount TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL, deleted_utc TEXT NULL)",
+            "CREATE INDEX IF NOT EXISTS ix_account_transactions_journal_time ON account_transactions(journal_id, effective_utc, created_utc, id)",
+            "CREATE TABLE IF NOT EXISTS account_transaction_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, transaction_id TEXT NOT NULL REFERENCES account_transactions(id) ON DELETE CASCADE, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', created_utc TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS ix_account_transaction_history_transaction ON account_transaction_history(journal_id, transaction_id, revision DESC)",
             "CREATE TABLE IF NOT EXISTS benchmark_series (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, symbol TEXT NOT NULL, interval TEXT NOT NULL DEFAULT '1d', series_key TEXT NOT NULL UNIQUE, created_utc TEXT NOT NULL, provider TEXT NOT NULL DEFAULT 'Imported CSV', source_url TEXT NOT NULL DEFAULT '', last_fetched_utc TEXT NULL, last_attempted_utc TEXT NULL, requested_start TEXT NULL, requested_end TEXT NULL, last_error TEXT NOT NULL DEFAULT '')",
             "CREATE TABLE IF NOT EXISTS benchmark_points (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, series_id TEXT NOT NULL REFERENCES benchmark_series(id) ON DELETE CASCADE, import_batch_id TEXT NULL REFERENCES import_batches(id) ON DELETE SET NULL, source_type TEXT NOT NULL, source_key TEXT NOT NULL, event_utc TEXT NOT NULL, value TEXT NOT NULL, source_time_text TEXT NOT NULL DEFAULT '', row_number INTEGER NOT NULL, UNIQUE(journal_id, source_type, source_key), UNIQUE(series_id, event_utc))",
             "CREATE INDEX IF NOT EXISTS ix_benchmark_points_series_time ON benchmark_points(series_id, event_utc)",
@@ -170,6 +181,7 @@ public sealed class TradeFoundryDb
         EnsureColumn(connection, "trades", "exit_chase_points", "TEXT NULL");
         EnsureColumn(connection, "trades", "instrument", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "trades", "review_key", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "trade_review_annotations", "all_in_commission", "TEXT NULL");
         EnsureColumn(connection, "bars", "number_of_trades", "INTEGER NULL");
         EnsureColumn(connection, "bars", "bid_volume", "INTEGER NULL");
         EnsureColumn(connection, "bars", "ask_volume", "INTEGER NULL");
@@ -755,7 +767,7 @@ public sealed class TradeFoundryDb
         int losingTrades;
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT COALESCE(SUM(CAST(gross_pnl AS REAL)), 0), COALESCE(SUM(CAST(net_pnl AS REAL)), 0), COALESCE(SUM(CAST(gross_points AS REAL)), 0), COALESCE(SUM(CAST(fees AS REAL)), 0), COALESCE(SUM(CASE WHEN status = 'closed' AND CAST(net_pnl AS REAL) > 0 THEN CAST(net_pnl AS REAL) ELSE 0 END), 0), COALESCE(SUM(CASE WHEN status = 'closed' AND CAST(net_pnl AS REAL) < 0 THEN CAST(net_pnl AS REAL) ELSE 0 END), 0), SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN status <> 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN status = 'closed' AND CAST(net_pnl AS REAL) > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN status = 'closed' AND CAST(net_pnl AS REAL) < 0 THEN 1 ELSE 0 END) FROM trades WHERE journal_id = $journal";
+            command.CommandText = $"SELECT COALESCE(SUM(CAST(t.gross_pnl AS REAL)), 0), COALESCE(SUM({EffectiveNetPnlSql}), 0), COALESCE(SUM(CAST(t.gross_points AS REAL)), 0), COALESCE(SUM(CAST({EffectiveFeesSql} AS REAL)), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), SUM(CASE WHEN t.status = 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status <> 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN 1 ELSE 0 END) FROM {TradeFrom} WHERE t.journal_id = $journal";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             using var reader = command.ExecuteReader();
             if (!reader.Read()) throw new InvalidOperationException("The journal metrics could not be read.");
@@ -774,7 +786,7 @@ public sealed class TradeFoundryDb
         var recentTrades = new List<Trade>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT {TradeColumns} FROM trades WHERE journal_id = $journal ORDER BY COALESCE(exit_utc, entry_utc) DESC, sequence DESC LIMIT 8";
+            command.CommandText = $"SELECT {TradeColumns} FROM {TradeFrom} WHERE t.journal_id = $journal ORDER BY COALESCE(t.exit_utc, t.entry_utc) DESC, t.sequence DESC LIMIT 8";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             using var reader = command.ExecuteReader();
             while (reader.Read()) recentTrades.Add(ReadTrade(reader));
@@ -792,7 +804,7 @@ public sealed class TradeFoundryDb
         var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT DISTINCT symbol FROM trades WHERE journal_id = $journal";
+            command.CommandText = $"SELECT DISTINCT t.symbol FROM {TradeFrom} WHERE t.journal_id = $journal";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             using var reader = command.ExecuteReader();
             while (reader.Read()) symbols.Add(reader.GetString(0));
@@ -802,7 +814,7 @@ public sealed class TradeFoundryDb
         var dailyPnl = new List<DailyPnl>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT substr(exit_utc, 1, 10), SUM(CAST(net_pnl AS REAL)), COUNT(*) FROM trades WHERE journal_id = $journal AND exit_utc IS NOT NULL GROUP BY substr(exit_utc, 1, 10) ORDER BY substr(exit_utc, 1, 10) DESC LIMIT 180";
+            command.CommandText = $"SELECT substr(t.exit_utc, 1, 10), SUM({EffectiveNetPnlSql}), COUNT(*) FROM {TradeFrom} WHERE t.journal_id = $journal AND t.exit_utc IS NOT NULL GROUP BY substr(t.exit_utc, 1, 10) ORDER BY substr(t.exit_utc, 1, 10) DESC LIMIT 180";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             using var reader = command.ExecuteReader();
             while (reader.Read()) dailyPnl.Add(new DailyPnl { Date = DateOnly.ParseExact(reader.GetString(0), "yyyy-MM-dd", CultureInfo.InvariantCulture), NetPnl = AggregateDecimal(reader, 1), TradeCount = AggregateInt(reader, 2) });
@@ -812,7 +824,7 @@ public sealed class TradeFoundryDb
         var equity = new List<EquityPoint>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "WITH running AS (SELECT id, exit_utc, sequence, SUM(CAST(net_pnl AS REAL)) OVER (ORDER BY exit_utc, sequence, id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pnl FROM trades WHERE journal_id = $journal AND exit_utc IS NOT NULL) SELECT exit_utc, cumulative_pnl FROM running ORDER BY exit_utc DESC, sequence DESC, id DESC LIMIT 180";
+            command.CommandText = $"WITH running AS (SELECT t.id, t.exit_utc, t.sequence, SUM({EffectiveNetPnlSql}) OVER (ORDER BY t.exit_utc, t.sequence, t.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pnl FROM {TradeFrom} WHERE t.journal_id = $journal AND t.exit_utc IS NOT NULL) SELECT exit_utc, cumulative_pnl FROM running ORDER BY exit_utc DESC, sequence DESC, id DESC LIMIT 180";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             using var reader = command.ExecuteReader();
             while (reader.Read()) equity.Add(new EquityPoint { ExitUtc = ParseDate(reader.GetString(0)), CumulativePnl = AggregateDecimal(reader, 1) });
@@ -849,23 +861,23 @@ public sealed class TradeFoundryDb
         var filters = new List<string>();
         using var connection = OpenConnection();
         using var count = connection.CreateCommand();
-        filters.Add("journal_id = $journal");
+        filters.Add("t.journal_id = $journal");
         count.Parameters.AddWithValue("$journal", query.JournalId.ToString("D"));
         AddTradeFilter(filters, count, query);
-        count.CommandText = $"SELECT COUNT(*) FROM trades WHERE {string.Join(" AND ", filters)}";
+        count.CommandText = $"SELECT COUNT(*) FROM {TradeFrom} WHERE {string.Join(" AND ", filters)}";
         var totalCount = Convert.ToInt32(count.ExecuteScalar(), CultureInfo.InvariantCulture);
 
         var sort = query.Sort switch
         {
-            "entry_asc" => "entry_utc ASC, sequence ASC, id ASC",
-            "pnl_desc" => "CAST(net_pnl AS REAL) DESC, entry_utc DESC, sequence DESC, id DESC",
-            "pnl_asc" => "CAST(net_pnl AS REAL) ASC, entry_utc DESC, sequence DESC, id DESC",
-            _ => "entry_utc DESC, sequence DESC, id DESC"
+            "entry_asc" => "t.entry_utc ASC, t.sequence ASC, t.id ASC",
+            "pnl_desc" => $"{EffectiveNetPnlSql} DESC, t.entry_utc DESC, t.sequence DESC, t.id DESC",
+            "pnl_asc" => $"{EffectiveNetPnlSql} ASC, t.entry_utc DESC, t.sequence DESC, t.id DESC",
+            _ => "t.entry_utc DESC, t.sequence DESC, t.id DESC"
         };
         var trades = new List<Trade>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT {TradeColumns} FROM trades WHERE {string.Join(" AND ", filters)} ORDER BY {sort} LIMIT $limit OFFSET $offset";
+            command.CommandText = $"SELECT {TradeColumns} FROM {TradeFrom} WHERE {string.Join(" AND ", filters)} ORDER BY {sort} LIMIT $limit OFFSET $offset";
             command.Parameters.AddWithValue("$journal", query.JournalId.ToString("D"));
             AddTradeFilter(new List<string>(), command, query);
             command.Parameters.AddWithValue("$limit", pageSize);
@@ -881,7 +893,7 @@ public sealed class TradeFoundryDb
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT {TradeColumns} FROM trades WHERE journal_id = $journal ORDER BY COALESCE(exit_utc, entry_utc), sequence, id";
+        command.CommandText = $"SELECT {TradeColumns} FROM {TradeFrom} WHERE t.journal_id = $journal ORDER BY COALESCE(t.exit_utc, t.entry_utc), t.sequence, t.id";
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         using var reader = command.ExecuteReader();
         var trades = new List<Trade>();
@@ -896,7 +908,7 @@ public sealed class TradeFoundryDb
         var annotations = new Dictionary<string, TradeReviewAnnotation>(StringComparer.Ordinal);
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, plan_adherence, process_rating, mistakes, lessons, updated_utc FROM trade_review_annotations WHERE journal_id = $journal";
+            command.CommandText = $"SELECT {TradeReviewColumns} FROM trade_review_annotations WHERE journal_id = $journal";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -933,7 +945,7 @@ public sealed class TradeFoundryDb
         using var connection = OpenConnection();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, plan_adherence, process_rating, mistakes, lessons, updated_utc FROM trade_review_annotations WHERE journal_id = $journal AND review_key = $reviewKey";
+            command.CommandText = $"SELECT {TradeReviewColumns} FROM trade_review_annotations WHERE journal_id = $journal AND review_key = $reviewKey";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             command.Parameters.AddWithValue("$reviewKey", reviewKey);
             using var reader = command.ExecuteReader();
@@ -968,6 +980,7 @@ public sealed class TradeFoundryDb
         if (patch.ExpectedRevision < 0) throw new ArgumentOutOfRangeException(nameof(patch.ExpectedRevision));
         if (patch.ProcessRating is < 1 or > 5) throw new ArgumentOutOfRangeException(nameof(patch.ProcessRating), "Process rating must be between 1 and 5.");
         if (patch.PlannedRiskPoints is < 0m || patch.PlannedRiskCurrency is < 0m) throw new ArgumentOutOfRangeException(nameof(patch), "Planned risk cannot be negative.");
+        if (patch.AllInCommission is < 0m) throw new ArgumentOutOfRangeException(nameof(patch.AllInCommission), "All-in commission cannot be negative.");
         if (!string.IsNullOrWhiteSpace(patch.PlanAdherence) && !new[] { "adhered", "partial", "broken" }.Contains(patch.PlanAdherence, StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException("Plan adherence must be Adhered, Partial, or Broken.", nameof(patch));
         _ = GetTradeByReviewKey(journalId, reviewKey) ?? throw new InvalidOperationException("The trade for this review could not be found.");
@@ -988,7 +1001,7 @@ public sealed class TradeFoundryDb
         using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
-            command.CommandText = "INSERT INTO trade_review_annotations (id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, plan_adherence, process_rating, mistakes, lessons, updated_utc) VALUES ($id, $journal, $reviewKey, $revision, $note, $setup, $tags, $plannedEntry, $plannedStop, $plannedTarget, $riskPoints, $riskCurrency, $adherence, $rating, $mistakes, $lessons, $updated) ON CONFLICT(journal_id, review_key) DO UPDATE SET revision = excluded.revision, review_note = excluded.review_note, setup = excluded.setup, tags_json = excluded.tags_json, planned_entry_price = excluded.planned_entry_price, planned_stop_price = excluded.planned_stop_price, planned_target_price = excluded.planned_target_price, planned_risk_points = excluded.planned_risk_points, planned_risk_currency = excluded.planned_risk_currency, plan_adherence = excluded.plan_adherence, process_rating = excluded.process_rating, mistakes = excluded.mistakes, lessons = excluded.lessons, updated_utc = excluded.updated_utc";
+            command.CommandText = "INSERT INTO trade_review_annotations (id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc) VALUES ($id, $journal, $reviewKey, $revision, $note, $setup, $tags, $plannedEntry, $plannedStop, $plannedTarget, $riskPoints, $riskCurrency, $allInCommission, $adherence, $rating, $mistakes, $lessons, $updated) ON CONFLICT(journal_id, review_key) DO UPDATE SET revision = excluded.revision, review_note = excluded.review_note, setup = excluded.setup, tags_json = excluded.tags_json, planned_entry_price = excluded.planned_entry_price, planned_stop_price = excluded.planned_stop_price, planned_target_price = excluded.planned_target_price, planned_risk_points = excluded.planned_risk_points, planned_risk_currency = excluded.planned_risk_currency, all_in_commission = excluded.all_in_commission, plan_adherence = excluded.plan_adherence, process_rating = excluded.process_rating, mistakes = excluded.mistakes, lessons = excluded.lessons, updated_utc = excluded.updated_utc";
             command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             command.Parameters.AddWithValue("$reviewKey", reviewKey);
@@ -1001,6 +1014,7 @@ public sealed class TradeFoundryDb
             AddNullable(command, "$plannedTarget", annotation.PlannedTargetPrice);
             AddNullable(command, "$riskPoints", annotation.PlannedRiskPoints);
             AddNullable(command, "$riskCurrency", annotation.PlannedRiskCurrency);
+            AddNullable(command, "$allInCommission", annotation.AllInCommission);
             command.Parameters.AddWithValue("$adherence", annotation.PlanAdherence);
             AddNullable(command, "$rating", annotation.ProcessRating);
             command.Parameters.AddWithValue("$mistakes", annotation.Mistakes);
@@ -1122,6 +1136,187 @@ public sealed class TradeFoundryDb
         var events = new List<AccountBalanceEvent>();
         while (reader.Read()) events.Add(ReadAccountBalanceEvent(reader));
         return events;
+    }
+
+    public IReadOnlyList<AccountTransaction> GetAccountTransactions(Guid journalId, bool includeDeleted = false)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT {AccountTransactionColumns} FROM account_transactions WHERE journal_id = $journal {(includeDeleted ? string.Empty : "AND deleted_utc IS NULL")} ORDER BY effective_utc, created_utc, id";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        var transactions = new List<AccountTransaction>();
+        while (reader.Read()) transactions.Add(ReadAccountTransaction(reader));
+        return transactions;
+    }
+
+    public AccountTransaction? GetAccountTransaction(Guid journalId, Guid transactionId, bool includeDeleted = false)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT {AccountTransactionColumns} FROM account_transactions WHERE journal_id = $journal AND id = $id {(includeDeleted ? string.Empty : "AND deleted_utc IS NULL")}";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$id", transactionId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadAccountTransaction(reader) : null;
+    }
+
+    public IReadOnlyList<AccountTransactionHistoryEntry> GetAccountTransactionHistory(Guid journalId, Guid transactionId)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT {AccountTransactionHistoryColumns} FROM account_transaction_history WHERE journal_id = $journal AND transaction_id = $transaction ORDER BY revision DESC, created_utc DESC, id DESC";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$transaction", transactionId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        var history = new List<AccountTransactionHistoryEntry>();
+        while (reader.Read()) history.Add(ReadAccountTransactionHistory(reader));
+        return history;
+    }
+
+    public AccountTransaction CreateAccountTransaction(Guid journalId, AccountTransactionDraft draft)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        ValidateAccountTransactionDraft(draft);
+
+        var now = DateTimeOffset.UtcNow;
+        var transaction = new AccountTransaction
+        {
+            Id = Guid.NewGuid(),
+            JournalId = journalId,
+            Type = draft.Type,
+            EffectiveUtc = draft.EffectiveUtc.ToUniversalTime(),
+            Amount = draft.Amount,
+            Note = draft.Note?.Trim() ?? string.Empty,
+            Revision = 1,
+            CreatedUtc = now,
+            UpdatedUtc = now
+        };
+
+        using var connection = OpenConnection();
+        using var dbTransaction = connection.BeginTransaction();
+        InsertAccountTransaction(connection, dbTransaction, transaction);
+        InsertAccountTransactionHistory(connection, dbTransaction, transaction, 1, "created", "{}", JsonSerializer.Serialize(transaction), now);
+        dbTransaction.Commit();
+        return transaction;
+    }
+
+    public AccountTransactionMutationResult UpdateAccountTransaction(Guid journalId, Guid transactionId, int expectedRevision, AccountTransactionDraft draft)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        ValidateAccountTransactionDraft(draft);
+
+        using var connection = OpenConnection();
+        using var dbTransaction = connection.BeginTransaction();
+        var current = ReadAccountTransaction(connection, dbTransaction, journalId, transactionId, includeDeleted: false);
+        if (current is null)
+        {
+            dbTransaction.Rollback();
+            return new AccountTransactionMutationResult { NotFound = true };
+        }
+        if (current.Revision != expectedRevision)
+        {
+            dbTransaction.Rollback();
+            return new AccountTransactionMutationResult { Conflict = true, Transaction = current };
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var updated = new AccountTransaction
+        {
+            Id = current.Id,
+            JournalId = current.JournalId,
+            Type = draft.Type,
+            EffectiveUtc = draft.EffectiveUtc.ToUniversalTime(),
+            Amount = draft.Amount,
+            Note = draft.Note?.Trim() ?? string.Empty,
+            Revision = current.Revision + 1,
+            CreatedUtc = current.CreatedUtc,
+            UpdatedUtc = now
+        };
+
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = dbTransaction;
+            command.CommandText = "UPDATE account_transactions SET transaction_type = $type, effective_utc = $effective, amount = $amount, note = $note, revision = $revision, updated_utc = $updated WHERE id = $id AND journal_id = $journal AND revision = $expected AND deleted_utc IS NULL";
+            command.Parameters.AddWithValue("$type", AccountTransactionTypeValue(updated.Type));
+            command.Parameters.AddWithValue("$effective", updated.EffectiveUtc.ToString("O", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$amount", NumberFormat.Decimal(updated.Amount));
+            command.Parameters.AddWithValue("$note", updated.Note);
+            command.Parameters.AddWithValue("$revision", updated.Revision);
+            command.Parameters.AddWithValue("$updated", updated.UpdatedUtc.ToString("O", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$id", transactionId.ToString("D"));
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            command.Parameters.AddWithValue("$expected", expectedRevision);
+            if (command.ExecuteNonQuery() != 1)
+            {
+                var latest = ReadAccountTransaction(connection, dbTransaction, journalId, transactionId, includeDeleted: false);
+                dbTransaction.Rollback();
+                return new AccountTransactionMutationResult { Conflict = true, Transaction = latest };
+            }
+        }
+
+        InsertAccountTransactionHistory(connection, dbTransaction, updated, updated.Revision, "updated", JsonSerializer.Serialize(current), JsonSerializer.Serialize(updated), now);
+        dbTransaction.Commit();
+        return new AccountTransactionMutationResult { Saved = true, Transaction = updated };
+    }
+
+    public AccountTransactionMutationResult DeleteAccountTransaction(Guid journalId, Guid transactionId, int expectedRevision)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+
+        using var connection = OpenConnection();
+        using var dbTransaction = connection.BeginTransaction();
+        var current = ReadAccountTransaction(connection, dbTransaction, journalId, transactionId, includeDeleted: false);
+        if (current is null)
+        {
+            dbTransaction.Rollback();
+            return new AccountTransactionMutationResult { NotFound = true };
+        }
+        if (current.Revision != expectedRevision)
+        {
+            dbTransaction.Rollback();
+            return new AccountTransactionMutationResult { Conflict = true, Transaction = current };
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var deleted = new AccountTransaction
+        {
+            Id = current.Id,
+            JournalId = current.JournalId,
+            Type = current.Type,
+            EffectiveUtc = current.EffectiveUtc,
+            Amount = current.Amount,
+            Note = current.Note,
+            Revision = current.Revision + 1,
+            CreatedUtc = current.CreatedUtc,
+            UpdatedUtc = now,
+            DeletedUtc = now
+        };
+
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = dbTransaction;
+            command.CommandText = "UPDATE account_transactions SET revision = $revision, updated_utc = $updated, deleted_utc = $deleted WHERE id = $id AND journal_id = $journal AND revision = $expected AND deleted_utc IS NULL";
+            command.Parameters.AddWithValue("$revision", deleted.Revision);
+            command.Parameters.AddWithValue("$updated", deleted.UpdatedUtc.ToString("O", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$deleted", deleted.DeletedUtc.Value.ToString("O", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$id", transactionId.ToString("D"));
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            command.Parameters.AddWithValue("$expected", expectedRevision);
+            if (command.ExecuteNonQuery() != 1)
+            {
+                var latest = ReadAccountTransaction(connection, dbTransaction, journalId, transactionId, includeDeleted: false);
+                dbTransaction.Rollback();
+                return new AccountTransactionMutationResult { Conflict = true, Transaction = latest };
+            }
+        }
+
+        InsertAccountTransactionHistory(connection, dbTransaction, deleted, deleted.Revision, "deleted", JsonSerializer.Serialize(current), JsonSerializer.Serialize(deleted), now);
+        dbTransaction.Commit();
+        return new AccountTransactionMutationResult { Saved = true, Transaction = deleted };
     }
 
     public IReadOnlyList<BenchmarkPoint> GetBenchmarkPoints(Guid journalId, string? symbol = null)
@@ -1305,7 +1500,7 @@ public sealed class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT {TradeColumns} FROM trades WHERE journal_id = $journal AND review_key = $reviewKey LIMIT 1";
+        command.CommandText = $"SELECT {TradeColumns} FROM {TradeFrom} WHERE t.journal_id = $journal AND t.review_key = $reviewKey LIMIT 1";
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$reviewKey", reviewKey);
         using var reader = command.ExecuteReader();
@@ -1340,7 +1535,7 @@ public sealed class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT {TradeColumns} FROM trades WHERE id = $id" + (journalId.HasValue ? " AND journal_id = $journal" : string.Empty);
+        command.CommandText = $"SELECT {TradeColumns} FROM {TradeFrom} WHERE t.id = $id" + (journalId.HasValue ? " AND t.journal_id = $journal" : string.Empty);
         command.Parameters.AddWithValue("$id", tradeId.ToString("D"));
         if (journalId.HasValue) command.Parameters.AddWithValue("$journal", journalId.Value.ToString("D"));
         using var reader = command.ExecuteReader();
@@ -1845,22 +2040,22 @@ public sealed class TradeFoundryDb
     {
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            filters.Add("(symbol LIKE $search OR instrument LIKE $search OR account LIKE $search OR direction LIKE $search OR status LIKE $search)");
+            filters.Add("(t.symbol LIKE $search OR t.instrument LIKE $search OR t.account LIKE $search OR t.direction LIKE $search OR t.status LIKE $search)");
             command.Parameters.AddWithValue("$search", $"%{query.Search.Trim()}%");
         }
         if (!string.IsNullOrWhiteSpace(query.Symbol))
         {
-            filters.Add("symbol = $symbol");
+            filters.Add("t.symbol = $symbol");
             command.Parameters.AddWithValue("$symbol", query.Symbol.Trim());
         }
         if (!string.IsNullOrWhiteSpace(query.Direction))
         {
-            filters.Add("direction = $direction");
+            filters.Add("t.direction = $direction");
             command.Parameters.AddWithValue("$direction", query.Direction.Trim());
         }
         if (!string.IsNullOrWhiteSpace(query.Status))
         {
-            filters.Add("status = $status");
+            filters.Add("t.status = $status");
             command.Parameters.AddWithValue("$status", query.Status.Trim());
         }
     }
@@ -2281,6 +2476,101 @@ public sealed class TradeFoundryDb
         Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), EventUtc = ParseDate(reader.GetString(5)), TransactionUtc = reader.IsDBNull(6) ? null : ParseDate(reader.GetString(6)), SourceTimeText = reader.GetString(7), Account = reader.GetString(8), Balance = NullableDecimal(reader, 9), Note = reader.GetString(10), RowNumber = reader.GetInt32(11)
     };
 
+    private static AccountTransaction ReadAccountTransaction(SqliteDataReader reader) => new()
+    {
+        Id = Guid.Parse(reader.GetString(0)),
+        JournalId = Guid.Parse(reader.GetString(1)),
+        Type = ParseAccountTransactionType(reader.GetString(2)),
+        EffectiveUtc = ParseDate(reader.GetString(3)),
+        Amount = ParseDecimal(reader.GetString(4)),
+        Note = reader.GetString(5),
+        Revision = reader.GetInt32(6),
+        CreatedUtc = ParseDate(reader.GetString(7)),
+        UpdatedUtc = ParseDate(reader.GetString(8)),
+        DeletedUtc = reader.IsDBNull(9) ? null : ParseDate(reader.GetString(9))
+    };
+
+    private static AccountTransaction? ReadAccountTransaction(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, Guid transactionId, bool includeDeleted)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT {AccountTransactionColumns} FROM account_transactions WHERE journal_id = $journal AND id = $id {(includeDeleted ? string.Empty : "AND deleted_utc IS NULL")}";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$id", transactionId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadAccountTransaction(reader) : null;
+    }
+
+    private static AccountTransactionHistoryEntry ReadAccountTransactionHistory(SqliteDataReader reader) => new()
+    {
+        Id = Guid.Parse(reader.GetString(0)),
+        JournalId = Guid.Parse(reader.GetString(1)),
+        TransactionId = Guid.Parse(reader.GetString(2)),
+        Revision = reader.GetInt32(3),
+        Action = reader.GetString(4),
+        BeforeJson = reader.GetString(5),
+        AfterJson = reader.GetString(6),
+        CreatedUtc = ParseDate(reader.GetString(7))
+    };
+
+    private static void InsertAccountTransaction(SqliteConnection connection, SqliteTransaction transaction, AccountTransaction entry)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "INSERT INTO account_transactions (id, journal_id, transaction_type, effective_utc, amount, note, revision, created_utc, updated_utc, deleted_utc) VALUES ($id, $journal, $type, $effective, $amount, $note, $revision, $created, $updated, $deleted)";
+        command.Parameters.AddWithValue("$id", entry.Id.ToString("D"));
+        command.Parameters.AddWithValue("$journal", entry.JournalId.ToString("D"));
+        command.Parameters.AddWithValue("$type", AccountTransactionTypeValue(entry.Type));
+        command.Parameters.AddWithValue("$effective", entry.EffectiveUtc.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$amount", NumberFormat.Decimal(entry.Amount));
+        command.Parameters.AddWithValue("$note", entry.Note);
+        command.Parameters.AddWithValue("$revision", entry.Revision);
+        command.Parameters.AddWithValue("$created", entry.CreatedUtc.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$updated", entry.UpdatedUtc.ToString("O", CultureInfo.InvariantCulture));
+        AddNullable(command, "$deleted", entry.DeletedUtc);
+        command.ExecuteNonQuery();
+    }
+
+    private static void InsertAccountTransactionHistory(SqliteConnection connection, SqliteTransaction transaction, AccountTransaction entry, int revision, string action, string beforeJson, string afterJson, DateTimeOffset createdUtc)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "INSERT INTO account_transaction_history (id, journal_id, transaction_id, revision, action, before_json, after_json, created_utc) VALUES ($id, $journal, $transaction, $revision, $action, $before, $after, $created)";
+        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$journal", entry.JournalId.ToString("D"));
+        command.Parameters.AddWithValue("$transaction", entry.Id.ToString("D"));
+        command.Parameters.AddWithValue("$revision", revision);
+        command.Parameters.AddWithValue("$action", action);
+        command.Parameters.AddWithValue("$before", beforeJson);
+        command.Parameters.AddWithValue("$after", afterJson);
+        command.Parameters.AddWithValue("$created", createdUtc.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    private static void ValidateAccountTransactionDraft(AccountTransactionDraft draft)
+    {
+        if (draft.Type is not AccountTransactionType.Deposit and not AccountTransactionType.Withdrawal)
+            throw new ArgumentException("The account transaction type is invalid.", nameof(draft));
+        if (draft.Amount <= 0m)
+            throw new ArgumentException("Account transaction amount must be greater than zero.", nameof(draft));
+        if (draft.EffectiveUtc == default)
+            throw new ArgumentException("Account transaction time is required.", nameof(draft));
+    }
+
+    private static string AccountTransactionTypeValue(AccountTransactionType type) => type switch
+    {
+        AccountTransactionType.Deposit => "deposit",
+        AccountTransactionType.Withdrawal => "withdrawal",
+        _ => throw new ArgumentOutOfRangeException(nameof(type))
+    };
+
+    private static AccountTransactionType ParseAccountTransactionType(string value) => value.ToLowerInvariant() switch
+    {
+        "deposit" => AccountTransactionType.Deposit,
+        "withdrawal" => AccountTransactionType.Withdrawal,
+        _ => throw new FormatException($"Unknown account transaction type '{value}'.")
+    };
+
     private static BenchmarkPoint ReadBenchmarkPoint(SqliteDataReader reader) => new()
     {
         Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SeriesId = Guid.Parse(reader.GetString(3)), SourceType = reader.GetString(4), SourceKey = reader.GetString(5), Symbol = reader.GetString(6), Provider = reader.GetString(7), EventUtc = ParseDate(reader.GetString(8)), Value = ParseDecimal(reader.GetString(9)), SourceTimeText = reader.GetString(10), RowNumber = reader.GetInt32(11)
@@ -2604,11 +2894,12 @@ public sealed class TradeFoundryDb
             PlannedTargetPrice = NullableDecimal(reader, 9),
             PlannedRiskPoints = NullableDecimal(reader, 10),
             PlannedRiskCurrency = NullableDecimal(reader, 11),
-            PlanAdherence = reader.GetString(12),
-            ProcessRating = reader.IsDBNull(13) ? null : reader.GetInt32(13),
-            Mistakes = reader.GetString(14),
-            Lessons = reader.GetString(15),
-            UpdatedUtc = ParseDate(reader.GetString(16))
+            AllInCommission = NullableDecimal(reader, 12),
+            PlanAdherence = reader.GetString(13),
+            ProcessRating = reader.IsDBNull(14) ? null : reader.GetInt32(14),
+            Mistakes = reader.GetString(15),
+            Lessons = reader.GetString(16),
+            UpdatedUtc = ParseDate(reader.GetString(17))
         };
     }
 
@@ -2654,6 +2945,7 @@ public sealed class TradeFoundryDb
         PlannedTargetPrice = patch.PlannedTargetPrice,
         PlannedRiskPoints = patch.PlannedRiskPoints,
         PlannedRiskCurrency = patch.PlannedRiskCurrency,
+        AllInCommission = patch.AllInCommission,
         PlanAdherence = TrimTo(patch.PlanAdherence, 32).ToLowerInvariant(),
         ProcessRating = patch.ProcessRating,
         Mistakes = TrimTo(patch.Mistakes, 2000),
@@ -2675,6 +2967,7 @@ public sealed class TradeFoundryDb
         PlannedTargetPrice = patch.PlannedTargetPrice,
         PlannedRiskPoints = patch.PlannedRiskPoints,
         PlannedRiskCurrency = patch.PlannedRiskCurrency,
+        AllInCommission = patch.AllInCommission,
         PlanAdherence = patch.PlanAdherence,
         ProcessRating = patch.ProcessRating,
         Mistakes = patch.Mistakes,
@@ -2692,6 +2985,7 @@ public sealed class TradeFoundryDb
         PlannedTargetPrice = annotation.PlannedTargetPrice,
         PlannedRiskPoints = annotation.PlannedRiskPoints,
         PlannedRiskCurrency = annotation.PlannedRiskCurrency,
+        AllInCommission = annotation.AllInCommission,
         PlanAdherence = annotation.PlanAdherence,
         ProcessRating = annotation.ProcessRating,
         Mistakes = annotation.Mistakes,
@@ -2725,7 +3019,7 @@ public sealed class TradeFoundryDb
         using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
-            command.CommandText = "SELECT id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, plan_adherence, process_rating, mistakes, lessons, updated_utc FROM trade_review_annotations WHERE journal_id = $journal AND review_key = $reviewKey";
+            command.CommandText = $"SELECT {TradeReviewColumns} FROM trade_review_annotations WHERE journal_id = $journal AND review_key = $reviewKey";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             command.Parameters.AddWithValue("$reviewKey", reviewKey);
             using var reader = command.ExecuteReader();

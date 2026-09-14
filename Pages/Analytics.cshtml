@@ -1,6 +1,7 @@
 @page "/journal/{journalId:guid}/analytics"
 @using System.Globalization
 @using TradeFoundry.Core
+@using TradeFoundry.Services
 @model TradeFoundry.Pages.AnalyticsModel
 @{
     ViewData["Title"] = "Analysis";
@@ -12,6 +13,11 @@
     string FormatPeriodFees(decimal? value) => value.HasValue ? $"-{Math.Abs(value.Value).ToString("C2")}" : "—";
     string FormatPeriodPercent(decimal? value) => value.HasValue ? $"{value.Value * 100m:0.0}%" : "—";
     string FormatPeriodRatio(decimal? value) => value.HasValue ? value.Value.ToString("0.00") : "—";
+    string EdgeMoney(decimal? value) => value.HasValue ? value.Value.ToString("C2", CultureInfo.CurrentCulture) : "—";
+    string EdgeRatio(decimal? value) => value.HasValue ? value.Value.ToString("0.00", CultureInfo.CurrentCulture) : "—";
+    string EdgePercent(decimal? value) => value.HasValue ? $"{value.Value * 100m:0.0}%" : "—";
+    string EdgeScore(decimal? value) => value.HasValue ? value.Value.ToString("0", CultureInfo.CurrentCulture) : "—";
+    string EdgeTrendTone(string value) => value.Equals("Improving", StringComparison.OrdinalIgnoreCase) ? "positive" : value.Equals("Deteriorating", StringComparison.OrdinalIgnoreCase) ? "negative" : "neutral";
     string FormatPeriodDuration(double? seconds)
     {
         if (!seconds.HasValue) return "—";
@@ -53,6 +59,7 @@
         <a href="#period-breakdown" data-analysis-target="period-breakdown">Period Breakdown</a>
         <a href="#performance" data-analysis-target="performance">Performance</a>
         <a href="#risk" data-analysis-target="risk">Risk &amp; stability</a>
+        <a href="#edge-persistence" data-analysis-target="edge-persistence">Edge persistence</a>
         <a href="#trade-quality" data-analysis-target="trade-quality">Trade quality</a>
         <a href="#timing-sizing" data-analysis-target="timing-sizing">Timing &amp; sizing</a>
         <a href="#execution" data-analysis-target="execution">Execution</a>
@@ -429,6 +436,7 @@
             <span>drawdown, distributions, and repeatability</span>
         </div>
         <nav class="tf-subsection-index" aria-label="Risk and stability subsections">
+            <a href="#risk-metrics">Risk metrics</a>
             <a href="#risk-discipline">Risk discipline</a>
             <a href="#risk-drawdown">Drawdown &amp; recovery</a>
             <a href="#risk-rolling">Rolling risk</a>
@@ -436,6 +444,7 @@
         </nav>
 
         @{
+            var riskIndicators = Model.Indicators.RiskStability;
             var riskDiscipline = Model.Indicators.RiskDiscipline;
             var riskScore = riskDiscipline.Score;
             var riskCoverage = riskDiscipline.CompletedTradeCount == 0
@@ -445,6 +454,49 @@
                 ? "No gross winners"
                 : $"{riskDiscipline.RiskObservedWinnerCount:N0}/{riskDiscipline.WinnerCount:N0} gross winners with risk data";
         }
+
+        <div id="risk-metrics" class="tf-chart-subsection tf-risk-metrics-section" aria-labelledby="risk-metrics-heading">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-chart-subsection-title-row">
+                        <div class="tf-kicker">RISK METRICS</div>
+                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Risk metrics" aria-expanded="false" aria-controls="risk-metrics-description" aria-label="Show explanation for Risk metrics"><span aria-hidden="true">i</span></button>
+                    </div>
+                    <h3 id="risk-metrics-heading">Drawdown and risk-adjusted returns</h3>
+                    <p id="risk-metrics-description" class="tf-section-info" hidden>These indicator cards summarize drawdown depth, recovery, tail loss, and risk-adjusted return. Percentage-based measures depend on a valid positive starting balance; dollar drawdown remains available from completed trades.</p>
+                </div>
+                <span>the metric snapshot behind the charts</span>
+            </div>
+            <div class="tf-indicator-grid tf-risk-metrics-grid">
+                @for (var indicatorIndex = 0; indicatorIndex < riskIndicators.Count; indicatorIndex++)
+                {
+                    var indicator = riskIndicators[indicatorIndex];
+                    var helpId = $"risk-metric-help-{indicatorIndex}";
+                    <article class="tf-indicator-card">
+                        <div class="tf-indicator-label-row">
+                            <div class="tf-indicator-label">@indicator.Label</div>
+                            @if (!string.IsNullOrWhiteSpace(indicator.Help))
+                            {
+                                <span class="tf-indicator-help">
+                                    <button type="button" class="tf-indicator-help-button" title="@indicator.Help" aria-label="More information about @indicator.Label" aria-describedby="@helpId">?</button>
+                                    <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">@indicator.Help</span>
+                                </span>
+                            }
+                        </div>
+                        <div class="tf-indicator-value @indicator.Tone">@indicator.Value</div>
+                        <div class="tf-indicator-note">@indicator.Note</div>
+                        @if (indicator.Scale is { } scale)
+                        {
+                            <div class="tf-indicator-scale" role="img" aria-label="@indicator.Label quality: @scale.Tier">
+                                <div class="tf-indicator-scale-marker-row"><span class="tf-indicator-scale-marker" style="left:@scale.MarkerPosition%;"></span></div>
+                                <div class="tf-indicator-scale-bar @scale.CssClass"></div>
+                                <div class="tf-indicator-scale-tier">@scale.Tier</div>
+                            </div>
+                        }
+                    </article>
+                }
+            </div>
+        </div>
 
         <div id="risk-discipline" class="tf-chart-subsection tf-risk-discipline-section" aria-labelledby="risk-discipline-heading">
             <div class="tf-chart-subsection-heading">
@@ -595,6 +647,291 @@
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">ROBUSTNESS</div><h4 class="tf-card-title">Winner vs loser sizes</h4></div></div><div class="card-body">@Html.Raw(Model.WinnersLosersChart)</div></article>
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">CONCENTRATION</div><h4 class="tf-card-title">Winner profit concentration</h4></div></div><div class="card-body">@Html.Raw(Model.ConcentrationChart)</div></article>
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RISK UNITS</div><h4 class="tf-card-title">R-multiple distribution</h4></div></div><div class="card-body">@Html.Raw(Model.RMultipleChart)</div></article>
+            </div>
+        </div>
+    </section>
+
+    <section id="edge-persistence" class="tf-chart-section tf-edge-persistence-section" aria-labelledby="edge-persistence-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">EDGE PERSISTENCE</div>
+                <div class="tf-chart-section-title-row">
+                    <h2 id="edge-persistence-heading">Is the edge repeating?</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Edge Persistence" aria-expanded="false" aria-controls="edge-persistence-description" aria-label="Show explanation for Edge Persistence"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="edge-persistence-description" class="tf-section-info" hidden>Profitability asks whether the account made money. Edge persistence asks whether positive expectancy remains across sequential samples after outlier and risk stress tests.</p>
+            </div>
+            <span>repeatability, robustness, and risk stability</span>
+        </div>
+        <nav class="tf-subsection-index" aria-label="Edge Persistence subsections">
+            <a href="#edge-persistence-summary">Summary</a>
+            <a href="#edge-persistence-rolling">Rolling metrics</a>
+            <a href="#edge-persistence-blocks">Trade blocks</a>
+            <a href="#edge-persistence-robustness">Profit robustness</a>
+            <a href="#edge-persistence-risk">MAE stability</a>
+            <a href="#edge-persistence-comparison">Recent vs previous</a>
+            <a href="#edge-persistence-segments">Edge breakdown</a>
+            <a href="#edge-persistence-methodology">Methodology</a>
+        </nav>
+
+        @{
+            var edge = Model.EdgePersistence;
+            var edgeScore = edge.Score;
+            var edgeRobustness = edge.Robustness;
+            var edgeRisk = edge.RiskStability;
+        }
+
+        <div id="edge-persistence-summary" class="tf-chart-subsection" aria-labelledby="edge-persistence-summary-heading">
+            <div class="tf-edge-persistence-summary-layout">
+                <article class="card tf-card tf-edge-persistence-score-card">
+                    <div class="card-header">
+                        <div><div class="tf-kicker">OVERALL SCORE</div><h3 id="edge-persistence-summary-heading" class="tf-card-title">Edge Persistence Score</h3></div>
+                        <span class="tf-edge-persistence-badge @edgeScore.Tone">@edgeScore.Tier</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="tf-edge-persistence-score-value @edgeScore.Tone">@edgeScore.DisplayValue<span>/100</span></div>
+                        <p class="tf-edge-persistence-score-summary">@edgeScore.Summary</p>
+                        <div class="tf-edge-persistence-evidence">
+                            <span class="@edge.Confidence.Tone"><strong>Evidence confidence:</strong> @edge.Confidence.Label</span>
+                            <span>@edge.CompletedTradeCount.ToString("N0", CultureInfo.CurrentCulture) completed trades</span>
+                        </div>
+                        <p class="tf-edge-persistence-footnote">@edge.Confidence.Note</p>
+                        <ol class="tf-edge-persistence-components" aria-label="Edge Persistence score components">
+                            @foreach (var component in edgeScore.Components)
+                            {
+                                <li>
+                                    <span>@component.Label <small>@((component.Weight * 100m).ToString("0", CultureInfo.CurrentCulture))%</small></span>
+                                    <strong>@(component.Points.ToString("0", CultureInfo.CurrentCulture))/100</strong>
+                                    <small>@component.Note</small>
+                                </li>
+                            }
+                        </ol>
+                    </div>
+                </article>
+
+                <article class="card tf-card tf-edge-persistence-interpretation-card">
+                    <div class="card-header"><div><div class="tf-kicker">CALCULATED FINDINGS</div><h3 class="tf-card-title">What the history says</h3></div><span class="text-secondary">descriptive, not predictive</span></div>
+                    <div class="card-body">
+                        <ul class="tf-edge-persistence-findings">
+                            @foreach (var finding in edge.Interpretation)
+                            {
+                                <li>@finding</li>
+                            }
+                        </ul>
+                        <div class="tf-edge-persistence-definition">
+                            <strong>Profitability vs edge persistence.</strong>
+                            <span>Profitability is the account result. Edge persistence is the evidence that the result survives independent trade blocks, outlier removal, and risk checks.</span>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </div>
+
+        <div id="edge-persistence-rolling" class="tf-chart-subsection" aria-labelledby="edge-persistence-rolling-heading">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-kicker">ROLLING METRICS</div>
+                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-rolling-heading">Does the edge stay visible?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Rolling Edge Persistence metrics" aria-expanded="false" aria-controls="edge-persistence-rolling-description" aria-label="Show explanation for Rolling Edge Persistence metrics"><span aria-hidden="true">i</span></button></div>
+                    <p id="edge-persistence-rolling-description" class="tf-section-info" hidden>Rolling windows overlap, so they are useful for visual trend detection but should not be read as independent samples. Windows appear only when enough completed trades exist.</p>
+                </div>
+                <span>25 · 50 · 100 trades</span>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EXPECTANCY</div><h4 class="tf-card-title">Rolling expectancy</h4></div><span>gross P&amp;L per trade</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingExpectancyChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">QUALITY</div><h4 class="tf-card-title">Profit factor and win rate</h4></div><span>PF · %</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingQualityChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">MAE</div><h4 class="tf-card-title">Median and tail MAE</h4></div><span>absolute currency</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingMaeChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">LOSSES</div><h4 class="tf-card-title">Average and median loss</h4></div><span>gross loss per trade</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingLossChart)</div></article>
+            </div>
+        </div>
+
+        <div id="edge-persistence-blocks" class="tf-chart-subsection" aria-labelledby="edge-persistence-blocks-heading">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-kicker">NON-OVERLAPPING BLOCKS</div>
+                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-blocks-heading">Consistency across independent samples</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Non-overlapping Edge Persistence blocks" aria-expanded="false" aria-controls="edge-persistence-blocks-description" aria-label="Show explanation for non-overlapping Edge Persistence blocks"><span aria-hidden="true">i</span></button></div>
+                    <p id="edge-persistence-blocks-description" class="tf-section-info" hidden>Blocks are sequential and non-overlapping. They carry more weight in the score than rolling windows because neighboring blocks do not reuse the same trades. A trailing partial block is omitted.</p>
+                </div>
+                <span>positive expectancy matters more than one profitable total</span>
+            </div>
+            <div class="tf-edge-persistence-block-summary">
+                @foreach (var blockSet in edge.Blocks)
+                {
+                    <article class="card tf-card">
+                        <div class="card-body">
+                            <div class="tf-kicker">@blockSet.Window-TRADE BLOCKS</div>
+                            <strong>@blockSet.PositiveExpectancyBlockCount of @blockSet.Blocks.Count</strong>
+                            <span>positive expectancy</span>
+                            <small>@blockSet.ProfitableBlockCount profitable · @blockSet.LosingBlockCount losing by net P&amp;L</small>
+                        </div>
+                    </article>
+                }
+            </div>
+            <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">BLOCK RESULTS</div><h4 class="tf-card-title">P&amp;L by non-overlapping block</h4></div></div><div class="card-body">@Html.Raw(Model.EdgePersistenceBlocksChart)</div></article>
+            @if (edge.Blocks.Count == 0)
+            {
+                <div class="tf-empty">Non-overlapping block analysis appears after 25 completed trades.</div>
+            }
+            else
+            {
+                foreach (var blockSet in edge.Blocks)
+                {
+                    <details class="tf-edge-block-details" open="@(blockSet.Window == 50 ? "open" : null)">
+                        <summary>@blockSet.Window-trade blocks · @blockSet.PositiveExpectancyBlockCount of @blockSet.Blocks.Count with positive expectancy</summary>
+                        <div class="tf-table-wrap">
+                            <table class="table table-vcenter tf-table tf-edge-table">
+                                <thead><tr><th>Block</th><th>Trade range</th><th>Net P&amp;L</th><th>Expectancy</th><th>PF</th><th>Win rate</th><th>Median MAE</th><th>Average loss</th><th>Largest loss</th></tr></thead>
+                                <tbody>
+                                @foreach (var block in blockSet.Blocks)
+                                {
+                                    <tr>
+                                        <th scope="row">B@block.BlockNumber</th>
+                                        <td>T@block.StartTradeNumber–T@block.EndTradeNumber</td>
+                                        <td class="@PeriodTone(block.NetPnl)">@EdgeMoney(block.NetPnl)</td>
+                                        <td class="@PeriodTone(block.Expectancy ?? 0m)">@EdgeMoney(block.Expectancy)</td>
+                                        <td>@EdgeRatio(block.ProfitFactor)</td>
+                                        <td>@EdgePercent(block.WinRate)</td>
+                                        <td>@EdgeMoney(block.MedianMae)</td>
+                                        <td>@EdgeMoney(block.AverageLoss)</td>
+                                        <td>@EdgeMoney(block.LargestLoss)</td>
+                                    </tr>
+                                }
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                }
+            }
+        </div>
+
+        <div id="edge-persistence-robustness" class="tf-chart-subsection" aria-labelledby="edge-persistence-robustness-heading">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-kicker">PROFIT ROBUSTNESS</div>
+                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-robustness-heading">What remains after stress?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Profit Robustness" aria-expanded="false" aria-controls="edge-persistence-robustness-description" aria-label="Show explanation for Profit Robustness"><span aria-hidden="true">i</span></button></div>
+                    <p id="edge-persistence-robustness-description" class="tf-section-info" hidden>The stress test uses net P&amp;L after imported fees. Positive concentration is measured from positive net trades; loss concentration is measured from absolute losing net P&amp;L.</p>
+                </div>
+                <span>remove best trades · remove worst trades</span>
+            </div>
+            <div class="tf-edge-persistence-robustness-layout">
+                <article class="card tf-card">
+                    <div class="card-header"><div><div class="tf-kicker">WINNER STRESS</div><h4 class="tf-card-title">Remove best trades</h4></div><span>net P&amp;L</span></div>
+                    <div class="card-body p-0">
+                        <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-edge-table"><thead><tr><th>Scenario</th><th>Remaining net P&amp;L</th><th>Remaining gross P&amp;L</th></tr></thead><tbody>
+                            <tr><th scope="row">Actual</th><td class="@PeriodTone(edgeRobustness.ActualNetPnl)">@EdgeMoney(edgeRobustness.ActualNetPnl)</td><td>@EdgeMoney(edgeRobustness.ActualGrossPnl)</td></tr>
+                            @foreach (var point in edgeRobustness.WithoutBest)
+                            {
+                                <tr><th scope="row">Without best @point.RemovedCount</th><td class="@PeriodTone(point.NetPnl)">@EdgeMoney(point.NetPnl)</td><td>@EdgeMoney(point.GrossPnl)</td></tr>
+                            }
+                        </tbody></table></div>
+                    </div>
+                </article>
+                <article class="card tf-card">
+                    <div class="card-header"><div><div class="tf-kicker">LOSS STRESS</div><h4 class="tf-card-title">Remove worst trades</h4></div><span>net P&amp;L</span></div>
+                    <div class="card-body p-0">
+                        <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-edge-table"><thead><tr><th>Scenario</th><th>Remaining net P&amp;L</th><th>Remaining gross P&amp;L</th></tr></thead><tbody>
+                            <tr><th scope="row">Actual</th><td class="@PeriodTone(edgeRobustness.ActualNetPnl)">@EdgeMoney(edgeRobustness.ActualNetPnl)</td><td>@EdgeMoney(edgeRobustness.ActualGrossPnl)</td></tr>
+                            @foreach (var point in edgeRobustness.WithoutWorst)
+                            {
+                                <tr><th scope="row">Without worst @point.RemovedCount</th><td class="@PeriodTone(point.NetPnl)">@EdgeMoney(point.NetPnl)</td><td>@EdgeMoney(point.GrossPnl)</td></tr>
+                            }
+                        </tbody></table></div>
+                    </div>
+                </article>
+            </div>
+            <div class="tf-edge-persistence-concentration-grid">
+                <article class="card tf-card"><div class="card-body"><div class="tf-kicker">TOP 1%</div><strong>@EdgePercent(edgeRobustness.WinnerConcentration.Top1ProfitShare)</strong><span>of positive net P&amp;L</span></div></article>
+                <article class="card tf-card"><div class="card-body"><div class="tf-kicker">TOP 5%</div><strong>@EdgePercent(edgeRobustness.WinnerConcentration.Top5ProfitShare)</strong><span>of positive net P&amp;L</span></div></article>
+                <article class="card tf-card"><div class="card-body"><div class="tf-kicker">TOP 10%</div><strong>@EdgePercent(edgeRobustness.WinnerConcentration.Top10ProfitShare)</strong><span>of positive net P&amp;L</span></div></article>
+                <article class="card tf-card"><div class="card-body"><div class="tf-kicker">TOP 3 LOSSES</div><strong>@EdgePercent(edgeRobustness.LargestLossShare)</strong><span>of total losing net P&amp;L</span></div></article>
+            </div>
+            <ul class="tf-edge-persistence-observations">
+                @foreach (var observation in edgeRobustness.Observations)
+                {
+                    <li>@observation</li>
+                }
+            </ul>
+        </div>
+
+        <div id="edge-persistence-risk" class="tf-chart-subsection" aria-labelledby="edge-persistence-risk-heading">
+            <div class="tf-chart-subsection-heading">
+                <div class="tf-chart-subsection-heading-main">
+                    <div class="tf-kicker">MAE PERSISTENCE</div>
+                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-risk-heading">Does profitability require more heat?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="MAE Persistence" aria-expanded="false" aria-controls="edge-persistence-risk-description" aria-label="Show explanation for MAE Persistence"><span aria-hidden="true">i</span></button></div>
+                    <p id="edge-persistence-risk-description" class="tf-section-info" hidden>MAE is shown in the same absolute currency convention used by the existing trade indicators. The risk-stability score uses initial-risk units when at least half of the trades have usable MAE and initial-risk data; otherwise it uses a relative scale.</p>
+                </div>
+                <span>@edgeRisk.RiskUnitLabel</span>
+            </div>
+            <div class="tf-edge-persistence-risk-strip">
+                <article class="card tf-card"><div class="card-body"><div class="tf-kicker">RISK STABILITY</div><strong>@EdgeScore(edgeRisk.RiskScore)/100</strong><span>@edgeRisk.MaeObservedTradeCount/@edge.CompletedTradeCount trades with MAE</span></div></article>
+                <article class="card tf-card"><div class="card-body"><div class="tf-kicker">MEDIAN MAE</div><strong>@EdgeMoney(edgeRisk.MedianMae)</strong><span>P50 · coverage @EdgePercent(edgeRisk.MaeCoverage)</span></div></article>
+                <article class="card tf-card"><div class="card-body"><div class="tf-kicker">MAE P90</div><strong>@EdgeMoney(edgeRisk.MaeP90)</strong><span>maximum @EdgeMoney(edgeRisk.MaximumMae)</span></div></article>
+                <article class="card tf-card"><div class="card-body"><div class="tf-kicker">LOSS P90</div><strong>@EdgeMoney(edgeRisk.LossP90)</strong><span>largest @EdgeMoney(edgeRisk.MaximumLoss)</span></div></article>
+            </div>
+            <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">MAE TREND</div><h4 class="tf-card-title">MAE by rolling window</h4></div><span class="@EdgeTrendTone(edgeRisk.MaeTrend)">@edgeRisk.MaeTrend</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingMaeChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">LOSS TREND</div><h4 class="tf-card-title">Loss size by rolling window</h4></div><span class="@EdgeTrendTone(edgeRisk.LossTrend)">@edgeRisk.LossTrend</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingLossChart)</div></article>
+            </div>
+        </div>
+
+        <div id="edge-persistence-comparison" class="tf-chart-subsection" aria-labelledby="edge-persistence-comparison-heading">
+            <div class="tf-chart-subsection-heading"><div class="tf-chart-subsection-heading-main"><div class="tf-kicker">RECENT VS PREVIOUS</div><div class="tf-chart-section-title-row"><h3 id="edge-persistence-comparison-heading">Is the latest sample improving?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Recent versus previous Edge Persistence comparison" aria-expanded="false" aria-controls="edge-persistence-comparison-description" aria-label="Show explanation for Recent versus previous Edge Persistence comparison"><span aria-hidden="true">i</span></button></div><p id="edge-persistence-comparison-description" class="tf-section-info" hidden>Each comparison uses the most recent N trades versus the immediately preceding N trades. Small changes are classified as stable so tiny samples are not over-interpreted.</p></div><span>25 · 50 · 100 trade comparisons</span></div>
+            @if (edge.RecentComparisons.Count == 0)
+            {
+                <div class="tf-empty">Recent-versus-previous comparisons appear after at least 50 completed trades.</div>
+            }
+            else
+            {
+                <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-edge-table tf-edge-comparison-table"><thead><tr><th>Window</th><th>Expectancy</th><th>Profit factor</th><th>Win rate</th><th>Median MAE</th><th>Average loss</th><th>Largest loss</th><th>Read</th></tr></thead><tbody>
+                @foreach (var comparison in edge.RecentComparisons)
+                {
+                    <tr>
+                        <th scope="row">@comparison.Window trades</th>
+                        <td><strong>@EdgeMoney(comparison.Recent.Expectancy)</strong><small>prev @EdgeMoney(comparison.Previous.Expectancy)</small></td>
+                        <td><strong>@EdgeRatio(comparison.Recent.ProfitFactor)</strong><small>prev @EdgeRatio(comparison.Previous.ProfitFactor)</small></td>
+                        <td><strong>@EdgePercent(comparison.Recent.WinRate)</strong><small>prev @EdgePercent(comparison.Previous.WinRate)</small></td>
+                        <td><strong>@EdgeMoney(comparison.Recent.MedianMae)</strong><small>prev @EdgeMoney(comparison.Previous.MedianMae)</small></td>
+                        <td><strong>@EdgeMoney(comparison.Recent.AverageLoss)</strong><small>prev @EdgeMoney(comparison.Previous.AverageLoss)</small></td>
+                        <td><strong>@EdgeMoney(comparison.Recent.LargestLoss)</strong><small>prev @EdgeMoney(comparison.Previous.LargestLoss)</small></td>
+                        <td class="@EdgeTrendTone(comparison.Trend)">@comparison.Trend</td>
+                    </tr>
+                }
+                </tbody></table></div>
+            }
+        </div>
+
+        <div id="edge-persistence-segments" class="tf-chart-subsection" aria-labelledby="edge-persistence-segments-heading">
+            <div class="tf-chart-subsection-heading"><div class="tf-chart-subsection-heading-main"><div class="tf-kicker">EDGE BREAKDOWN</div><div class="tf-chart-section-title-row"><h3 id="edge-persistence-segments-heading">Where does the edge hold?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Edge breakdown" aria-expanded="false" aria-controls="edge-persistence-segments-description" aria-label="Show explanation for Edge breakdown"><span aria-hidden="true">i</span></button></div><p id="edge-persistence-segments-description" class="tf-section-info" hidden>Segments use dimensions already present in the trade model. A segment must contain at least @EdgePersistenceCalculator.MinimumSegmentTrades trades before it is shown or scored, so specialization is not penalized for unused regimes.</p></div><span>@edge.SegmentConsistency.PositiveSegmentCount/@edge.SegmentConsistency.ReliableSegmentCount reliable segments positive</span></div>
+            <div class="tf-edge-segment-grid">
+            @foreach (var dimension in edge.SegmentDimensions)
+            {
+                <article class="card tf-card tf-edge-segment-card">
+                    <div class="card-header"><div><div class="tf-kicker">@dimension.Name</div><h4 class="tf-card-title">@dimension.Note</h4></div><span>@dimension.MinimumTrades+ trades</span></div>
+                    <div class="card-body p-0">
+                        @if (dimension.Segments.Count == 0)
+                        {
+                            <div class="tf-empty">No segment reached @dimension.MinimumTrades trades. @dimension.SuppressedSegmentCount small segment(s) are hidden.</div>
+                        }
+                        else
+                        {
+                            <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-edge-table"><thead><tr><th>Segment</th><th>Trades</th><th>Net P&amp;L</th><th>Expectancy</th><th>PF</th><th>Win rate</th><th>Median MAE</th><th>Avg winner</th><th>Avg loser</th></tr></thead><tbody>
+                            @foreach (var segment in dimension.Segments)
+                            {
+                                <tr><th scope="row">@segment.Label</th><td>@segment.TradeCount</td><td class="@PeriodTone(segment.NetPnl)">@EdgeMoney(segment.NetPnl)</td><td class="@PeriodTone(segment.Expectancy ?? 0m)">@EdgeMoney(segment.Expectancy)</td><td>@EdgeRatio(segment.ProfitFactor)</td><td>@EdgePercent(segment.WinRate)</td><td>@EdgeMoney(segment.MedianMae)</td><td>@EdgeMoney(segment.AverageWinner)</td><td>@EdgeMoney(segment.AverageLoss)</td></tr>
+                            }
+                            </tbody></table></div>
+                        }
+                    </div>
+                </article>
+            }
+            </div>
+        </div>
+
+        <div id="edge-persistence-methodology" class="tf-chart-subsection" aria-labelledby="edge-persistence-methodology-heading">
+            <div class="tf-chart-subsection-heading"><div class="tf-chart-subsection-heading-main"><div class="tf-kicker">METHOD</div><div class="tf-chart-section-title-row"><h3 id="edge-persistence-methodology-heading">How to read this page</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Edge Persistence methodology" aria-expanded="false" aria-controls="edge-persistence-methodology-description" aria-label="Show explanation for Edge Persistence methodology"><span aria-hidden="true">i</span></button></div><p id="edge-persistence-methodology-description" class="tf-section-info" hidden>These are deterministic descriptive statistics, not a claim about future returns or a formal statistical confidence interval.</p></div></div>
+            <div class="tf-edge-methodology-grid">
+                <article class="card tf-card"><div class="card-body"><h4 class="tf-card-title">Score formula</h4><p>Expectancy persistence 40%, risk stability 25%, profit robustness 20%, and segment consistency 15%. The sample-size cap prevents a small lucky sample from receiving a strong classification.</p><p class="text-secondary">Expectancy, win rate, and Profit Factor use gross trade P&amp;L to match existing TradeFoundry indicators. Robustness stress uses net P&amp;L after imported fees.</p></div></article>
+                <article class="card tf-card"><div class="card-body"><h4 class="tf-card-title">Evidence bands</h4><ul><li><strong>&lt;25:</strong> insufficient evidence</li><li><strong>25–49:</strong> very low confidence</li><li><strong>50–99:</strong> preliminary</li><li><strong>100–249:</strong> moderate evidence</li><li><strong>250+:</strong> stronger evidence</li></ul><p class="text-secondary">These are heuristic sample labels, not academic statistical guarantees.</p></div></article>
+                <article class="card tf-card"><div class="card-body"><h4 class="tf-card-title">Data conventions</h4><p>Completed trades are ordered by exit time and sequence. MAE uses the existing point-value and quantity conversion. Initial-risk units are used when coverage supports it; missing MAE remains visible as a data limitation.</p><p class="text-secondary">Bootstrap probability and expectancy confidence intervals are intentionally deferred from this descriptive first version.</p></div></article>
             </div>
         </div>
     </section>

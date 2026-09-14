@@ -28,6 +28,7 @@ public class AnalyticsModel : PageModel
     public Journal? Journal { get; private set; }
     public JournalOverview? Overview { get; private set; }
     public TearSheetIndicatorSet Indicators { get; private set; } = new();
+    public EdgePersistenceMetrics EdgePersistence { get; private set; } = new();
     public TearSheetPeriodSummary PeriodSummary { get; private set; } = new();
     public TearSheetPeriodBreakdown PeriodBreakdown { get; private set; } = new();
     public IReadOnlyList<Trade> Trades { get; private set; } = Array.Empty<Trade>();
@@ -83,6 +84,11 @@ public class AnalyticsModel : PageModel
     public string RiskDisciplineRollingHeatChart => ChartRenderer.TearSheetRiskDisciplineRollingHeat(Trades);
     public string RiskDisciplineRollingViolationsChart => ChartRenderer.TearSheetRiskDisciplineRollingViolations(Trades);
     public string RiskDisciplineMonthlyChart => ChartRenderer.TearSheetRiskDisciplineMonthly(Trades, Journal?.TimeZone);
+    public string EdgePersistenceRollingExpectancyChart => ChartRenderer.TearSheetEdgePersistenceRollingExpectancy(EdgePersistence);
+    public string EdgePersistenceRollingQualityChart => ChartRenderer.TearSheetEdgePersistenceRollingQuality(EdgePersistence);
+    public string EdgePersistenceRollingMaeChart => ChartRenderer.TearSheetEdgePersistenceRollingMae(EdgePersistence);
+    public string EdgePersistenceRollingLossChart => ChartRenderer.TearSheetEdgePersistenceRollingLoss(EdgePersistence);
+    public string EdgePersistenceBlocksChart => ChartRenderer.TearSheetEdgePersistenceBlocks(EdgePersistence);
     public string RMultipleChart => ChartRenderer.RMultipleDistribution(Trades);
     public string ExitTypeChart => ChartRenderer.ExitTypeAnalysis(Trades);
     public string OrderExecutionChart => ChartRenderer.OrderExecution(OrderEvents);
@@ -117,6 +123,7 @@ public class AnalyticsModel : PageModel
         LoadBenchmarkPoints();
         BenchmarkStatus = _database.GetBenchmarkSeriesStatus(JournalId, BenchmarkSymbol);
         Indicators = TearSheetMetrics.Build(Trades, OrderEvents, AccountBalances, BenchmarkPoints, Overview?.StartingEquity, Journal.TimeZone, Journal.Currency);
+        EdgePersistence = EdgePersistenceCalculator.Build(Trades, Journal.TimeZone);
         var periodData = TearSheetPeriods.Build(Trades, Journal.TimeZone);
         PeriodSummary = periodData.Summary;
         PeriodBreakdown = periodData.Breakdown;

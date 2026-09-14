@@ -139,11 +139,20 @@ button, input, select, textarea { font: inherit; }
 .tf-metric-label { color: var(--tf-muted); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
 .tf-metric-value { margin: 2px 0; color: var(--tf-ink); font-size: 20px; font-weight: 600; letter-spacing: 0; }
 .tf-metric-note { color: var(--tf-muted); font-size: 11px; }
+.tf-metric-account { border-top-color: var(--tf-green); }
+.tf-account-summary-card { color: inherit; text-decoration: none; transition: border-color .15s ease, transform .15s ease; }
+.tf-account-summary-card:hover { color: inherit; border-color: var(--tf-blue); transform: translateY(-1px); }
+.tf-account-card-link { margin-top: 4px; color: var(--tf-blue); font-size: 10px; font-weight: 600; }
 .positive { color: var(--tf-green) !important; }
 .negative { color: var(--tf-red) !important; }
 
 .tf-chart-card { min-height: 0; }
 .tf-chart-card .card-body { min-height: 280px; }
+.tf-equity-view-toggle { display: flex; align-items: center; margin: 0; }
+.tf-equity-view-toggle .form-check { display: flex; align-items: center; gap: 6px; min-height: 0; padding-left: 0; }
+.tf-equity-view-toggle .form-check-input { flex: 0 0 auto; margin: 0; }
+.tf-equity-view-toggle .form-check-label { color: var(--tf-muted); cursor: pointer; font-size: 11px; text-transform: uppercase; white-space: nowrap; }
+.tf-equity-view-toggle .form-check-input:checked { border-color: var(--tf-blue); background-color: var(--tf-blue); }
 .tf-plotly-chart { display: block; width: 100%; min-height: 280px; }
 .tf-plotly-chart .plot-container,
 .tf-plotly-chart .svg-container,
@@ -165,6 +174,27 @@ button, input, select, textarea { font: inherit; }
 .tf-table small { display: block; margin-top: 1px; color: var(--tf-muted); font-size: 11px; }
 .tf-table .row-link { color: var(--tf-ink); font-weight: 600; text-decoration: none; }
 .tf-table .row-link:hover { color: var(--tf-blue); }
+.tf-page-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; }
+.tf-page-intro h1 { margin: 4px 0 8px; color: var(--tf-blue); font-size: 22px; line-height: 1.2; }
+.tf-page-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; color: var(--tf-muted); font-size: 11px; text-transform: uppercase; }
+.tf-page-meta span { padding: 4px 7px; border: 1px solid var(--tf-line); border-radius: 4px; }
+.tf-account-status { height: calc(100% - 16px); }
+.tf-account-status strong { display: block; margin: 3px 0 5px; color: var(--tf-ink); font-size: 14px; }
+.tf-account-status p { font-size: 11px; line-height: 1.45; }
+.tf-account-baseline-warning { margin-bottom: 16px; }
+.tf-account-entry-form .form-label { display: block; color: var(--tf-muted); font-size: 11px; }
+.tf-account-entry-form .form-control, .tf-account-entry-form .form-select { margin-top: 4px; }
+.tf-account-form-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
+.tf-account-type { display: inline-flex; align-items: center; border: 1px solid var(--tf-line); border-radius: 4px; padding: 2px 6px; color: var(--tf-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+.tf-account-type-deposit { border-color: rgba(63,185,80,.42); color: var(--tf-green); }
+.tf-account-type-withdrawal { border-color: rgba(248,81,73,.42); color: var(--tf-red); }
+.tf-account-type-realized-trade-pnl { border-color: rgba(88,166,255,.42); color: var(--tf-blue); }
+.tf-account-type-imported-balance, .tf-account-type-opening-balance { border-color: var(--tf-line-strong); color: var(--tf-muted); }
+.tf-account-source { color: var(--tf-ink); }
+.tf-account-outside { opacity: .65; }
+.tf-account-outside td:first-child { border-left: 2px solid var(--tf-gold); }
+.tf-account-table { min-width: 1180px; }
+.tf-account-table .btn { font-size: 11px; }
 .tf-side, .tf-status, .tf-chip { display: inline-flex; align-items: center; border: 1px solid var(--tf-line); border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
 .tf-side-long { border-color: rgba(63,185,80,.42); color: var(--tf-green); }
 .tf-side-short { border-color: rgba(248,81,73,.42); color: var(--tf-red); }
@@ -444,6 +474,76 @@ button, input, select, textarea { font: inherit; }
 .tf-risk-discipline-footnote { margin: 12px 0 0; color: var(--tf-muted); font-size: 10px; line-height: 1.4; }
 .tf-risk-discipline-indicator-grid { align-content: start; }
 .tf-risk-discipline-trends { margin-top: 28px; }
+.tf-edge-persistence-section { scroll-margin-top: 18px; }
+.tf-edge-persistence-summary-layout { display: grid; grid-template-columns: minmax(280px, .82fr) minmax(0, 1.18fr); gap: 16px; align-items: stretch; }
+.tf-edge-persistence-score-card, .tf-edge-persistence-interpretation-card { margin: 0; }
+.tf-edge-persistence-score-card .card-header, .tf-edge-persistence-interpretation-card .card-header { align-items: center; }
+.tf-edge-persistence-score-card .card-body, .tf-edge-persistence-interpretation-card .card-body { padding: 16px; }
+.tf-edge-persistence-badge { display: inline-flex; align-items: center; border: 1px solid var(--tf-line); border-radius: 999px; padding: 3px 8px; color: var(--tf-muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
+.tf-edge-persistence-badge.positive { border-color: rgba(63,185,80,.45); background: rgba(63,185,80,.12); color: var(--tf-green); }
+.tf-edge-persistence-badge.neutral { border-color: rgba(210,153,34,.45); background: rgba(210,153,34,.12); color: var(--tf-gold); }
+.tf-edge-persistence-badge.negative { border-color: rgba(248,81,73,.45); background: rgba(248,81,73,.12); color: var(--tf-red); }
+.tf-edge-persistence-badge.muted { color: var(--tf-muted); }
+.tf-edge-persistence-score-value { color: var(--tf-ink); font-size: 42px; font-weight: 700; letter-spacing: -.04em; line-height: 1; }
+.tf-edge-persistence-score-value.positive { color: var(--tf-green); }
+.tf-edge-persistence-score-value.neutral { color: var(--tf-gold); }
+.tf-edge-persistence-score-value.negative { color: var(--tf-red); }
+.tf-edge-persistence-score-value.muted { color: var(--tf-muted); }
+.tf-edge-persistence-score-value span { margin-left: 3px; color: var(--tf-muted); font-size: 16px; font-weight: 600; letter-spacing: 0; }
+.tf-edge-persistence-score-summary { margin: 14px 0 0; color: var(--tf-ink); font-size: 12px; line-height: 1.45; }
+.tf-edge-persistence-evidence { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 12px; color: var(--tf-muted); font-size: 11px; }
+.tf-edge-persistence-evidence .positive { color: var(--tf-green); }
+.tf-edge-persistence-evidence .neutral { color: var(--tf-gold); }
+.tf-edge-persistence-evidence .negative { color: var(--tf-red); }
+.tf-edge-persistence-footnote { margin: 8px 0 0; color: var(--tf-muted); font-size: 10px; line-height: 1.4; }
+.tf-edge-persistence-components { display: grid; gap: 8px; margin: 14px 0 0; padding: 12px 0 0; border-top: 1px solid var(--tf-line); list-style: none; }
+.tf-edge-persistence-components li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; align-items: baseline; font-size: 11px; }
+.tf-edge-persistence-components li > span { color: var(--tf-muted); }
+.tf-edge-persistence-components li > span small { color: var(--tf-line-strong); font-size: 9px; }
+.tf-edge-persistence-components li > strong { color: var(--tf-ink); font-size: 11px; }
+.tf-edge-persistence-components li > small { grid-column: 1 / -1; color: var(--tf-muted); font-size: 9px; line-height: 1.3; }
+.tf-edge-persistence-findings { display: grid; gap: 10px; margin: 0; padding-left: 18px; color: var(--tf-ink); font-size: 12px; line-height: 1.5; }
+.tf-edge-persistence-findings li::marker { color: var(--tf-blue); }
+.tf-edge-persistence-definition { display: grid; gap: 4px; margin-top: 18px; padding: 12px; border: 1px solid var(--tf-line); border-radius: 5px; background: rgba(255,255,255,.02); color: var(--tf-muted); font-size: 11px; line-height: 1.45; }
+.tf-edge-persistence-definition strong { color: var(--tf-ink); }
+.tf-edge-persistence-block-summary, .tf-edge-persistence-concentration-grid, .tf-edge-persistence-risk-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tf-edge-persistence-block-summary .card, .tf-edge-persistence-concentration-grid .card, .tf-edge-persistence-risk-strip .card { margin: 0; }
+.tf-edge-persistence-block-summary .card-body, .tf-edge-persistence-concentration-grid .card-body, .tf-edge-persistence-risk-strip .card-body { display: grid; gap: 3px; padding: 12px 14px; }
+.tf-edge-persistence-block-summary strong, .tf-edge-persistence-concentration-grid strong, .tf-edge-persistence-risk-strip strong { color: var(--tf-ink); font-size: 21px; line-height: 1.1; }
+.tf-edge-persistence-block-summary span, .tf-edge-persistence-concentration-grid span, .tf-edge-persistence-risk-strip span { color: var(--tf-muted); font-size: 11px; }
+.tf-edge-persistence-block-summary small { color: var(--tf-muted); font-size: 10px; }
+.tf-edge-block-details { margin-top: 12px; border: 1px solid var(--tf-line); border-radius: 5px; background: var(--tf-surface); }
+.tf-edge-block-details summary { cursor: pointer; padding: 10px 12px; color: var(--tf-ink); font-size: 12px; font-weight: 600; }
+.tf-edge-block-details summary::marker { color: var(--tf-blue); }
+.tf-edge-block-details .tf-table-wrap { border-top: 1px solid var(--tf-line); }
+.tf-edge-persistence-robustness-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.tf-edge-persistence-robustness-layout .card { margin: 0; }
+.tf-edge-persistence-observations { display: grid; gap: 7px; margin: 14px 0 0; padding-left: 20px; color: var(--tf-muted); font-size: 11px; }
+.tf-edge-persistence-observations li::marker { color: var(--tf-gold); }
+.tf-edge-persistence-risk-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tf-edge-persistence-risk-strip .positive { color: var(--tf-green); }
+.tf-edge-persistence-risk-strip .negative { color: var(--tf-red); }
+.tf-edge-persistence-risk-strip .neutral { color: var(--tf-gold); }
+.tf-edge-table { min-width: 760px; margin: 0; font-size: 11px; }
+.tf-edge-table th, .tf-edge-table td { white-space: nowrap; }
+.tf-edge-table tbody th { color: var(--tf-ink); font-weight: 600; }
+.tf-edge-table td small { display: block; margin-top: 2px; color: var(--tf-muted); font-size: 10px; }
+.tf-edge-comparison-table { min-width: 980px; }
+.tf-edge-comparison-table td strong { display: block; color: var(--tf-ink); font-weight: 600; }
+.tf-edge-comparison-table td.positive, .tf-edge-segment-card td.positive { color: var(--tf-green); }
+.tf-edge-comparison-table td.negative, .tf-edge-segment-card td.negative { color: var(--tf-red); }
+.tf-edge-comparison-table td.neutral { color: var(--tf-gold); }
+.tf-edge-segment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.tf-edge-segment-card { min-width: 0; margin: 0; }
+.tf-edge-segment-card .card-header { align-items: end; }
+.tf-edge-segment-card .card-header > span { color: var(--tf-muted); font-size: 10px; white-space: nowrap; }
+.tf-edge-segment-card .card-body { min-height: 130px; }
+.tf-edge-methodology-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.tf-edge-methodology-grid .card { margin: 0; }
+.tf-edge-methodology-grid p, .tf-edge-methodology-grid li { color: var(--tf-muted); font-size: 11px; line-height: 1.5; }
+.tf-edge-methodology-grid p:last-child { margin-bottom: 0; }
+.tf-edge-methodology-grid ul { margin: 0 0 10px; padding-left: 18px; }
+.tf-edge-methodology-grid li strong { color: var(--tf-ink); }
 .tf-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .tf-library-chart { min-width: 0; margin: 0; }
 .tf-library-chart-wide { grid-column: span 2; }
@@ -543,6 +643,8 @@ button, input, select, textarea { font: inherit; }
   .tf-chart-export-panel { right: auto; left: 0; }
   .tf-hero { align-items: flex-start; }
   .tf-hero-mark { display: none; }
+  .tf-page-intro { align-items: flex-start; flex-direction: column; gap: .75rem; }
+  .tf-page-meta { justify-content: flex-start; }
   .tf-toolbar { align-items: stretch; flex-direction: column; }
   .tf-toolbar-fields { align-items: stretch; flex-direction: column; }
   .tf-filter, .tf-filter-wide { min-width: 0; }
@@ -573,6 +675,8 @@ button, input, select, textarea { font: inherit; }
   .tf-period-summary-toolbar { align-items: flex-start; flex-direction: column; }
   .tf-indicator-grid, .tf-indicator-grid-key { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tf-risk-discipline-layout { grid-template-columns: minmax(0, 1fr); }
+  .tf-edge-persistence-summary-layout, .tf-edge-persistence-robustness-layout, .tf-edge-segment-grid, .tf-edge-methodology-grid { grid-template-columns: minmax(0, 1fr); }
+  .tf-edge-persistence-block-summary, .tf-edge-persistence-concentration-grid, .tf-edge-persistence-risk-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tf-indicator-help { position: static; }
   .tf-indicator-card:nth-child(odd) .tf-indicator-help-popup { left: 0; transform: none; }
   .tf-indicator-card:nth-child(even) .tf-indicator-help-popup { right: 0; left: auto; transform: none; }

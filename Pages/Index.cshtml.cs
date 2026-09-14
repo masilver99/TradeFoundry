@@ -12,21 +12,29 @@ public class IndexModel : PageModel
 {
     private readonly TradeFoundryDb _database;
     private readonly ImportService _imports;
+    private readonly AccountLedgerService _accounts;
 
-    public IndexModel(TradeFoundryDb database, ImportService imports)
+    public IndexModel(TradeFoundryDb database, ImportService imports, AccountLedgerService accounts)
     {
         _database = database;
         _imports = imports;
+        _accounts = accounts;
     }
 
     [BindProperty(SupportsGet = true)]
     public Guid? JournalId { get; set; }
 
+    [BindProperty(Name = "daily", SupportsGet = true)]
+    public bool ShowDailyEquity { get; set; }
+
     public IReadOnlyList<Journal> Journals { get; private set; } = Array.Empty<Journal>();
     public JournalOverview? Overview { get; private set; }
+    public AccountSummary? Account { get; private set; }
     public string? FlashMessage { get; private set; }
     public string? FlashKind { get; private set; }
-    public string EquityChart => Overview is null ? string.Empty : ChartRenderer.Equity(Overview.Equity);
+    public string EquityChart => Overview is null
+        ? string.Empty
+        : ShowDailyEquity ? ChartRenderer.Equity(Overview.DailyPnl) : ChartRenderer.Equity(Overview.Equity);
     public string DailyChart => Overview is null ? string.Empty : ChartRenderer.Daily(Overview.DailyPnl);
 
     [BindProperty] public string NewJournalName { get; set; } = string.Empty;
@@ -100,6 +108,7 @@ public class IndexModel : PageModel
         {
             JournalId = selected.Value;
             Overview = _database.GetOverview(selected.Value);
+            Account = _accounts.GetSummary(selected.Value);
             GroupingPolicy = Overview.Journal.GroupingPolicy;
         }
     }

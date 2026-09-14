@@ -35,6 +35,7 @@ public sealed class TearSheetScStatistics
 public sealed class TearSheetIndicatorSet
 {
     public IReadOnlyList<TearSheetIndicator> Key { get; init; } = Array.Empty<TearSheetIndicator>();
+    public IReadOnlyList<TearSheetIndicator> RiskStability { get; init; } = Array.Empty<TearSheetIndicator>();
     public IReadOnlyList<TearSheetIndicatorGroup> Groups { get; init; } = Array.Empty<TearSheetIndicatorGroup>();
     public TearSheetScStatistics ScTradeStatistics { get; init; } = new();
     public RiskDisciplineMetrics RiskDiscipline { get; init; } = new();
@@ -169,9 +170,6 @@ public static class TearSheetMetrics
             ["Concentration (Top 5)"] = new(
                 "Share of gross winner profit supplied by the five largest winning trades. Lower values indicate a more diversified result stream.",
                 value => Gauge("tf-scale-concentration", value, 0m, 1m, current => current < .3m ? "Diversified" : current < .5m ? "Moderate" : "Concentrated")),
-            ["Risk Discipline Score"] = new(
-                "Equal-weight score across rescue dependency, winner heat, winner MAE, and MAE violations. Higher is better; missing risk evidence leaves the score incomplete.",
-                value => Gauge("tf-scale-risk-discipline", value, 0m, 100m, current => current < 50m ? "Needs Work" : current < 70m ? "Watch" : current < 90m ? "Good" : "Excellent")),
             ["Rescue Rate"] = new("Share of risk-qualified gross winners that reached the rescue threshold before becoming profitable. Lower is better."),
             ["Rescue Profit Share"] = new("Share of risk-qualified gross winner profit supplied by rescued winners. Lower is better."),
             ["Winner Heat Ratio"] = new("P90 winner MAE divided by the median winner result, both normalized in initial-risk units. Lower is better."),
@@ -248,10 +246,34 @@ public static class TearSheetMetrics
         var benchmark = BuildBenchmarkStats(equity, benchmarks, baseline);
         var scTradeStatistics = BuildScTradeStatistics(trades, timeZone, currency);
         var riskDiscipline = BuildRiskDiscipline(trades, riskDisciplineThresholds);
+        var riskStability = new[]
+        {
+            Drawdown("Max Drawdown", stats.MaxDrawdown, "Peak-to-trough decline", currency),
+            Percent("Max Drawdown %", stats.MaxDrawdownPercent, "Requires a positive starting balance"),
+            Ratio("Ulcer Index", stats.UlcerIndex, "Average percentage drawdown severity"),
+            Ratio("Sharpe", stats.Sharpe, "Annualized daily gross P&L volatility"),
+            Ratio("Sortino", stats.Sortino, "Annualized downside-adjusted daily P&L"),
+            Ratio("Omega", stats.Omega, "Daily gains ÷ daily losses"),
+            Ratio("Upside Potential", stats.UpsidePotential, "Upside relative to downside deviation"),
+            Money("CVaR 95%", stats.Cvar95, "Average of the worst 5% daily gross results", currency),
+            Percent("CVaR 95% of equity", stats.CvarPercent, "Tail loss ÷ starting balance"),
+            Ratio("Calmar", stats.Calmar, "Net P&L ÷ max drawdown"),
+            Ratio("Sterling", stats.Sterling, "Annualized return ÷ drawdown buffer"),
+            Ratio("V2 Ratio", stats.V2, "Annualized return ÷ ulcer-adjusted risk"),
+            Ratio("Recovery Factor", stats.RecoveryFactor, "Net P&L ÷ max drawdown"),
+            Number("DD Episodes", stats.DrawdownEpisodeCount, "Observed peak-to-recovery periods"),
+            Days("Longest DD", stats.LongestDrawdownDays, "Longest drawdown duration"),
+            Days("Avg DD Length", stats.AvgDrawdownDays, "Average drawdown duration"),
+            Days("Median Recovery", stats.MedianRecoveryDays, "Median trough-to-recovery duration"),
+            Days("Current Underwater", stats.CurrentUnderwaterDays, "Current unrecovered duration"),
+            Days("Days Since High", stats.DaysSinceLastEquityHigh, "Days since the last equity high"),
+            Percent("% Time at Highs", stats.PercentTimeAtHighs, "Share of equity observations at a high")
+        };
 
         return new TearSheetIndicatorSet
         {
             ScTradeStatistics = scTradeStatistics,
+            RiskStability = riskStability,
             RiskDiscipline = riskDiscipline,
             Key = new[]
             {
@@ -294,40 +316,6 @@ public static class TearSheetMetrics
                         Number("Consec. Wins", stats.MaxConsecutiveWins, "Longest winning streak"),
                         Number("Consec. Losses", stats.MaxConsecutiveLosses, "Longest losing streak")
                     }),
-                new TearSheetIndicatorGroup(
-                    "indicators-risk",
-                    "RISK & STABILITY",
-                    "Drawdown and risk-adjusted returns",
-                    "Risk measures use imported equity history when a valid starting balance is available; dollar drawdown remains available from completed trades.",
-                    new[]
-                    {
-                        Drawdown("Max Drawdown", stats.MaxDrawdown, "Peak-to-trough decline", currency),
-                        Percent("Max Drawdown %", stats.MaxDrawdownPercent, "Requires a positive starting balance"),
-                        Ratio("Ulcer Index", stats.UlcerIndex, "Average percentage drawdown severity"),
-                        Ratio("Sharpe", stats.Sharpe, "Annualized daily gross P&L volatility"),
-                        Ratio("Sortino", stats.Sortino, "Annualized downside-adjusted daily P&L"),
-                        Ratio("Omega", stats.Omega, "Daily gains ÷ daily losses"),
-                        Ratio("Upside Potential", stats.UpsidePotential, "Upside relative to downside deviation"),
-                        Money("CVaR 95%", stats.Cvar95, "Average of the worst 5% daily gross results", currency),
-                        Percent("CVaR 95% of equity", stats.CvarPercent, "Tail loss ÷ starting balance"),
-                        Ratio("Calmar", stats.Calmar, "Net P&L ÷ max drawdown"),
-                        Ratio("Sterling", stats.Sterling, "Annualized return ÷ drawdown buffer"),
-                        Ratio("V2 Ratio", stats.V2, "Annualized return ÷ ulcer-adjusted risk"),
-                        Ratio("Recovery Factor", stats.RecoveryFactor, "Net P&L ÷ max drawdown"),
-                        Number("DD Episodes", stats.DrawdownEpisodeCount, "Observed peak-to-recovery periods"),
-                        Days("Longest DD", stats.LongestDrawdownDays, "Longest drawdown duration"),
-                        Days("Avg DD Length", stats.AvgDrawdownDays, "Average drawdown duration"),
-                        Days("Median Recovery", stats.MedianRecoveryDays, "Median trough-to-recovery duration"),
-                        Days("Current Underwater", stats.CurrentUnderwaterDays, "Current unrecovered duration"),
-                        Days("Days Since High", stats.DaysSinceLastEquityHigh, "Days since the last equity high"),
-                        Percent("% Time at Highs", stats.PercentTimeAtHighs, "Share of equity observations at a high")
-                    }),
-                new TearSheetIndicatorGroup(
-                    "indicators-risk-discipline",
-                    "RISK DISCIPLINE",
-                    "Risk Discipline",
-                    "Equal-weight score for rescue dependency and adverse-excursion control. The score requires complete MAE and initial-risk coverage.",
-                    riskDiscipline.Indicators.Prepend(RiskDisciplineScoreIndicator(riskDiscipline.Score)).ToArray()),
                 new TearSheetIndicatorGroup(
                     "indicators-trade-dynamics",
                     "TRADE DYNAMICS",
@@ -678,11 +666,6 @@ public static class TearSheetMetrics
 
     private static string FormatRiskRatio(decimal? value)
         => value.HasValue ? value.Value.ToString("0.00", UiCulture) : "—";
-
-    private static TearSheetIndicator RiskDisciplineScoreIndicator(RiskDisciplineScore score)
-        => score.Value.HasValue
-            ? CreateIndicator("Risk Discipline Score", $"{score.DisplayValue}/100", "Equal-weight average of five risk-discipline components.", score.Tone, score.Value.Value)
-            : Missing("Risk Discipline Score", score.Summary);
 
     private static TearSheetScStatistics BuildScTradeStatistics(
         IReadOnlyList<Trade> trades,

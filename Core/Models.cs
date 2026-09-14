@@ -379,6 +379,115 @@ public sealed class EquityPoint
     public decimal CumulativePnl { get; init; }
 }
 
+public enum AccountTransactionType
+{
+    Deposit,
+    Withdrawal
+}
+
+public sealed class AccountTransaction
+{
+    public Guid Id { get; init; }
+    public Guid JournalId { get; init; }
+    public AccountTransactionType Type { get; init; }
+    public DateTimeOffset EffectiveUtc { get; init; }
+    public decimal Amount { get; init; }
+    public string Note { get; init; } = string.Empty;
+    public int Revision { get; init; }
+    public DateTimeOffset CreatedUtc { get; init; }
+    public DateTimeOffset UpdatedUtc { get; init; }
+    public DateTimeOffset? DeletedUtc { get; init; }
+}
+
+public sealed class AccountTransactionDraft
+{
+    public AccountTransactionType Type { get; init; }
+    public DateTimeOffset EffectiveUtc { get; init; }
+    public decimal Amount { get; init; }
+    public string Note { get; init; } = string.Empty;
+}
+
+public sealed class AccountTransactionInput
+{
+    public AccountTransactionType Type { get; set; } = AccountTransactionType.Deposit;
+    public DateTime EffectiveLocal { get; set; }
+    public decimal Amount { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class AccountTransactionMutationResult
+{
+    public bool Saved { get; init; }
+    public bool Conflict { get; init; }
+    public bool NotFound { get; init; }
+    public AccountTransaction? Transaction { get; init; }
+}
+
+public sealed class AccountTransactionHistoryEntry
+{
+    public Guid Id { get; init; }
+    public Guid JournalId { get; init; }
+    public Guid TransactionId { get; init; }
+    public int Revision { get; init; }
+    public string Action { get; init; } = string.Empty;
+    public string BeforeJson { get; init; } = "{}";
+    public string AfterJson { get; init; } = "{}";
+    public DateTimeOffset CreatedUtc { get; init; }
+}
+
+public sealed class AccountSummary
+{
+    public Guid JournalId { get; init; }
+    public decimal? CurrentBalance { get; init; }
+    public decimal? OpeningBalance { get; init; }
+    public string OpeningBalanceSource { get; init; } = string.Empty;
+    public decimal RealizedProfit { get; init; }
+    public decimal TotalDeposits { get; init; }
+    public decimal TotalWithdrawals { get; init; }
+    public decimal? RealizedTwrPercent { get; init; }
+    public decimal? LatestReportedBalance { get; init; }
+    public decimal? LatestReportedVariance { get; init; }
+    public DateTimeOffset? LatestActivityUtc { get; init; }
+    public bool HasActivity { get; init; }
+    public bool HasInferredBaseline { get; init; }
+    public bool HasPreBaselineActivity { get; init; }
+    public string StatusMessage { get; init; } = string.Empty;
+}
+
+public sealed class AccountLedgerEntry
+{
+    public Guid? TransactionId { get; init; }
+    public Guid? TradeId { get; init; }
+    public Guid? ImportBatchId { get; init; }
+    public Guid? SnapshotId { get; init; }
+    public string TradeReviewKey { get; init; } = string.Empty;
+    public DateTimeOffset EffectiveUtc { get; init; }
+    public string Kind { get; init; } = string.Empty;
+    public string Label { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public string Source { get; init; } = string.Empty;
+    public string Account { get; init; } = string.Empty;
+    public decimal? Amount { get; init; }
+    public decimal? CalculatedBalance { get; init; }
+    public decimal? ReportedBalance { get; init; }
+    public decimal? Variance { get; init; }
+    public int Revision { get; init; }
+    public bool IsReadOnly { get; init; }
+    public bool IsOpeningBaseline { get; init; }
+    public bool IsBeforeBaseline { get; init; }
+    public string Note { get; init; } = string.Empty;
+}
+
+public sealed class AccountLedgerPage
+{
+    public AccountSummary Summary { get; init; } = new();
+    public IReadOnlyList<AccountLedgerEntry> Entries { get; init; } = Array.Empty<AccountLedgerEntry>();
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+    public int TotalCount { get; init; }
+    public int PageCount => TotalCount == 0 ? 0 : (int)Math.Ceiling((double)TotalCount / PageSize);
+}
+
 public sealed class TradeQuery
 {
     public Guid JournalId { get; init; }
@@ -439,6 +548,7 @@ public sealed class TradeReviewAnnotation
     public decimal? PlannedTargetPrice { get; init; }
     public decimal? PlannedRiskPoints { get; init; }
     public decimal? PlannedRiskCurrency { get; init; }
+    public decimal? AllInCommission { get; init; }
     public string PlanAdherence { get; init; } = string.Empty;
     public int? ProcessRating { get; init; }
     public string Mistakes { get; init; } = string.Empty;
@@ -452,6 +562,7 @@ public sealed class TradeReviewAnnotation
         || PlannedTargetPrice.HasValue
         || PlannedRiskPoints.HasValue
         || PlannedRiskCurrency.HasValue
+        || AllInCommission.HasValue
         || !string.IsNullOrWhiteSpace(PlanAdherence)
         || ProcessRating.HasValue
         || !string.IsNullOrWhiteSpace(Mistakes)
@@ -468,6 +579,7 @@ public sealed class TradeReviewPatch
     public decimal? PlannedTargetPrice { get; set; }
     public decimal? PlannedRiskPoints { get; set; }
     public decimal? PlannedRiskCurrency { get; set; }
+    public decimal? AllInCommission { get; set; }
     public string PlanAdherence { get; set; } = string.Empty;
     public int? ProcessRating { get; set; }
     public string Mistakes { get; set; } = string.Empty;

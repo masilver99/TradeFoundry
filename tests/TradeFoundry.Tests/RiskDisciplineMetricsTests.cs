@@ -78,6 +78,8 @@ public sealed class RiskDisciplineMetricsTests
         var viewPath = Path.Combine(AppContext.BaseDirectory, "Pages", "Analytics.cshtml");
         var view = File.ReadAllText(viewPath);
 
+        Assert.Contains("id=\"risk-metrics\"", view);
+        Assert.Contains("Model.Indicators.RiskStability", view);
         Assert.Contains("id=\"risk-discipline\"", view);
         Assert.Contains("data-risk-discipline-tier", view);
         Assert.Contains("riskScore.Components", view);
@@ -89,6 +91,24 @@ public sealed class RiskDisciplineMetricsTests
         Assert.Contains("Rolling winner heat and MAE", view);
         Assert.Contains("Rolling MAE violations", view);
         Assert.Contains("Monthly Risk Discipline score", view);
+    }
+
+    [Fact]
+    public void Keeps_risk_stability_metrics_in_the_shared_analysis_collection()
+    {
+        var indicators = TearSheetMetrics.Build(
+            new[] { Trade(2m, .25m, 1m, 1) },
+            Array.Empty<OrderEvent>(),
+            Array.Empty<AccountBalanceEvent>(),
+            Array.Empty<BenchmarkPoint>(),
+            100m,
+            "UTC",
+            "USD");
+
+        Assert.Equal(20, indicators.RiskStability.Count);
+        Assert.Equal("Max Drawdown", indicators.RiskStability[0].Label);
+        Assert.Equal("% Time at Highs", indicators.RiskStability[^1].Label);
+        Assert.DoesNotContain(indicators.Groups, group => group.Id is "indicators-risk" or "indicators-risk-discipline");
     }
 
     [Fact]

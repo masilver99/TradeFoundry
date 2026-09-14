@@ -49,7 +49,7 @@ Imports are scoped to the selected journal. Sierra rows use a deterministic SHA-
 
 ## Instrument and application configuration
 
-Settings seeds common futures instruments including MES, ES, MNQ, NQ, MYM, M2K, MCL, MGC, YM, RTY, CL, GC, and 6E. Each definition stores a default commission per contract, dollar value per point, and tick size. The Sierra Chart section stores ordered regular-expression mappings from the imported `Symbol` value to an instrument; a mapping commission override is also per contract and takes precedence over the instrument default. A blank configured commission preserves a fee reported by the source when available.
+Settings seeds common futures instruments including MES, ES, MNQ, NQ, MYM, M2K, MCL, MGC, YM, RTY, CL, GC, and 6E. Each definition stores a default commission per contract, dollar value per point, and tick size. The Sierra Chart section stores ordered regular-expression mappings from the imported `Symbol` value to an instrument; a mapping commission override is also per contract and takes precedence over the instrument default. A blank configured commission preserves a fee reported by the source when available. Daybook review also supports a per-trade all-in commission override; it is stored separately from imported evidence and replaces the effective fee/net P&L for that trade when set.
 
 Every import batch records its trading application as well as its source format. Typed fills, order events, and derived trades retain the batch link, so the application provenance remains available from the import history and trade detail pages.
 

@@ -28,6 +28,28 @@ public static partial class ChartRenderer
         return Line(x, y, "cumulative net P&L", Blue, "exit date");
     }
 
+    public static string Equity(IEnumerable<DailyPnl> source)
+    {
+        var days = source
+            .GroupBy(x => x.Date)
+            .OrderBy(x => x.Key)
+            .Select(x => (Date: x.Key, NetPnl: x.Sum(day => day.NetPnl)))
+            .ToArray();
+        if (days.Length == 0) return Empty("Import a completed trade to see the equity curve.");
+
+        var cumulative = 0m;
+        var values = days.Select(day =>
+        {
+            cumulative += day.NetPnl;
+            return cumulative;
+        }).ToArray();
+        var x = new[] { days[0].Date.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }
+            .Concat(days.Select(day => day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)))
+            .ToArray();
+        var y = new[] { 0m }.Concat(values).ToArray();
+        return Line(x, y, "daily cumulative net P&L", Blue, "exit date");
+    }
+
     public static string Equity(IEnumerable<Trade> source)
     {
         var trades = ClosedTrades(source);

@@ -14,6 +14,7 @@ builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<McpTokenService>();
 builder.Services.AddSingleton<JournalAnalysisService>();
 builder.Services.AddSingleton<TradeReviewService>();
+builder.Services.AddSingleton<AccountLedgerService>();
 builder.Services.AddHostedService<McpHostedService>();
 builder.Services.AddHttpClient<YahooFinanceBenchmarkProvider>(client =>
 {

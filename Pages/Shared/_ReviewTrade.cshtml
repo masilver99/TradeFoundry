@@ -24,6 +24,7 @@
             {
                 <span class="badge text-bg-warning">Open / not realized</span>
             }
+            <small class="text-secondary">All-in commission: @trade.Fees.ToString("C2", CultureInfo.CurrentCulture)@(review.AllInCommission.HasValue ? " · per-trade override" : " · imported/settings-derived")</small>
         </div>
     </div>
 
@@ -43,6 +44,11 @@
             <div class="tf-review-field">
                 <label for="tags-@trade.ReviewKey">Tags</label>
                 <input id="tags-@trade.ReviewKey" name="Edit.TagsText" value="@reviewPage.TagsText(review)" placeholder="comma, separated, tags" />
+            </div>
+            <div class="tf-review-field">
+                <label for="commission-@trade.ReviewKey">All-in commission</label>
+                <input id="commission-@trade.ReviewKey" name="Edit.AllInCommission" type="number" min="0" step="0.01" value="@reviewPage.DecimalInput(review.AllInCommission)" placeholder="Use imported/settings fee" />
+                <small>Total commission for this trade. Leave blank to use the imported/settings-derived fee.</small>
             </div>
             <fieldset class="tf-review-fieldset tf-review-field-wide">
                 <legend>Planned risk</legend>

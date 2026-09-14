@@ -118,6 +118,69 @@ public sealed class TradeReviewTests
         }
     }
 
+    [Fact]
+    public void AllInCommissionOverrideReplacesDerivedFeeAcrossTradeReads()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var parsed = new ParsedImport { SourceType = TradeFoundryConstants.SierraFills, SourceApplication = TradeFoundryConstants.SierraChart };
+            parsed.Records.Add(FillRecord("entry-key", "Buy", 5000m, new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero), 1, .50m));
+            parsed.Records.Add(FillRecord("exit-key", "Sell", 5001m, new DateTimeOffset(2026, 9, 10, 13, 0, 0, TimeSpan.Zero), 2, .50m));
+            database.CommitImport(journal.Id, "test.txt", parsed, "flat_to_flat", "source");
+
+            var imported = Assert.Single(database.GetAllTrades(journal.Id));
+            Assert.Equal(1.00m, imported.Fees);
+            Assert.Equal(4.00m, imported.NetPnl);
+
+            var saved = database.SaveTradeReview(journal.Id, imported.ReviewKey, new TradeReviewPatch
+            {
+                AllInCommission = 2.25m,
+                ExpectedRevision = 0,
+                Reason = "Corrected all-in round-trip commission"
+            });
+
+            Assert.True(saved.Saved);
+            Assert.Equal(2.25m, saved.Annotation.AllInCommission);
+            Assert.Equal(2.25m, database.GetTradeReview(journal.Id, imported.ReviewKey)!.AllInCommission);
+
+            var fromLedger = Assert.Single(database.GetTrades(new TradeQuery { JournalId = journal.Id, PageSize = 50 }).Items);
+            var fromDetail = database.GetTrade(journal.Id, imported.Id)!;
+            var fromOverview = database.GetOverview(journal.Id);
+            Assert.Equal(2.25m, fromLedger.Fees);
+            Assert.Equal(2.75m, fromLedger.NetPnl);
+            Assert.Equal(2.25m, fromDetail.Fees);
+            Assert.Equal(2.75m, fromDetail.NetPnl);
+            Assert.Equal(2.25m, fromOverview.Fees);
+            Assert.Equal(2.75m, fromOverview.NetPnl);
+            Assert.Equal(2.75m, Assert.Single(fromOverview.DailyPnl).NetPnl);
+            Assert.Equal(2.75m, Assert.Single(fromOverview.Equity).CumulativePnl);
+            Assert.Contains(database.GetTradeReviewHistory(journal.Id, imported.ReviewKey), entry => entry.AfterJson.Contains("AllInCommission", StringComparison.Ordinal));
+
+            database.RebuildFlatTrades(journal.Id, "flat_to_flat");
+            var rebuilt = Assert.Single(database.GetAllTrades(journal.Id));
+            Assert.Equal(imported.ReviewKey, rebuilt.ReviewKey);
+            Assert.Equal(2.25m, rebuilt.Fees);
+            Assert.Equal(2.75m, rebuilt.NetPnl);
+
+            var cleared = database.SaveTradeReview(journal.Id, imported.ReviewKey, new TradeReviewPatch
+            {
+                ExpectedRevision = 1,
+                Reason = "Use imported commission again"
+            });
+            Assert.True(cleared.Saved);
+            Assert.Equal(1.00m, Assert.Single(database.GetAllTrades(journal.Id)).Fees);
+            Assert.Equal(4.00m, Assert.Single(database.GetAllTrades(journal.Id)).NetPnl);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static TradeFoundryDb CreateDatabase(string directory) => new(Options.Create(new StorageOptions { DataDirectory = directory, DatabaseFileName = "journal.db" }));
 
     private static ImportResult ImportRoundTrip(TradeFoundryDb database, Guid journalId)
@@ -130,7 +193,7 @@ public sealed class TradeReviewTests
         return database.CommitImport(journalId, "test.txt", parsed, "flat_to_flat", "source");
     }
 
-    private static ParsedRecord FillRecord(string sourceKey, string side, decimal price, DateTimeOffset timestamp, int row) => new()
+    private static ParsedRecord FillRecord(string sourceKey, string side, decimal price, DateTimeOffset timestamp, int row, decimal fees = 0m) => new()
     {
         SourceType = TradeFoundryConstants.SierraFills,
         SourceKey = sourceKey,
@@ -140,7 +203,7 @@ public sealed class TradeReviewTests
         {
             SourceType = TradeFoundryConstants.SierraFills, SourceKey = sourceKey, EventUtc = timestamp,
             SourceTimeText = timestamp.ToString("O"), Symbol = "MESZ26", Instrument = "MES", Account = "SIM",
-            Side = side, Quantity = 1, Price = price, Fees = 0m, RowNumber = row, PointValue = 5m, TickSize = .25m
+            Side = side, Quantity = 1, Price = price, Fees = fees, RowNumber = row, PointValue = 5m, TickSize = .25m
         }
     };
 

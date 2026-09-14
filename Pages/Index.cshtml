@@ -41,13 +41,19 @@
 else
 {
     var overview = Model.Overview;
+    var account = Model.Account;
+    var accountBalance = account?.CurrentBalance;
+    var accountProfit = account?.RealizedProfit ?? 0m;
+    var accountTwr = account?.RealizedTwrPercent;
     <div class="d-flex flex-wrap gap-2 mb-3">
         <a class="btn btn-primary" href="@($"/journal/{overview.Journal.Id:D}/imports")">Import records</a>
         <a class="btn btn-outline-secondary" href="@($"/journal/{overview.Journal.Id:D}/trades")">Open trade ledger</a>
+        <a class="btn btn-outline-secondary" href="@($"/journal/{overview.Journal.Id:D}/account")">Account</a>
         <a class="btn btn-outline-secondary" href="@($"/journal/{overview.Journal.Id:D}/settings")">Journal settings</a>
     </div>
 
     <section class="row row-cards mb-3" aria-label="Journal metrics">
+        <div class="col-sm-6 col-xl-2"><a class="card tf-card tf-metric tf-metric-account tf-account-summary-card d-block" href="@($"/journal/{overview.Journal.Id:D}/account")"><div class="card-body"><div class="tf-metric-label">Account balance</div><div class="tf-metric-value @(accountBalance.HasValue && accountBalance.Value < 0m ? "negative" : "positive")">@(accountBalance?.ToString("C2") ?? "—")</div><div class="tf-metric-note">@(accountTwr.HasValue ? $"{accountTwr.Value:+0.00;-0.00;0.00}% realized TWR · {accountProfit:C2} profit" : $"{accountProfit:C2} realized · TWR unavailable")</div><div class="tf-account-card-link">Open account ledger →</div></div></a></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric tf-metric-accent"><div class="card-body"><div class="tf-metric-label">Net P&amp;L</div><div class="tf-metric-value @(overview.NetPnl >= 0 ? "positive" : "negative")">@overview.NetPnl.ToString("C2")</div><div class="tf-metric-note">All imported trades</div></div></div></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Points</div><div class="tf-metric-value">@overview.Points.ToString("0.##")</div><div class="tf-metric-note">Direction-adjusted</div></div></div></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Closed trades</div><div class="tf-metric-value">@overview.ClosedTradeCount</div><div class="tf-metric-note">@overview.OpenTradeCount open</div></div></div></div>
@@ -57,7 +63,7 @@ else
     </section>
 
     <section class="row row-cards mb-3">
-        <div class="col-lg-6"><div class="card tf-card tf-chart-card"><div class="card-header"><div class="tf-section-heading"><div><h3 class="tf-card-title">Equity Curve</h3></div></div></div><div class="card-body">@Html.Raw(Model.EquityChart)</div></div></div>
+        <div class="col-lg-6"><div class="card tf-card tf-chart-card"><div class="card-header"><div class="tf-section-heading"><div><h3 class="tf-card-title">Equity Curve</h3><span class="text-secondary">@(Model.ShowDailyEquity ? "per day" : "per trade")</span></div><form method="get" class="tf-equity-view-toggle"><input type="hidden" name="journalId" value="@overview.Journal.Id" /><label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="daily" value="true" checked="@(Model.ShowDailyEquity ? "checked" : null)" onchange="this.form.submit()" aria-label="@(Model.ShowDailyEquity ? "Show equity curve per trade" : "Show equity curve per day")" /><span class="form-check-label">Per day</span></label></form></div></div><div class="card-body">@Html.Raw(Model.EquityChart)</div></div></div>
         <div class="col-lg-6"><div class="card tf-card tf-chart-card"><div class="card-header"><div class="tf-section-heading"><div><h3 class="tf-card-title">Daily result</h3></div><span class="text-secondary">last 180 days</span></div></div><div class="card-body">@Html.Raw(Model.DailyChart)</div></div></div>
     </section>
 

@@ -5,7 +5,8 @@
     ViewData["Title"] = "Trade detail";
     ViewData["PageKicker"] = "TRADEFOUNDRY / LEDGER";
     ViewData["ActiveNav"] = "trades";
-    ViewData["UsesPlotly"] = Model.BarQuery.Bars.Count > 0;
+    ViewData["UsesPlotly"] = false;
+    ViewData["UsesLightweightCharts"] = Model.BarQuery.Bars.Count > 0;
     var trade = Model.Trade!;
     var tradeUrl = $"/journal/{trade.JournalId:D}/trades/{trade.Id:D}";
     var reviewDate = TimeZoneCatalog.Format(trade.ExitUtc.HasValue && trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase) ? trade.ExitUtc.Value : trade.EntryUtc, Model.Journal?.TimeZone, "yyyy-MM-dd");
@@ -23,23 +24,31 @@
         <div class="card-header">
             <div><div class="tf-kicker">CONTEXT</div><h3 class="tf-card-title">Price action around the trade</h3></div>
             <div class="tf-trade-chart-toolbar">
-                <span class="text-secondary">@Model.BarQuery.Bars.Count bars · @Model.BarQuery.ResolvedInterval · @Model.Journal?.TimeZone</span>
+                <span class="text-secondary" data-lightweight-summary>@Model.BarQuery.Bars.Count bars · @Model.BarQuery.ResolvedInterval · @Model.Journal?.TimeZone</span>
+                <div class="tf-trade-chart-actions">
+                    @if (Model.BarQuery.Bars.Count > 0)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-lightweight-focus>Focus trade</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-lightweight-export>Download PNG</button>
+                    }
+                </div>
                 @if (Model.AvailableBarIntervals.Count > 0)
                 {
-                    <form method="get" action="@tradeUrl" class="d-flex align-items-center gap-2"><label class="tf-chart-toolbar-label" for="trade-bar-interval">Timeframe</label><select id="trade-bar-interval" class="form-select form-select-sm" name="interval" onchange="this.form.submit()">@foreach (var interval in Model.AvailableBarIntervals){<option value="@interval" selected="@(interval.Equals(Model.BarQuery.RequestedInterval, StringComparison.OrdinalIgnoreCase) ? "selected" : null)">@BarIntervals.Label(interval)</option>}</select></form>
+                    <form method="get" action="@tradeUrl" class="d-flex align-items-center gap-2" data-lightweight-timeframe-form><label class="tf-chart-toolbar-label" for="trade-bar-interval">Timeframe</label><select id="trade-bar-interval" class="form-select form-select-sm" name="interval" onchange="this.form.requestSubmit()">@foreach (var interval in Model.AvailableBarIntervals){<option value="@interval" selected="@(interval.Equals(Model.BarQuery.RequestedInterval, StringComparison.OrdinalIgnoreCase) ? "selected" : null)">@BarIntervals.Label(interval)</option>}</select></form>
                 }
             </div>
         </div>
         <div class="card-body">
             @Html.Raw(Model.CandleChart)
+            @if (Model.BarQuery.Bars.Count > 0)
+            {
+                <p class="tf-chart-attribution mb-0">TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">https://www.tradingview.com/</a></p>
+            }
             @if (Model.UsedDefaultBarInterval && Model.AvailableBarIntervals.Count > 0)
             {
-                <p class="tf-chart-note">This trade does not record a source chart timeframe, so the narrowest available bar series was selected by default.</p>
+                <p class="tf-chart-note" data-lightweight-default-note>This trade does not record a source chart timeframe, so the narrowest available bar series was selected by default.</p>
             }
-            @if (!string.IsNullOrWhiteSpace(Model.BarQuery.AvailabilityNote))
-            {
-                <p class="tf-chart-note">@Model.BarQuery.AvailabilityNote</p>
-            }
+            <p class="tf-chart-note" data-lightweight-availability-note hidden="@(string.IsNullOrWhiteSpace(Model.BarQuery.AvailabilityNote) ? "hidden" : null)">@Model.BarQuery.AvailabilityNote</p>
         </div>
     </section>
     <section class="row row-cards"><div class="col-lg-6"><article class="card tf-card h-100"><div class="card-header"><div><div class="tf-kicker">PROVENANCE</div><h3 class="tf-card-title">How this row was made</h3></div></div><div class="card-body"><dl class="tf-definition-list"><dt>Instrument</dt><dd>@trade.Instrument</dd><dt>Trading app</dt><dd>@Model.SourceApplication</dd><dt>Source type</dt><dd>@trade.SourceType</dd><dt>Grouping</dt><dd>@trade.GroupingPolicy</dd><dt>Account</dt><dd>@trade.Account</dd><dt>Point value</dt><dd>@trade.PointValue.ToString("C2") per point</dd><dt>Fees</dt><dd>@trade.Fees.ToString("C2")</dd><dt>Import batch</dt><dd>@(trade.ImportBatchId?.ToString() ?? "manual / source-defined")</dd><dt>Source note</dt><dd>@(string.IsNullOrWhiteSpace(trade.Note) ? "No source note" : trade.Note)</dd></dl></div></article></div><div class="col-lg-6"><article class="card tf-card tf-review-entry-card h-100"><div class="card-header"><div><div class="tf-kicker">ANNOTATION LAYER</div><h3 class="tf-card-title">Review this trade</h3></div></div><div class="card-body"><p class="text-secondary">Add notes, setup context, planned risk, scorecards, screenshots, or a per-trade all-in commission override in the Daybook. An override changes effective fees and net P&amp;L without changing imported evidence.</p><a class="btn btn-primary" href="@($"/journal/{trade.JournalId:D}/review?date={reviewDate}&focus={trade.ReviewKey}")">Review trade</a></div></article></div></section>

@@ -51,6 +51,7 @@ public sealed class TradeReviewService
         {
             Journal = journal,
             Date = date,
+            DailyJournal = _database.GetDailyJournal(journalId, date),
             CompletedTrades = summary?.CompletedTrades.Select(Map).ToArray() ?? Array.Empty<DailyReviewTrade>(),
             OpenTrades = summary?.OpenTrades.Select(Map).ToArray() ?? Array.Empty<DailyReviewTrade>(),
             PreviousDate = previous,
@@ -60,6 +61,12 @@ public sealed class TradeReviewService
 
     public TradeReviewSaveResult Save(Guid journalId, string reviewKey, TradeReviewPatch patch, string action = "saved") =>
         _database.SaveTradeReview(journalId, reviewKey, patch, action);
+
+    public DailyJournalEntry GetDailyJournal(Guid journalId, DateOnly date) =>
+        _database.GetDailyJournal(journalId, date);
+
+    public DailyJournalSaveResult SaveDailyJournal(Guid journalId, DateOnly date, string? text, int expectedRevision, string action = "saved") =>
+        _database.SaveDailyJournal(journalId, date, text, expectedRevision, action);
 
     public TradeReviewSaveResult Revert(Guid journalId, string reviewKey, int expectedRevision, int targetRevision, string reason = "Reverted review") =>
         _database.RevertTradeReview(journalId, reviewKey, expectedRevision, targetRevision, reason);

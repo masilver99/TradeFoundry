@@ -643,155 +643,88 @@ public static partial class ChartRenderer
 
     public static string Candles(Trade trade, BarQueryResult query, string? timeZoneId = null)
     {
-        var orderedBars = query.Bars.OrderBy(x => x.EventUtc).ToArray();
-        if (orderedBars.Length == 0) return Empty("No matching OHLCV bars yet. Import a bar file for this symbol and time window.");
+        if (query.Bars.Count == 0) return Empty("No matching OHLCV bars yet. Import a bar file for this symbol and time window.");
 
-        string ChartTime(DateTimeOffset value) => TimeZoneCatalog.FormatWallClock(value, timeZoneId);
+        var payload = CandlePayload(trade, query, timeZoneId);
+        var json = JsonSerializer.Serialize(payload);
+        var label = $"Candlestick chart for {trade.Symbol}, {query.ResolvedInterval}, {query.Bars.Count} bars";
+        return $@"<div class=""tf-lightweight-chart-shell""><div class=""tf-lightweight-chart"" data-lightweight-chart=""{WebUtility.HtmlEncode(json)}"" role=""img"" aria-label=""{WebUtility.HtmlEncode(label)}""></div><div class=""tf-lightweight-chart-status"" data-lightweight-status role=""status"" aria-live=""polite""></div></div>";
+    }
+
+    public static object CandlePayload(Trade trade, BarQueryResult query, string? timeZoneId = null)
+    {
+        var orderedBars = query.Bars.OrderBy(x => x.EventUtc).ToArray();
+        if (orderedBars.Length == 0) throw new ArgumentException("A candle payload requires at least one bar.", nameof(query));
 
         var barDuration = ResolveBarDuration(orderedBars);
         var entryBar = FindContainingBar(orderedBars, trade.EntryUtc, barDuration);
         var exitBar = trade.ExitUtc.HasValue ? FindContainingBar(orderedBars, trade.ExitUtc.Value, barDuration) : null;
-        var markerOffset = TimeSpan.FromTicks(Math.Max(1L, barDuration.Ticks * 2 / 5));
         var chartPadding = TimeSpan.FromTicks(checked(barDuration.Ticks * 5));
         var chartStart = trade.EntryUtc - chartPadding;
         var chartEnd = (trade.ExitUtc ?? trade.EntryUtc) + chartPadding;
-        var focusBars = orderedBars
-            .Where(x => x.EventUtc <= chartEnd && x.EventUtc + barDuration >= chartStart)
-            .ToArray();
-        if (focusBars.Length == 0) focusBars = orderedBars;
-
         var isLong = !trade.Direction.Equals("Short", StringComparison.OrdinalIgnoreCase);
         var entryColor = isLong ? Green : Red;
         var exitColor = trade.NetPnl > 0m ? Green : trade.NetPnl < 0m ? Red : Gold;
-        var priceUnit = trade.TickSize > 0m ? trade.TickSize : .01m;
-        var priceSpan = Math.Max(focusBars.Max(x => x.High) - focusBars.Min(x => x.Low), priceUnit);
-        var markerGap = Math.Max(priceSpan * .06m, priceUnit * 4m);
-        var entryBarMarkerPrice = isLong ? entryBar.High + markerGap : entryBar.Low - markerGap;
-        var entryPriceMarkerTime = entryBar.EventUtc - markerOffset;
-        var markerTimes = new List<string>();
-        var markerPrices = new List<decimal>();
-        var markerSymbols = new List<string>();
-        var markerColors = new List<string>();
-        var markerSizes = new List<int>();
-        var markerDetails = new List<object[]>();
-        var shapes = new List<object>();
-
-        void AddMarker(DateTimeOffset markerTime, decimal price, string symbol, string color, int size, string label, DateTimeOffset exactTime)
-        {
-            markerTimes.Add(ChartTime(markerTime));
-            markerPrices.Add(price);
-            markerSymbols.Add(symbol);
-            markerColors.Add(color);
-            markerSizes.Add(size);
-            markerDetails.Add(new[] { label, TimeZoneCatalog.Format(exactTime, timeZoneId, "MMM d, yyyy HH:mm:ss") });
-        }
-
-        AddMarker(
-            entryBar.EventUtc,
-            entryBarMarkerPrice,
-            isLong ? "triangle-down" : "triangle-up",
-            entryColor,
-            12,
-            isLong ? "Long entry bar" : "Short entry bar",
-            trade.EntryUtc);
-        AddMarker(entryPriceMarkerTime, trade.EntryPrice, "triangle-right", entryColor, 10, "Entry price", trade.EntryUtc);
-
-        if (trade.ExitUtc.HasValue)
-        {
-            var exitPrice = trade.ExitPrice ?? trade.EntryPrice;
-            var exitPriceMarkerTime = exitBar!.EventUtc + markerOffset;
-            AddMarker(exitPriceMarkerTime, exitPrice, "triangle-left", exitColor, 10, "Exit price", trade.ExitUtc.Value);
-            shapes.Add(TradePathShape(ChartTime(entryPriceMarkerTime), trade.EntryPrice, ChartTime(exitPriceMarkerTime), exitPrice, exitColor));
-        }
-
-        var layout = CartesianLayout();
-        layout["height"] = 420;
-        layout["paper_bgcolor"] = "#0d1117";
-        layout["plot_bgcolor"] = "#0d1117";
-        layout["shapes"] = shapes;
-        layout["hovermode"] = "x unified";
-        layout["dragmode"] = "pan";
-        var xAxis = new Dictionary<string, object?>(Axis())
-        {
-            ["type"] = "date",
-            ["zeroline"] = false,
-            ["rangeslider"] = new { visible = false },
-            ["anchor"] = "y2",
-            ["gridcolor"] = "#21262d",
-            ["range"] = new[]
+        var exitPrice = trade.ExitPrice ?? trade.EntryPrice;
+        object? exit = trade.ExitUtc.HasValue
+            ? new
             {
-                ChartTime(chartStart),
-                ChartTime(chartEnd)
+                time = exitBar!.EventUtc.ToUnixTimeSeconds(),
+                exactTime = trade.ExitUtc.Value.ToUnixTimeSeconds(),
+                price = exitPrice,
+                color = exitColor,
+                shape = isLong ? "arrowDown" : "arrowUp",
+                barPosition = isLong ? "aboveBar" : "belowBar",
+                label = "Exit"
             }
-        };
-        var axisLow = Math.Min(focusBars.Min(x => x.Low), trade.EntryPrice);
-        var axisHigh = Math.Max(focusBars.Max(x => x.High), trade.EntryPrice);
-        axisLow = Math.Min(axisLow, entryBarMarkerPrice);
-        axisHigh = Math.Max(axisHigh, entryBarMarkerPrice);
-        if (trade.ExitPrice.HasValue)
-        {
-            axisLow = Math.Min(axisLow, trade.ExitPrice.Value);
-            axisHigh = Math.Max(axisHigh, trade.ExitPrice.Value);
-        }
-        var axisPadding = Math.Max(Math.Max((axisHigh - axisLow) * .08m, priceUnit * 3m), .01m);
-        var priceAxis = new Dictionary<string, object?>(Axis())
-        {
-            ["title"] = new { text = "price", font = new { color = Muted, size = 11 } },
-            ["domain"] = new[] { .30, 1.0 },
-            ["anchor"] = "x",
-            ["zeroline"] = false,
-            ["gridcolor"] = "#21262d",
-            ["range"] = new[] { axisLow - axisPadding, axisHigh + axisPadding }
-        };
-        var volumeHigh = focusBars.Max(x => x.Volume ?? 0L);
-        var volumeAxis = new Dictionary<string, object?>(Axis())
-        {
-            ["title"] = new { text = "volume", font = new { color = Muted, size = 10 } },
-            ["domain"] = new[] { 0.0, .22 },
-            ["anchor"] = "x",
-            ["showgrid"] = false,
-            ["rangemode"] = "tozero",
-            ["range"] = new[] { 0L, Math.Max(1L, (long)Math.Ceiling(volumeHigh * 1.1d)) }
-        };
-        layout["xaxis"] = xAxis;
-        layout["yaxis"] = priceAxis;
-        layout["yaxis2"] = volumeAxis;
-        return Plotly($"Candlestick chart for {trade.Symbol}", new object[]
-        {
-            new
+            : null;
+        object? path = trade.ExitUtc.HasValue && entryBar.EventUtc != exitBar!.EventUtc
+            ? new[]
             {
-                type = "candlestick",
-                x = orderedBars.Select(x => ChartTime(x.EventUtc)).ToArray(),
-                open = orderedBars.Select(x => x.Open).ToArray(),
-                high = orderedBars.Select(x => x.High).ToArray(),
-                low = orderedBars.Select(x => x.Low).ToArray(),
-                close = orderedBars.Select(x => x.Close).ToArray(),
-                increasing = new { line = new { color = Green, width = 1 }, fillcolor = Green },
-                decreasing = new { line = new { color = Red, width = 1 }, fillcolor = Red },
-                whiskerwidth = .5,
-                hovertemplate = "%{x|%b %d %H:%M}<br>O %{open}<br>H %{high}<br>L %{low}<br>C %{close}<extra></extra>"
-            },
-            new
-            {
-                type = "bar",
-                x = orderedBars.Select(x => ChartTime(x.EventUtc)).ToArray(),
-                y = orderedBars.Select(x => x.Volume ?? 0L).ToArray(),
-                yaxis = "y2",
-                marker = new { color = orderedBars.Select(x => x.Close >= x.Open ? Green : Red).ToArray(), line = new { width = 0 } },
-                hovertemplate = "%{x|%b %d %H:%M}<br>volume %{y}<extra></extra>"
-            },
-            new
-            {
-                type = "scatter",
-                mode = "markers",
-                x = markerTimes.ToArray(),
-                y = markerPrices.ToArray(),
-                customdata = markerDetails.ToArray(),
-                cliponaxis = false,
-                marker = new { symbol = markerSymbols.ToArray(), color = markerColors.ToArray(), size = markerSizes.ToArray(), line = new { color = markerColors.ToArray(), width = 1 } },
-                hovertemplate = "%{customdata[0]}<br>%{customdata[1]}<br>price %{y}<extra></extra>"
+                new { time = entryBar.EventUtc.ToUnixTimeSeconds(), value = trade.EntryPrice },
+                new { time = exitBar.EventUtc.ToUnixTimeSeconds(), value = exitPrice }
             }
-        }, layout, scrollZoom: true);
+            : Array.Empty<object>();
+        var payload = new
+        {
+            symbol = trade.Symbol,
+            interval = query.ResolvedInterval,
+            timeZone = TimeZoneCatalog.CanonicalId(timeZoneId),
+            barSeconds = Math.Max(1, (int)Math.Round(barDuration.TotalSeconds)),
+            bars = orderedBars.Select(bar => new
+            {
+                time = bar.EventUtc.ToUnixTimeSeconds(),
+                open = bar.Open,
+                high = bar.High,
+                low = bar.Low,
+                close = bar.Close,
+                volume = bar.Volume ?? 0L
+            }).ToArray(),
+            focus = new
+            {
+                from = chartStart.ToUnixTimeSeconds(),
+                to = chartEnd.ToUnixTimeSeconds()
+            },
+            trade = new
+            {
+                direction = isLong ? "long" : "short",
+                netPnl = trade.NetPnl,
+                entry = new
+                {
+                    time = entryBar.EventUtc.ToUnixTimeSeconds(),
+                    exactTime = trade.EntryUtc.ToUnixTimeSeconds(),
+                    price = trade.EntryPrice,
+                    color = entryColor,
+                    shape = isLong ? "arrowUp" : "arrowDown",
+                    barPosition = isLong ? "belowBar" : "aboveBar",
+                    label = isLong ? "Long" : "Short"
+                },
+                exit,
+                path
+            },
+            historyUrl = $"/journal/{trade.JournalId:D}/trades/{trade.Id:D}?handler=CandleBars&interval={Uri.EscapeDataString(query.ResolvedInterval)}"
+        };
+        return payload;
     }
 
     private static TimeSpan ResolveBarDuration(IReadOnlyList<Bar> bars)
@@ -820,19 +753,6 @@ public static partial class ChartRenderer
         text,
         showarrow = false,
         font = new { color = Muted, family = "Segoe UI, system-ui, sans-serif", size = 11 }
-    };
-
-    private static object TradePathShape(string x0, decimal y0, string x1, decimal y1, string color) => new
-    {
-        type = "line",
-        x0,
-        x1,
-        y0,
-        y1,
-        xref = "x",
-        yref = "y",
-        layer = "above",
-        line = new { color, dash = "dot", width = 1.5 }
     };
 
     private static object VerticalMarker(decimal x, string color) => new

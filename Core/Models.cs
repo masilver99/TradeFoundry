@@ -246,6 +246,8 @@ public sealed class Trade
     public string Note { get; init; } = string.Empty;
     public string Instrument { get; init; } = string.Empty;
     public string ReviewKey { get; init; } = string.Empty;
+    public bool HasReviewImages { get; init; }
+    public bool HasReviewNotes { get; init; }
     public TimeSpan? Duration => ExitUtc.HasValue ? ExitUtc.Value - EntryUtc : null;
     public TimeSpan? TimeInTrade => Duration;
     public double? TimeInTradeSeconds => Duration?.TotalSeconds;
@@ -308,6 +310,13 @@ public sealed class BarQueryResult
     public bool IsConsolidated { get; init; }
     public bool IsCoarserThanRequested { get; init; }
     public string AvailabilityNote { get; init; } = string.Empty;
+}
+
+public sealed class BarHistoryPage
+{
+    public IReadOnlyList<Bar> Bars { get; init; } = Array.Empty<Bar>();
+    public string ResolvedInterval { get; init; } = BarIntervals.Source;
+    public bool HasMore { get; init; }
 }
 
 public sealed class OhlcCalendar
@@ -625,6 +634,7 @@ public sealed class DailyReviewModel
 {
     public Journal Journal { get; init; } = new();
     public DateOnly Date { get; init; }
+    public DailyJournalEntry DailyJournal { get; init; } = new();
     public IReadOnlyList<DailyReviewTrade> CompletedTrades { get; init; } = Array.Empty<DailyReviewTrade>();
     public IReadOnlyList<DailyReviewTrade> OpenTrades { get; init; } = Array.Empty<DailyReviewTrade>();
     public decimal RealizedNetPnl => CompletedTrades.Sum(item => item.Trade.NetPnl);
@@ -632,6 +642,23 @@ public sealed class DailyReviewModel
     public int OpenTradeCount => OpenTrades.Count;
     public DateOnly? PreviousDate { get; init; }
     public DateOnly? NextDate { get; init; }
+}
+
+public sealed class DailyJournalEntry
+{
+    public Guid JournalId { get; init; }
+    public DateOnly Date { get; init; }
+    public int Revision { get; init; }
+    public string Text { get; init; } = string.Empty;
+    public DateTimeOffset? UpdatedUtc { get; init; }
+    public bool HasContent => !string.IsNullOrWhiteSpace(Text);
+}
+
+public sealed class DailyJournalSaveResult
+{
+    public bool Saved { get; init; }
+    public bool Conflict { get; init; }
+    public DailyJournalEntry Entry { get; init; } = new();
 }
 
 public sealed class TradeReviewSaveResult

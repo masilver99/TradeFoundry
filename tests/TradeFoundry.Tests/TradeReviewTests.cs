@@ -119,6 +119,49 @@ public sealed class TradeReviewTests
     }
 
     [Fact]
+    public async Task LedgerExposesReviewIndicatorsAndDailyJournalIsRevisionChecked()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            ImportRoundTrip(database, journal.Id);
+            var trade = Assert.Single(database.GetAllTrades(journal.Id));
+
+            database.SaveTradeReview(journal.Id, trade.ReviewKey, new TradeReviewPatch { ReviewNote = "Reviewed", ExpectedRevision = 0 });
+            var noteOnly = Assert.Single(database.GetTrades(new TradeQuery { JournalId = journal.Id }).Items);
+            Assert.True(noteOnly.HasReviewNotes);
+            Assert.False(noteOnly.HasReviewImages);
+
+            var reviews = new TradeReviewService(database);
+            await using (var image = new MemoryStream(PngSignature()))
+                await reviews.SaveAttachmentAsync(journal.Id, trade.ReviewKey, image, "chart.png", "image/png", image.Length);
+
+            var withImage = Assert.Single(database.GetTrades(new TradeQuery { JournalId = journal.Id }).Items);
+            Assert.True(withImage.HasReviewNotes);
+            Assert.True(withImage.HasReviewImages);
+
+            var date = new DateOnly(2026, 9, 12);
+            var empty = database.GetDailyJournal(journal.Id, date);
+            Assert.Equal(0, empty.Revision);
+            var saved = database.SaveDailyJournal(journal.Id, date, "Market was quiet.", empty.Revision);
+            Assert.True(saved.Saved);
+            Assert.Equal(1, saved.Entry.Revision);
+            Assert.Equal("Market was quiet.", reviews.GetDay(journal.Id, date).DailyJournal.Text);
+
+            var conflict = database.SaveDailyJournal(journal.Id, date, "Stale", expectedRevision: 0);
+            Assert.True(conflict.Conflict);
+            Assert.Equal("Market was quiet.", conflict.Entry.Text);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void AllInCommissionOverrideReplacesDerivedFeeAcrossTradeReads()
     {
         var directory = NewDirectory();

@@ -58,6 +58,15 @@ public class IndexModel : PageModel
         return Page();
     }
 
+    public IActionResult OnGetEquityChart(Guid journalId, bool daily)
+    {
+        if (_database.GetJournal(journalId) is null) return NotFound();
+
+        var overview = _database.GetOverview(journalId);
+        var chart = daily ? ChartRenderer.Equity(overview.DailyPnl) : ChartRenderer.Equity(overview.Equity);
+        return Content(chart, "text/html; charset=utf-8");
+    }
+
     public IActionResult OnPostCreateJournal()
     {
         var journal = _database.CreateJournal(NewJournalName, NewExecutionContext, NewLabels, NewTimeZone, NewCurrency, NewGroupingPolicy, NewStartingEquity);

@@ -1,6 +1,7 @@
 @page "/journal/{journalId:guid}/review"
 @model TradeFoundry.Pages.ReviewModel
 @using System.Globalization
+@using Microsoft.AspNetCore.Mvc.ViewFeatures
 @using TradeFoundry.Core
 @{
     ViewData["Title"] = "Daily Review";
@@ -9,15 +10,17 @@
     var selectedDate = Model.Date ?? Model.Day.Date;
     var dateText = selectedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     var allTrades = Model.Day.CompletedTrades.Concat(Model.Day.OpenTrades).ToArray();
+    var activeTrade = allTrades.FirstOrDefault(item => item.Trade.ReviewKey == Model.Focus) ?? allTrades.FirstOrDefault();
+    var activeReviewKey = activeTrade?.Trade.ReviewKey ?? string.Empty;
     ViewData["ReviewModel"] = Model;
 }
 
-<section class="tf-review-shell" data-focus="@Model.Focus">
+<section class="tf-review-shell" data-focus="@Model.Focus" data-active-key="@activeReviewKey" data-review-section="@Model.Section" data-currency="@Model.Day.Journal.Currency">
     <div class="tf-review-header">
         <div>
             <div class="tf-kicker">DAYBOOK / @Model.Day.Journal.Name</div>
             <h1 class="tf-page-title mb-2">Daily review</h1>
-            <p class="tf-lede mb-0">Review the decisions behind imported evidence. Notes and cost overrides stay separate from source prices, fills, and order events.</p>
+            <p class="tf-lede mb-0">Keep the day roster in view while you capture the decisions behind imported evidence.</p>
         </div>
         <a class="btn btn-outline-secondary" asp-page="/Trades" asp-route-journalId="@Model.JournalId">Open ledger</a>
     </div>
@@ -58,15 +61,25 @@
         <div class="alert alert-success" role="status">@Model.NoticeMessage</div>
     }
 
-    <div class="tf-review-summary card tf-card">
-        <div>
-            <span class="tf-metric-label">Selected day</span>
-            <strong>@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture)</strong>
+    <section class="card tf-card tf-daily-journal" aria-labelledby="daily-journal-heading">
+        <div class="card-header tf-daily-journal-heading">
+            <div>
+                <div class="tf-kicker">SELECTED DAY</div>
+                <h2 id="daily-journal-heading" class="tf-card-title">Daily journal</h2>
+            </div>
+            <span class="text-secondary">Revision @Model.Day.DailyJournal.Revision</span>
         </div>
-        <div><span class="tf-metric-label">Completed</span><strong>@Model.Day.CompletedTradeCount</strong></div>
-        <div><span class="tf-metric-label">Open</span><strong>@Model.Day.OpenTradeCount</strong></div>
-        <div><span class="tf-metric-label">Realized net P&amp;L</span><strong class="@(Model.Day.RealizedNetPnl >= 0 ? "text-success" : "text-danger")">@Model.Day.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong></div>
-    </div>
+        <form method="post" asp-page-handler="SaveDailyJournal" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" class="tf-daily-journal-form">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="expectedRevision" value="@Model.Day.DailyJournal.Revision" />
+            <label class="visually-hidden" for="daily-journal-text">Daily journal</label>
+            <textarea id="daily-journal-text" name="dailyJournalText" rows="5" maxlength="12000" placeholder="What happened today? Capture market context, your state of mind, and the lesson for tomorrow.">@Model.DailyJournalText</textarea>
+            <div class="tf-daily-journal-actions">
+                <small>Private journal notes for @selectedDate.ToString("MMMM d, yyyy", CultureInfo.CurrentCulture).</small>
+                <button class="btn btn-outline-primary btn-sm" type="submit">Save journal</button>
+            </div>
+        </form>
+    </section>
 
     @if (allTrades.Length == 0)
     {
@@ -76,31 +89,73 @@
         </div>
     }
 
-    @if (Model.Day.CompletedTrades.Count > 0)
+    else
     {
-        <section class="tf-review-group" aria-labelledby="completed-heading">
-            <div class="tf-section-heading">
-                <div><div class="tf-kicker">REALIZED</div><h2 id="completed-heading">Completed trades</h2></div>
-                <span class="tf-section-count">@Model.Day.CompletedTradeCount trades · @Model.Day.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</span>
-            </div>
-            @foreach (var item in Model.Day.CompletedTrades)
-            {
-                @await Html.PartialAsync("_ReviewTrade", item)
-            }
-        </section>
-    }
+        <div class="tf-review-workspace" data-review-workspace>
+            <aside class="card tf-card tf-review-roster" aria-label="Trades for selected day">
+                <div class="tf-review-roster-heading">
+                    <div class="tf-kicker">SELECTED DAY</div>
+                    <h2>@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)</h2>
+                    <div class="tf-review-roster-summary">
+                        <span>@Model.Day.CompletedTradeCount completed</span>
+                        <span>@Model.Day.OpenTradeCount open</span>
+                        <strong class="@(Model.Day.RealizedNetPnl >= 0 ? "text-success" : "text-danger")">@Model.Day.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong>
+                    </div>
+                    <div class="tf-review-roster-hint">Select a trade to edit. Your position stays visible while you scroll.</div>
+                </div>
+                <div class="tf-review-roster-list" role="listbox" aria-label="Trades on selected day">
+                    @{
+                        var rosterIndex = 0;
+                    }
+                    @if (Model.Day.CompletedTrades.Count > 0)
+                    {
+                        <div class="tf-review-roster-group-label"><span>REALIZED</span><span>@Model.Day.CompletedTradeCount</span></div>
+                        foreach (var item in Model.Day.CompletedTrades)
+                        {
+                            rosterIndex++;
+                            var itemId = Model.DomId(item.Trade.ReviewKey);
+                            var itemActive = item.Trade.ReviewKey == activeReviewKey;
+                            <button type="button" class="tf-review-roster-item @(itemActive ? "is-active" : string.Empty)" data-review-select data-review-key="@item.Trade.ReviewKey" data-review-index="@rosterIndex" aria-controls="@itemId" aria-pressed="@(itemActive ? "true" : "false")">
+                                <span class="tf-review-roster-item-top"><strong>@rosterIndex / @allTrades.Length</strong><span>@item.Trade.Symbol</span></span>
+                                <span class="tf-review-roster-item-main"><span>@item.Trade.Direction · @item.Trade.Quantity qty</span><strong class="@(item.Trade.NetPnl >= 0 ? "text-success" : "text-danger")" data-review-roster-pnl>@item.Trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong></span>
+                                <span class="tf-review-roster-item-meta"><span>@Model.LocalTime(item.Trade.EntryUtc)</span><span data-review-roster-state>@(item.Annotation.HasContent ? "Review added" : "Not started")</span></span>
+                            </button>
+                        }
+                    }
+                    @if (Model.Day.OpenTrades.Count > 0)
+                    {
+                        <div class="tf-review-roster-group-label"><span>OPEN / UNREALIZED</span><span>@Model.Day.OpenTradeCount</span></div>
+                        foreach (var item in Model.Day.OpenTrades)
+                        {
+                            rosterIndex++;
+                            var itemId = Model.DomId(item.Trade.ReviewKey);
+                            var itemActive = item.Trade.ReviewKey == activeReviewKey;
+                            <button type="button" class="tf-review-roster-item @(itemActive ? "is-active" : string.Empty)" data-review-select data-review-key="@item.Trade.ReviewKey" data-review-index="@rosterIndex" aria-controls="@itemId" aria-pressed="@(itemActive ? "true" : "false")">
+                                <span class="tf-review-roster-item-top"><strong>@rosterIndex / @allTrades.Length</strong><span>@item.Trade.Symbol</span></span>
+                                <span class="tf-review-roster-item-main"><span>@item.Trade.Direction · @item.Trade.Quantity qty</span><strong class="text-secondary" data-review-roster-pnl>OPEN</strong></span>
+                                <span class="tf-review-roster-item-meta"><span>@Model.LocalTime(item.Trade.EntryUtc)</span><span data-review-roster-state>@(item.Annotation.HasContent ? "Review added" : "Not started")</span></span>
+                            </button>
+                        }
+                    }
+                </div>
+            </aside>
 
-    @if (Model.Day.OpenTrades.Count > 0)
-    {
-        <section class="tf-review-group" aria-labelledby="open-heading">
-            <div class="tf-section-heading">
-                <div><div class="tf-kicker">UNREALIZED / OPEN</div><h2 id="open-heading">Open trades</h2></div>
-                <span class="tf-section-count">@Model.Day.OpenTradeCount trades · excluded from realized P&amp;L</span>
-            </div>
-            @foreach (var item in Model.Day.OpenTrades)
-            {
-                @await Html.PartialAsync("_ReviewTrade", item)
-            }
-        </section>
+            <main class="tf-review-detail" aria-label="Selected trade editor">
+                <div class="tf-review-editors">
+                    @{
+                        var editorIndex = 0;
+                    }
+                    @foreach (var item in allTrades)
+                    {
+                        editorIndex++;
+                        var partialViewData = new ViewDataDictionary<DailyReviewTrade>(ViewData, item);
+                        partialViewData["ReviewIndex"] = editorIndex;
+                        partialViewData["ReviewCount"] = allTrades.Length;
+                        partialViewData["ReviewActive"] = item.Trade.ReviewKey == activeReviewKey;
+                        @await Html.PartialAsync("_ReviewTrade", item, partialViewData)
+                    }
+                </div>
+            </main>
+        </div>
     }
 </section>

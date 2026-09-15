@@ -17,8 +17,11 @@ public class ReviewModel : PageModel
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
     [BindProperty(SupportsGet = true)] public DateOnly? Date { get; set; }
     [BindProperty(SupportsGet = true)] public string? Focus { get; set; }
+    [BindProperty(SupportsGet = true)] public string? Section { get; set; }
     [BindProperty(SupportsGet = true)] public bool Saved { get; set; }
+    [BindProperty(SupportsGet = true)] public bool JournalSaved { get; set; }
     [BindProperty] public TradeReviewPatch Edit { get; set; } = new();
+    [BindProperty] public string? DailyJournalText { get; set; }
     [BindProperty] public IFormFile? Screenshot { get; set; }
 
     public DailyReviewModel Day { get; private set; } = new();
@@ -32,14 +35,56 @@ public class ReviewModel : PageModel
             var date = Date ?? _reviews.GetDefaultDate(JournalId);
             Day = _reviews.GetDay(JournalId, date);
             Date = date;
+            DailyJournalText = Day.DailyJournal.Text;
         }
         catch (InvalidOperationException)
         {
             return NotFound();
         }
 
-        if (Saved) NoticeMessage = "Review saved.";
+        if (JournalSaved) NoticeMessage = "Daily journal saved.";
+        else if (Saved) NoticeMessage = "Review saved.";
         return Page();
+    }
+
+    public IActionResult OnPostSaveDailyJournal(string dailyJournalText, int expectedRevision, DateOnly date)
+    {
+        Date = date;
+        try
+        {
+            var result = _reviews.SaveDailyJournal(JournalId, date, dailyJournalText, expectedRevision);
+            if (result.Conflict)
+            {
+                LoadDay();
+                DailyJournalText = result.Entry.Text;
+                ErrorMessage = "This daily journal changed in another window. Reload the current values before saving again.";
+                ModelState.AddModelError(string.Empty, ErrorMessage);
+                return Page();
+            }
+
+            return RedirectToPage(new
+            {
+                journalId = JournalId,
+                date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                journalSaved = true
+            });
+        }
+        catch (ArgumentException exception)
+        {
+            LoadDay();
+            DailyJournalText = dailyJournalText;
+            ErrorMessage = exception.Message;
+            ModelState.AddModelError(string.Empty, ErrorMessage);
+            return Page();
+        }
+        catch (InvalidOperationException exception)
+        {
+            LoadDay();
+            DailyJournalText = dailyJournalText;
+            ErrorMessage = exception.Message;
+            ModelState.AddModelError(string.Empty, ErrorMessage);
+            return Page();
+        }
     }
 
     public async Task<IActionResult> OnPostSaveAsync(string reviewKey, int expectedRevision, DateOnly date, bool saveAndNext = false, CancellationToken cancellationToken = default)
@@ -102,6 +147,81 @@ public class ReviewModel : PageModel
         }
     }
 
+    public IActionResult OnPostAutosave(string reviewKey, int expectedRevision, DateOnly date)
+    {
+        Date = date;
+        Edit.ExpectedRevision = expectedRevision;
+        try
+        {
+            var result = _reviews.Save(JournalId, reviewKey, Edit);
+            if (result.Conflict)
+            {
+                Response.StatusCode = StatusCodes.Status409Conflict;
+                return new JsonResult(new
+                {
+                    saved = false,
+                    conflict = true,
+                    currentRevision = result.Annotation.Revision,
+                    message = "This review changed in another window. Reload the current values before saving again."
+                });
+            }
+
+            var day = _reviews.GetDay(JournalId, date);
+            var trade = day.CompletedTrades.Concat(day.OpenTrades).FirstOrDefault(item => item.Trade.ReviewKey == reviewKey)?.Trade;
+            object? tradePayload = trade is null
+                ? null
+                : new { fees = trade.Fees, netPnl = trade.NetPnl, hasOverride = result.Annotation.AllInCommission.HasValue };
+
+            return new JsonResult(new
+            {
+                saved = true,
+                revision = result.Annotation.Revision,
+                updatedUtc = result.Annotation.UpdatedUtc,
+                trade = tradePayload,
+                day = new { realizedNetPnl = day.RealizedNetPnl }
+            });
+        }
+        catch (ArgumentException exception)
+        {
+            Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            return new JsonResult(new { saved = false, message = exception.Message });
+        }
+        catch (InvalidOperationException exception)
+        {
+            Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            return new JsonResult(new { saved = false, message = exception.Message });
+        }
+    }
+
+    public async Task<IActionResult> OnPostAttachAsync(string reviewKey, DateOnly date, CancellationToken cancellationToken = default)
+    {
+        Date = date;
+        Focus = reviewKey;
+        Section = "media";
+        try
+        {
+            if (Screenshot is not { Length: > 0 })
+                throw new InvalidOperationException("Choose an image before attaching it.");
+
+            await using var content = Screenshot.OpenReadStream();
+            await _reviews.SaveAttachmentAsync(JournalId, reviewKey, content, Screenshot.FileName, Screenshot.ContentType, Screenshot.Length, cancellationToken);
+            return RedirectToPage(new
+            {
+                journalId = JournalId,
+                date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                focus = reviewKey,
+                section = "media",
+                saved = true
+            });
+        }
+        catch (InvalidOperationException exception)
+        {
+            LoadDay();
+            ErrorMessage = exception.Message;
+            return Page();
+        }
+    }
+
     public IActionResult OnPostRevert(string reviewKey, int expectedRevision, int targetRevision, DateOnly date)
     {
         try
@@ -121,7 +241,7 @@ public class ReviewModel : PageModel
     public IActionResult OnPostRemoveAttachment(Guid attachmentId, DateOnly date, string? focus)
     {
         _reviews.RemoveAttachment(JournalId, attachmentId);
-        return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus, saved = true });
+        return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus, section = "media", saved = true });
     }
 
     public IActionResult OnGetAttachment(Guid attachmentId)

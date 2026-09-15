@@ -5,34 +5,53 @@
     var review = Model.Annotation;
     var trade = Model.Trade;
     var reviewPage = (TradeFoundry.Pages.ReviewModel)ViewData["ReviewModel"]!;
+    var reviewIndex = (int?)ViewData["ReviewIndex"] ?? 1;
+    var reviewCount = (int?)ViewData["ReviewCount"] ?? 1;
+    var reviewActive = (bool?)ViewData["ReviewActive"] ?? true;
+    var reviewId = reviewPage.DomId(trade.ReviewKey);
 }
 
-<article class="card tf-card tf-review-trade" id="@reviewPage.DomId(trade.ReviewKey)">
-    <div class="tf-review-trade-heading">
-        <div>
-            <div class="tf-kicker">@trade.Symbol · @trade.Direction · @trade.Status</div>
-            <h3 class="h4 mb-1"><a asp-page="/Trade" asp-route-journalId="@trade.JournalId" asp-route-id="@trade.Id">@trade.EntryUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) trade</a></h3>
+<article class="card tf-card tf-review-trade @(reviewActive ? "is-active" : string.Empty)" id="@reviewId" data-review-editor data-review-key="@trade.ReviewKey" data-review-index="@reviewIndex" aria-hidden="@(!reviewActive)">
+    <div class="tf-review-editor-context">
+    <div class="tf-review-editor-heading">
+        <div class="tf-review-editor-identity">
+            <div class="tf-kicker">TRADE @reviewIndex OF @reviewCount · @trade.Status.ToUpperInvariant()</div>
+            <h2 class="tf-review-editor-title"><a asp-page="/Trade" asp-route-journalId="@trade.JournalId" asp-route-id="@trade.Id">@trade.Symbol · @trade.Direction · @trade.Quantity qty</a></h2>
             <p class="text-secondary mb-0">Entry @reviewPage.LocalTime(trade.EntryUtc) · @(trade.ExitUtc.HasValue ? $"Exit {reviewPage.LocalTime(trade.ExitUtc.Value)}" : "Still open") · Source note: @(string.IsNullOrWhiteSpace(trade.Note) ? "none" : trade.Note)</p>
         </div>
         <div class="tf-review-trade-result">
             @if (trade.ExitUtc.HasValue && trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase))
             {
                 <span class="tf-metric-label">Net P&amp;L</span>
-                <strong class="@(trade.NetPnl >= 0 ? "text-success" : "text-danger")">@trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong>
+                <strong class="@(trade.NetPnl >= 0 ? "text-success" : "text-danger")" data-review-trade-pnl>@trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong>
             }
             else
             {
                 <span class="badge text-bg-warning">Open / not realized</span>
             }
-            <small class="text-secondary">All-in commission: @trade.Fees.ToString("C2", CultureInfo.CurrentCulture)@(review.AllInCommission.HasValue ? " · per-trade override" : " · imported/settings-derived")</small>
+            <small class="text-secondary" data-review-trade-fees>All-in commission: @trade.Fees.ToString("C2", CultureInfo.CurrentCulture)@(review.AllInCommission.HasValue ? " · per-trade override" : " · imported/settings-derived")</small>
         </div>
     </div>
 
-    <form method="post" enctype="multipart/form-data" asp-page-handler="Save" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" class="tf-review-form">
+    <div class="tf-review-editor-nav" aria-label="Trade navigation">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-review-prev @(reviewIndex <= 1 ? "disabled" : null)>← Previous</button>
+        <span><strong>@reviewIndex</strong> of @reviewCount</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-review-next @(reviewIndex >= reviewCount ? "disabled" : null)>Next →</button>
+    </div>
+
+    <nav class="tf-review-tabs" role="tablist" aria-label="Trade review sections">
+        <button type="button" role="tab" class="tf-review-tab is-active" id="@reviewId-tab-review" aria-controls="@reviewId-panel-review" aria-selected="true" data-review-tab="review">Review</button>
+        <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-plan" aria-controls="@reviewId-panel-plan" aria-selected="false" data-review-tab="plan">Plan &amp; costs</button>
+        <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-media" aria-controls="@reviewId-panel-media" aria-selected="false" data-review-tab="media">Media &amp; history</button>
+    </nav>
+    </div>
+
+    <form method="post" asp-page-handler="Save" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="review" class="tf-review-form" data-review-form data-autosave-url="@Url.Page("/Review", "Autosave", new { journalId = trade.JournalId, date = reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) })">
         @Html.AntiForgeryToken()
         <input type="hidden" name="reviewKey" value="@trade.ReviewKey" />
         <input type="hidden" name="expectedRevision" value="@review.Revision" />
-        <div class="tf-review-form-grid">
+        <div class="tf-review-tab-panel is-active" id="@reviewId-panel-review" role="tabpanel" aria-labelledby="@reviewId-tab-review" data-review-panel="review">
+            <div class="tf-review-form-grid">
             <div class="tf-review-field tf-review-field-wide">
                 <label for="note-@trade.ReviewKey">Review note</label>
                 <textarea id="note-@trade.ReviewKey" name="Edit.ReviewNote" rows="3" placeholder="What did you see, decide, and learn?">@review.ReviewNote</textarea>
@@ -45,21 +64,6 @@
                 <label for="tags-@trade.ReviewKey">Tags</label>
                 <input id="tags-@trade.ReviewKey" name="Edit.TagsText" value="@reviewPage.TagsText(review)" placeholder="comma, separated, tags" />
             </div>
-            <div class="tf-review-field">
-                <label for="commission-@trade.ReviewKey">All-in commission</label>
-                <input id="commission-@trade.ReviewKey" name="Edit.AllInCommission" type="number" min="0" step="0.01" value="@reviewPage.DecimalInput(review.AllInCommission)" placeholder="Use imported/settings fee" />
-                <small>Total commission for this trade. Leave blank to use the imported/settings-derived fee.</small>
-            </div>
-            <fieldset class="tf-review-fieldset tf-review-field-wide">
-                <legend>Planned risk</legend>
-                <div class="tf-review-inline-grid">
-                    <label>Entry <input type="number" step="any" name="Edit.PlannedEntryPrice" value="@reviewPage.DecimalInput(review.PlannedEntryPrice)" /></label>
-                    <label>Stop <input type="number" step="any" name="Edit.PlannedStopPrice" value="@reviewPage.DecimalInput(review.PlannedStopPrice)" /></label>
-                    <label>Target <input type="number" step="any" name="Edit.PlannedTargetPrice" value="@reviewPage.DecimalInput(review.PlannedTargetPrice)" /></label>
-                    <label>Risk points <input type="number" min="0" step="any" name="Edit.PlannedRiskPoints" value="@reviewPage.DecimalInput(review.PlannedRiskPoints)" /></label>
-                    <label>Risk currency <input type="number" min="0" step="any" name="Edit.PlannedRiskCurrency" value="@reviewPage.DecimalInput(review.PlannedRiskCurrency)" /></label>
-                </div>
-            </fieldset>
             <div class="tf-review-field">
                 <label for="adherence-@trade.ReviewKey">Plan adherence</label>
                 <select id="adherence-@trade.ReviewKey" name="Edit.PlanAdherence">
@@ -87,20 +91,46 @@
                 <label for="lessons-@trade.ReviewKey">Lessons</label>
                 <textarea id="lessons-@trade.ReviewKey" name="Edit.Lessons" rows="2" placeholder="What should repeat?">@review.Lessons</textarea>
             </div>
-            <div class="tf-review-field tf-review-field-wide">
-                <label for="screenshot-@trade.ReviewKey">Screenshot attachment</label>
-                <input id="screenshot-@trade.ReviewKey" class="form-control" type="file" name="Screenshot" accept="image/png,image/jpeg,image/webp" />
-                <small>PNG, JPEG, or WebP up to 10 MB. Files are kept private and served through the authenticated review endpoint.</small>
             </div>
         </div>
+
+        <div class="tf-review-tab-panel" id="@reviewId-panel-plan" role="tabpanel" aria-labelledby="@reviewId-tab-plan" data-review-panel="plan">
+            <div class="tf-review-form-grid">
+                <div class="tf-review-field">
+                    <label for="commission-@trade.ReviewKey">All-in commission</label>
+                    <input id="commission-@trade.ReviewKey" name="Edit.AllInCommission" type="number" min="0" step="0.01" value="@reviewPage.DecimalInput(review.AllInCommission)" placeholder="Use imported/settings fee" />
+                    <small>Total commission for this trade. Leave blank to use the imported/settings-derived fee.</small>
+                </div>
+                <fieldset class="tf-review-fieldset tf-review-field-wide">
+                    <legend>Planned risk</legend>
+                    <div class="tf-review-inline-grid">
+                        <label>Entry <input type="number" step="any" name="Edit.PlannedEntryPrice" value="@reviewPage.DecimalInput(review.PlannedEntryPrice)" /></label>
+                        <label>Stop <input type="number" step="any" name="Edit.PlannedStopPrice" value="@reviewPage.DecimalInput(review.PlannedStopPrice)" /></label>
+                        <label>Target <input type="number" step="any" name="Edit.PlannedTargetPrice" value="@reviewPage.DecimalInput(review.PlannedTargetPrice)" /></label>
+                        <label>Risk points <input type="number" min="0" step="any" name="Edit.PlannedRiskPoints" value="@reviewPage.DecimalInput(review.PlannedRiskPoints)" /></label>
+                        <label>Risk currency <input type="number" min="0" step="any" name="Edit.PlannedRiskCurrency" value="@reviewPage.DecimalInput(review.PlannedRiskCurrency)" /></label>
+                    </div>
+                </fieldset>
+            </div>
+        </div>
+
         <div class="tf-review-actions">
             <span class="text-secondary">Revision @review.Revision</span>
-            <button class="btn btn-outline-primary" type="submit">Save review</button>
-            <button class="btn btn-primary" type="submit" name="saveAndNext" value="true">Save &amp; next <span aria-hidden="true">→</span></button>
+            <span class="tf-review-save-status" role="status" aria-live="polite" data-review-status>Saved</span>
+            <button class="btn btn-outline-primary" type="submit" data-review-manual-save>Save now</button>
         </div>
     </form>
 
-    @if (Model.Attachments.Count > 0)
+    <div class="tf-review-tab-panel" id="@reviewId-panel-media" role="tabpanel" aria-labelledby="@reviewId-tab-media" data-review-panel="media">
+        <form method="post" enctype="multipart/form-data" asp-page-handler="Attach" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="media" class="tf-review-attachment-form">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="reviewKey" value="@trade.ReviewKey" />
+            <label for="screenshot-@trade.ReviewKey">Screenshot attachment</label>
+            <div class="tf-review-attachment-upload"><input id="screenshot-@trade.ReviewKey" class="form-control" type="file" name="Screenshot" accept="image/png,image/jpeg,image/webp" /><button class="btn btn-outline-primary" type="submit">Attach image</button></div>
+            <small>PNG, JPEG, or WebP up to 10 MB. Files are kept private and served through the authenticated review endpoint.</small>
+        </form>
+
+        @if (Model.Attachments.Count > 0)
     {
         <div class="tf-review-attachments">
             <span class="tf-metric-label">Attachments</span>
@@ -119,7 +149,7 @@
         </div>
     }
 
-    @if (Model.History.Any(entry => !entry.Action.Equals("conflict", StringComparison.OrdinalIgnoreCase)))
+        @if (Model.History.Any(entry => !entry.Action.Equals("conflict", StringComparison.OrdinalIgnoreCase)))
     {
         <details class="tf-review-history">
             <summary>Review history (@Model.History.Count(entry => !entry.Action.Equals("conflict", StringComparison.OrdinalIgnoreCase)))</summary>
@@ -141,4 +171,5 @@
             }
         </details>
     }
+    </div>
 </article>

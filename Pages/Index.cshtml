@@ -63,7 +63,26 @@ else
     </section>
 
     <section class="row row-cards mb-3">
-        <div class="col-lg-6"><div class="card tf-card tf-chart-card"><div class="card-header"><div class="tf-section-heading"><div><h3 class="tf-card-title">Equity Curve</h3><span class="text-secondary">@(Model.ShowDailyEquity ? "per day" : "per trade")</span></div><form method="get" class="tf-equity-view-toggle"><input type="hidden" name="journalId" value="@overview.Journal.Id" /><label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="daily" value="true" checked="@(Model.ShowDailyEquity ? "checked" : null)" onchange="this.form.submit()" aria-label="@(Model.ShowDailyEquity ? "Show equity curve per trade" : "Show equity curve per day")" /><span class="form-check-label">Per day</span></label></form></div></div><div class="card-body">@Html.Raw(Model.EquityChart)</div></div></div>
+        <div class="col-lg-6">
+            <div class="card tf-card tf-chart-card">
+                <div class="card-header">
+                    <div class="tf-section-heading">
+                        <div>
+                            <h3 class="tf-card-title">Equity Curve</h3>
+                            <span class="text-secondary" data-equity-view-label aria-live="polite">@(Model.ShowDailyEquity ? "Daily" : "by trade")</span>
+                        </div>
+                        <form method="get" class="tf-equity-view-toggle" data-equity-toggle-form>
+                            <input type="hidden" name="journalId" value="@overview.Journal.Id" />
+                            <label class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" name="daily" value="true" checked="@(Model.ShowDailyEquity ? "checked" : null)" onchange="this.form.requestSubmit()" aria-label="@(Model.ShowDailyEquity ? "Show equity curve by trade" : "Show Daily equity curve")" />
+                                <span class="form-check-label">By Trade/Daily</span>
+                            </label>
+                        </form>
+                    </div>
+                </div>
+                <div class="card-body"><div data-equity-chart-host>@Html.Raw(Model.EquityChart)</div></div>
+            </div>
+        </div>
         <div class="col-lg-6"><div class="card tf-card tf-chart-card"><div class="card-header"><div class="tf-section-heading"><div><h3 class="tf-card-title">Daily result</h3></div><span class="text-secondary">last 180 days</span></div></div><div class="card-body">@Html.Raw(Model.DailyChart)</div></div></div>
     </section>
 

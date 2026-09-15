@@ -22,7 +22,7 @@ public sealed class TradeFoundryDb
     private const string EffectiveNetPnlSql = "CASE WHEN r.all_in_commission IS NOT NULL THEN CAST(t.gross_pnl AS REAL) - CAST(r.all_in_commission AS REAL) ELSE CAST(t.net_pnl AS REAL) END";
     private const string EffectiveNetPnlTextSql = "CASE WHEN r.all_in_commission IS NOT NULL THEN CAST(CAST(t.gross_pnl AS REAL) - CAST(r.all_in_commission AS REAL) AS TEXT) ELSE t.net_pnl END";
     private const string TradeFrom = "trades t LEFT JOIN trade_review_annotations r ON r.journal_id = t.journal_id AND r.review_key = t.review_key";
-    private const string TradeColumns = "t.id, t.journal_id, t.import_batch_id, t.source_type, t.source_key, t.grouping_policy, t.sequence, t.symbol, t.account, t.direction, t.entry_utc, t.exit_utc, t.entry_price, t.exit_price, t.quantity, t.closed_quantity, t.gross_points, t.average_points, t.gross_pnl, " + EffectiveFeesSql + " AS fees, " + EffectiveNetPnlTextSql + " AS net_pnl, t.mae_points, t.mfe_points, t.point_value, t.tick_size, t.initial_stop_price, t.initial_target_price, t.initial_risk_points, t.initial_risk_currency, t.r_multiple, t.exit_type, t.entry_order_price, t.exit_order_price, t.entry_chase_points, t.exit_chase_points, t.status, t.note, t.instrument, t.review_key";
+    private const string TradeColumns = "t.id, t.journal_id, t.import_batch_id, t.source_type, t.source_key, t.grouping_policy, t.sequence, t.symbol, t.account, t.direction, t.entry_utc, t.exit_utc, t.entry_price, t.exit_price, t.quantity, t.closed_quantity, t.gross_points, t.average_points, t.gross_pnl, " + EffectiveFeesSql + " AS fees, " + EffectiveNetPnlTextSql + " AS net_pnl, t.mae_points, t.mfe_points, t.point_value, t.tick_size, t.initial_stop_price, t.initial_target_price, t.initial_risk_points, t.initial_risk_currency, t.r_multiple, t.exit_type, t.entry_order_price, t.exit_order_price, t.entry_chase_points, t.exit_chase_points, t.status, t.note, t.instrument, t.review_key, CASE WHEN LENGTH(TRIM(COALESCE(r.review_note, ''))) > 0 THEN 1 ELSE 0 END AS has_review_note, EXISTS (SELECT 1 FROM trade_review_attachments a WHERE a.journal_id = t.journal_id AND a.review_key = t.review_key AND a.removed_utc IS NULL) AS has_review_image";
     private const string TradeReviewColumns = "id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc";
     private const string FillColumns = "id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, row_number, instrument, point_value, tick_size";
     private const string OrderEventColumns = "id, journal_id, import_batch_id, source_type, source_key, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, internal_order_id, service_order_id, parent_order_id, exchange_order_id, fill_execution_id, order_type, order_status, side, open_close, price, price2, quantity, filled_quantity, fill_price, position_quantity, note, client_order_id, time_in_force, username, is_automated, fees, row_number, instrument";
@@ -102,6 +102,10 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_trade_review_history_trade ON trade_review_history(journal_id, review_key, revision DESC)",
             "CREATE TABLE IF NOT EXISTS trade_review_attachments (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, storage_key TEXT NOT NULL, original_file_name TEXT NOT NULL, content_type TEXT NOT NULL, length INTEGER NOT NULL, created_utc TEXT NOT NULL, removed_utc TEXT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_trade_review_attachments_trade ON trade_review_attachments(journal_id, review_key, created_utc DESC)",
+            "CREATE TABLE IF NOT EXISTS daily_review_journals (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, journal_text TEXT NOT NULL DEFAULT '', updated_utc TEXT NULL, UNIQUE(journal_id, review_date))",
+            "CREATE INDEX IF NOT EXISTS ix_daily_review_journals_journal_date ON daily_review_journals(journal_id, review_date)",
+            "CREATE TABLE IF NOT EXISTS daily_review_journal_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', reason TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS ix_daily_review_journal_history_date ON daily_review_journal_history(journal_id, review_date, revision DESC)",
             "CREATE TABLE IF NOT EXISTS order_events (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', internal_order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', side TEXT NOT NULL DEFAULT '', open_close TEXT NOT NULL DEFAULT '', price TEXT NULL, price2 TEXT NULL, quantity INTEGER NULL, filled_quantity INTEGER NULL, fill_price TEXT NULL, position_quantity INTEGER NULL, note TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, fees TEXT NOT NULL DEFAULT '0', row_number INTEGER NOT NULL, instrument TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_order_events_journal_order_time ON order_events(journal_id, account, symbol, internal_order_id, event_utc, row_number)",
             "CREATE INDEX IF NOT EXISTS ix_order_events_journal_parent ON order_events(journal_id, parent_order_id, event_utc)",
@@ -1073,6 +1077,63 @@ public sealed class TradeFoundryDb
         return reader.Read() ? ReadTradeReviewAttachment(reader) : null;
     }
 
+    public DailyJournalEntry GetDailyJournal(Guid journalId, DateOnly date)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, journal_id, review_date, revision, journal_text, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? ReadDailyJournal(reader)
+            : new DailyJournalEntry { JournalId = journalId, Date = date };
+    }
+
+    public DailyJournalSaveResult SaveDailyJournal(Guid journalId, DateOnly date, string? text, int expectedRevision, string action = "saved")
+    {
+        if (expectedRevision < 0) throw new ArgumentOutOfRangeException(nameof(expectedRevision));
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+
+        var normalizedText = TrimTo(text, 12000);
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var current = ReadDailyJournalOrDefault(connection, transaction, journalId, date);
+        if (current.Revision != expectedRevision)
+        {
+            InsertDailyJournalHistory(connection, transaction, journalId, date, current.Revision, "conflict", JsonSerializer.Serialize(current), JsonSerializer.Serialize(new { text = normalizedText }), "Stale daily journal revision.", DateTimeOffset.UtcNow);
+            transaction.Commit();
+            return new DailyJournalSaveResult { Conflict = true, Entry = current };
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var entry = new DailyJournalEntry
+        {
+            JournalId = journalId,
+            Date = date,
+            Revision = current.Revision + 1,
+            Text = normalizedText,
+            UpdatedUtc = now
+        };
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "INSERT INTO daily_review_journals (id, journal_id, review_date, revision, journal_text, updated_utc) VALUES ($id, $journal, $date, $revision, $text, $updated) ON CONFLICT(journal_id, review_date) DO UPDATE SET revision = excluded.revision, journal_text = excluded.journal_text, updated_utc = excluded.updated_utc";
+            command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$revision", entry.Revision);
+            command.Parameters.AddWithValue("$text", entry.Text);
+            command.Parameters.AddWithValue("$updated", now.ToString("O", CultureInfo.InvariantCulture));
+            command.ExecuteNonQuery();
+        }
+
+        InsertDailyJournalHistory(connection, transaction, journalId, date, entry.Revision, action, JsonSerializer.Serialize(current), JsonSerializer.Serialize(entry), TrimTo(action, 500), now);
+        transaction.Commit();
+        return new DailyJournalSaveResult { Saved = true, Entry = entry };
+    }
+
     public TradeReviewAttachment AddTradeReviewAttachment(Guid journalId, string reviewKey, string storageKey, string originalFileName, string contentType, long length)
     {
         if (string.IsNullOrWhiteSpace(reviewKey)) throw new ArgumentException("A review key is required.", nameof(reviewKey));
@@ -1743,6 +1804,74 @@ public sealed class TradeFoundryDb
             IsCoarserThanRequested = coarser,
             AvailabilityNote = note
         };
+    }
+
+    public BarHistoryPage GetBarHistoryPage(Guid journalId, string symbol, string requestedInterval, DateTimeOffset cursor, bool before, int limit = 300)
+    {
+        if (limit is < 1 or > 500)
+            throw new ArgumentOutOfRangeException(nameof(limit), "The bar page size must be between 1 and 500.");
+
+        var requested = BarIntervals.Normalize(requestedInterval, allowSource: true);
+        var available = GetBarSeries(journalId, symbol);
+        var requestedMinutes = BarIntervals.TryGetMinutes(requested, out var targetMinutes) ? targetMinutes : 0;
+        var selected = SelectBarSeries(available, requestedMinutes);
+        if (selected is null)
+        {
+            return new BarHistoryPage
+            {
+                ResolvedInterval = requested,
+                HasMore = false
+            };
+        }
+
+        var sourceMinutes = selected.IntervalMinutes;
+        var consolidated = requestedMinutes > 0 && sourceMinutes > 0 && sourceMinutes < requestedMinutes;
+        var sourceLimit = consolidated
+            ? checked((limit + 2) * Math.Max(1, requestedMinutes / sourceMinutes) + 2)
+            : limit + 1;
+        var queryCursor = cursor;
+        if (consolidated)
+        {
+            var bucketTicks = TimeSpan.TicksPerMinute * (long)requestedMinutes;
+            var bucketStartTicks = cursor.ToUniversalTime().UtcDateTime.Ticks / bucketTicks * bucketTicks;
+            queryCursor = new DateTimeOffset(new DateTime(bucketStartTicks, DateTimeKind.Utc));
+            if (!before)
+                queryCursor = queryCursor.AddMinutes(requestedMinutes);
+        }
+        var sourceBars = GetBarHistoryRaw(symbol, selected.Interval, queryCursor, before, sourceLimit, afterInclusive: consolidated && !before);
+        var candidates = consolidated ? ConsolidateBars(sourceBars, requestedMinutes) : sourceBars;
+        var ordered = candidates.OrderBy(x => x.EventUtc).ToArray();
+        var hasMore = ordered.Length > limit || sourceBars.Count >= sourceLimit;
+        var page = before
+            ? ordered.Skip(Math.Max(0, ordered.Length - limit)).Take(limit).ToArray()
+            : ordered.Take(limit).ToArray();
+
+        return new BarHistoryPage
+        {
+            Bars = page,
+            ResolvedInterval = consolidated ? requested : selected.Interval,
+            HasMore = hasMore
+        };
+    }
+
+    private IReadOnlyList<Bar> GetBarHistoryRaw(string symbol, string interval, DateTimeOffset cursor, bool before, int limit, bool afterInclusive)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var comparison = before ? "<" : afterInclusive ? ">=" : ">";
+        var order = before ? "DESC" : "ASC";
+        command.CommandText = $"SELECT b.id, b.series_id, s.symbol, s.interval, b.event_utc, b.open, b.high, b.low, b.close, b.volume, b.number_of_trades, b.bid_volume, b.ask_volume FROM bars b JOIN bar_series s ON s.id = b.series_id WHERE s.symbol = $symbol AND s.interval = $interval AND b.event_utc {comparison} $cursor ORDER BY b.event_utc {order}, b.id {order} LIMIT $limit";
+        command.Parameters.AddWithValue("$symbol", InstrumentCatalog.ExtractRoot(symbol));
+        command.Parameters.AddWithValue("$interval", interval);
+        command.Parameters.AddWithValue("$cursor", cursor.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var bars = new List<Bar>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read()) bars.Add(ReadBar(reader));
+        return before
+            ? bars.OrderBy(x => x.EventUtc).ThenBy(x => x.Id).GroupBy(x => x.EventUtc).Select(x => x.First()).ToArray()
+            : bars.GroupBy(x => x.EventUtc).Select(x => x.First()).ToArray();
     }
 
     private static BarSeriesInfo? SelectBarSeries(IReadOnlyList<BarSeriesInfo> available, int requestedMinutes)
@@ -2928,6 +3057,45 @@ public sealed class TradeFoundryDb
         CreatedUtc = ParseDate(reader.GetString(7))
     };
 
+    private static DailyJournalEntry ReadDailyJournal(SqliteDataReader reader) => new()
+    {
+        JournalId = Guid.Parse(reader.GetString(1)),
+        Date = DateOnly.Parse(reader.GetString(2), CultureInfo.InvariantCulture),
+        Revision = reader.GetInt32(3),
+        Text = reader.GetString(4),
+        UpdatedUtc = reader.IsDBNull(5) ? null : ParseDate(reader.GetString(5))
+    };
+
+    private static DailyJournalEntry ReadDailyJournalOrDefault(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, DateOnly date)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT id, journal_id, review_date, revision, journal_text, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? ReadDailyJournal(reader)
+            : new DailyJournalEntry { JournalId = journalId, Date = date };
+    }
+
+    private static void InsertDailyJournalHistory(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, DateOnly date, int revision, string action, string beforeJson, string afterJson, string reason, DateTimeOffset createdUtc)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "INSERT INTO daily_review_journal_history (id, journal_id, review_date, revision, action, before_json, after_json, reason, created_utc) VALUES ($id, $journal, $date, $revision, $action, $before, $after, $reason, $created)";
+        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$revision", revision);
+        command.Parameters.AddWithValue("$action", action);
+        command.Parameters.AddWithValue("$before", beforeJson);
+        command.Parameters.AddWithValue("$after", afterJson);
+        command.Parameters.AddWithValue("$reason", reason);
+        command.Parameters.AddWithValue("$created", createdUtc.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
     private static TradeReviewAnnotation EmptyTradeReview(Guid journalId, string reviewKey, int revision = 0) => new()
     {
         JournalId = journalId,
@@ -3090,7 +3258,7 @@ public sealed class TradeFoundryDb
 
     private static Trade ReadTrade(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), GroupingPolicy = reader.GetString(5), Sequence = reader.GetInt32(6), Symbol = reader.GetString(7), Account = reader.GetString(8), Direction = reader.GetString(9), EntryUtc = ParseDate(reader.GetString(10)), ExitUtc = reader.IsDBNull(11) ? null : ParseDate(reader.GetString(11)), EntryPrice = ParseDecimal(reader.GetString(12)), ExitPrice = reader.IsDBNull(13) ? null : ParseDecimal(reader.GetString(13)), Quantity = reader.GetInt32(14), ClosedQuantity = reader.GetInt32(15), GrossPoints = ParseDecimal(reader.GetString(16)), AveragePoints = ParseDecimal(reader.GetString(17)), GrossPnl = ParseDecimal(reader.GetString(18)), Fees = ParseDecimal(reader.GetString(19)), NetPnl = ParseDecimal(reader.GetString(20)), MaePoints = reader.IsDBNull(21) ? null : ParseDecimal(reader.GetString(21)), MfePoints = reader.IsDBNull(22) ? null : ParseDecimal(reader.GetString(22)), PointValue = ParseDecimal(reader.GetString(23)), TickSize = ParseDecimal(reader.GetString(24)), InitialStopPrice = NullableDecimal(reader, 25), InitialTargetPrice = NullableDecimal(reader, 26), InitialRiskPoints = NullableDecimal(reader, 27), InitialRiskCurrency = NullableDecimal(reader, 28), RMultiple = NullableDecimal(reader, 29), ExitType = reader.GetString(30), EntryOrderPrice = NullableDecimal(reader, 31), ExitOrderPrice = NullableDecimal(reader, 32), EntryChasePoints = NullableDecimal(reader, 33), ExitChasePoints = NullableDecimal(reader, 34), Status = reader.GetString(35), Note = reader.GetString(36), Instrument = string.IsNullOrWhiteSpace(reader.GetString(37)) ? InstrumentCatalog.ExtractRoot(reader.GetString(7)) : reader.GetString(37), ReviewKey = reader.GetString(38)
+        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), GroupingPolicy = reader.GetString(5), Sequence = reader.GetInt32(6), Symbol = reader.GetString(7), Account = reader.GetString(8), Direction = reader.GetString(9), EntryUtc = ParseDate(reader.GetString(10)), ExitUtc = reader.IsDBNull(11) ? null : ParseDate(reader.GetString(11)), EntryPrice = ParseDecimal(reader.GetString(12)), ExitPrice = reader.IsDBNull(13) ? null : ParseDecimal(reader.GetString(13)), Quantity = reader.GetInt32(14), ClosedQuantity = reader.GetInt32(15), GrossPoints = ParseDecimal(reader.GetString(16)), AveragePoints = ParseDecimal(reader.GetString(17)), GrossPnl = ParseDecimal(reader.GetString(18)), Fees = ParseDecimal(reader.GetString(19)), NetPnl = ParseDecimal(reader.GetString(20)), MaePoints = reader.IsDBNull(21) ? null : ParseDecimal(reader.GetString(21)), MfePoints = reader.IsDBNull(22) ? null : ParseDecimal(reader.GetString(22)), PointValue = ParseDecimal(reader.GetString(23)), TickSize = ParseDecimal(reader.GetString(24)), InitialStopPrice = NullableDecimal(reader, 25), InitialTargetPrice = NullableDecimal(reader, 26), InitialRiskPoints = NullableDecimal(reader, 27), InitialRiskCurrency = NullableDecimal(reader, 28), RMultiple = NullableDecimal(reader, 29), ExitType = reader.GetString(30), EntryOrderPrice = NullableDecimal(reader, 31), ExitOrderPrice = NullableDecimal(reader, 32), EntryChasePoints = NullableDecimal(reader, 33), ExitChasePoints = NullableDecimal(reader, 34), Status = reader.GetString(35), Note = reader.GetString(36), Instrument = string.IsNullOrWhiteSpace(reader.GetString(37)) ? InstrumentCatalog.ExtractRoot(reader.GetString(7)) : reader.GetString(37), ReviewKey = reader.GetString(38), HasReviewNotes = Convert.ToInt32(reader.GetValue(39), CultureInfo.InvariantCulture) != 0, HasReviewImages = Convert.ToInt32(reader.GetValue(40), CultureInfo.InvariantCulture) != 0
     };
 
     private static Bar ReadBar(SqliteDataReader reader) => new()

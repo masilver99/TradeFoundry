@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -37,16 +38,93 @@ public class TradeModel : PageModel
         Journal = _database.GetJournal(Trade.JournalId);
         if (Journal is null) return NotFound();
         ImportBatch = Trade.ImportBatchId.HasValue ? _database.GetImport(Trade.ImportBatchId.Value) : null;
-        var end = (Trade.ExitUtc ?? Trade.EntryUtc).AddMinutes(30);
-        var available = _database.GetBarSeries(Trade.JournalId, Trade.Symbol);
-        var requestedInterval = BarIntervals.TryNormalize(Interval, out var normalizedInterval, allowSource: false)
+        UsedDefaultBarInterval = string.IsNullOrWhiteSpace(Interval);
+        BarQuery = GetTradeBarQuery(Trade, Interval);
+        AvailableBarIntervals = BuildAvailableBarIntervals(BarQuery.AvailableSeries);
+        return Page();
+    }
+
+    public IActionResult OnGetCandleChart(Guid id, Guid? journalId, string? interval)
+    {
+        if (!journalId.HasValue)
+            return NotFound();
+
+        var trade = _database.GetTrade(journalId.Value, id);
+        if (trade is null)
+            return NotFound();
+
+        var journal = _database.GetJournal(trade.JournalId);
+        if (journal is null)
+            return NotFound();
+
+        var query = GetTradeBarQuery(trade, interval);
+        return new JsonResult(new
+        {
+            requestedInterval = query.RequestedInterval,
+            resolvedInterval = query.ResolvedInterval,
+            timeZone = TimeZoneCatalog.CanonicalId(journal.TimeZone),
+            barCount = query.Bars.Count,
+            availabilityNote = query.AvailabilityNote,
+            payload = query.Bars.Count == 0 ? null : ChartRenderer.CandlePayload(trade, query, journal.TimeZone)
+        });
+    }
+
+    public IActionResult OnGetCandleBars(Guid id, Guid? journalId, string? interval, string? direction, string? cursor, int limit = 300)
+    {
+        if (!journalId.HasValue)
+            return NotFound();
+
+        var trade = _database.GetTrade(journalId.Value, id);
+        if (trade is null)
+            return NotFound();
+
+        if (!string.Equals(direction, "before", StringComparison.OrdinalIgnoreCase) && !string.Equals(direction, "after", StringComparison.OrdinalIgnoreCase))
+            return BadRequest("direction must be before or after.");
+        if (string.IsNullOrWhiteSpace(cursor) || !DateTimeOffset.TryParse(cursor, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var cursorUtc) || cursorUtc.Offset != TimeSpan.Zero)
+            return BadRequest("cursor must be a valid UTC timestamp.");
+        if (limit is < 1 or > 500)
+            return BadRequest("limit must be between 1 and 500.");
+        if (!BarIntervals.TryNormalize(interval, out var normalizedInterval, allowSource: true))
+            return BadRequest("interval must be source or a positive minute-based interval.");
+
+        try
+        {
+            var page = _database.GetBarHistoryPage(trade.JournalId, trade.Symbol, normalizedInterval, cursorUtc.ToUniversalTime(), string.Equals(direction, "before", StringComparison.OrdinalIgnoreCase), limit);
+            return new JsonResult(new
+            {
+                bars = page.Bars.Select(bar => new
+                {
+                    time = bar.EventUtc.ToUnixTimeSeconds(),
+                    open = bar.Open,
+                    high = bar.High,
+                    low = bar.Low,
+                    close = bar.Close,
+                    volume = bar.Volume
+                }),
+                hasMore = page.HasMore,
+                interval = page.ResolvedInterval,
+                direction = direction!.ToLowerInvariant()
+            });
+        }
+        catch (FormatException exception)
+        {
+            return BadRequest(exception.Message);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            return BadRequest(exception.Message);
+        }
+    }
+
+    private BarQueryResult GetTradeBarQuery(Trade trade, string? interval)
+    {
+        var end = (trade.ExitUtc ?? trade.EntryUtc).AddMinutes(30);
+        var available = _database.GetBarSeries(trade.JournalId, trade.Symbol);
+        var requestedInterval = BarIntervals.TryNormalize(interval, out var normalizedInterval, allowSource: false)
             ? normalizedInterval
             : available.Where(x => x.IntervalMinutes > 0).OrderBy(x => x.IntervalMinutes).Select(x => x.Interval).FirstOrDefault()
                 ?? (available.Count > 0 ? available[0].Interval : "1m");
-        UsedDefaultBarInterval = string.IsNullOrWhiteSpace(Interval);
-        BarQuery = _database.GetBarWindow(Trade.JournalId, Trade.Symbol, Trade.EntryUtc.AddMinutes(-30), end, requestedInterval);
-        AvailableBarIntervals = BuildAvailableBarIntervals(BarQuery.AvailableSeries);
-        return Page();
+        return _database.GetBarWindow(trade.JournalId, trade.Symbol, trade.EntryUtc.AddMinutes(-30), end, requestedInterval);
     }
 
     private static IReadOnlyList<string> BuildAvailableBarIntervals(IReadOnlyList<BarSeriesInfo> series)

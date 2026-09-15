@@ -11,6 +11,7 @@
     var pageTitle = ViewData["Title"]?.ToString() ?? "Workspace";
     var pageKicker = ViewData["PageKicker"]?.ToString() ?? "TRADEFOUNDRY / WORKSPACE";
     var usesPlotly = ViewData["UsesPlotly"] as bool? == true;
+    var usesLightweightCharts = ViewData["UsesLightweightCharts"] as bool? == true;
     var exportOwnerName = authenticated ? User.Identity?.Name ?? "Owner" : string.Empty;
     var exportJournalName = activeJournal?.Name ?? string.Empty;
     string JournalPath(string page) => activeJournal is null ? "/" : $"/journal/{activeJournal.Id:D}/{page}";
@@ -105,7 +106,7 @@
                         {
                             <div class="col-auto tf-page-header-tools">
                                 <span class="tf-page-context">@activeJournal.Name <span>·</span> @activeJournal.TimeZone</span>
-                                @if (usesPlotly)
+                                @if (usesPlotly || usesLightweightCharts)
                                 {
                                     <details class="tf-chart-export-options" data-chart-export-options>
                                         <summary class="btn btn-sm btn-outline-secondary">PNG options</summary>
@@ -135,6 +136,10 @@ else
 @if (usesPlotly)
 {
     <script src="~/lib/plotly/plotly.min.js" asp-append-version="true"></script>
+}
+@if (usesLightweightCharts)
+{
+    <script src="~/lib/lightweight-charts/lightweight-charts.standalone.production.js" asp-append-version="true"></script>
 }
 <script src="~/js/site.js" asp-append-version="true"></script>
 @await RenderSectionAsync("Scripts", required: false)

@@ -1,13 +1,15 @@
 document.addEventListener("DOMContentLoaded", () => {
   initializeChartExportOptions();
   initializePlotlyCharts();
+  initializeEquityToggle();
+  initializeLightweightCharts();
   initializeAnalysisNavigation();
   initializeIndicatorNavigation();
   initializeChartInfo();
   initializeSectionInfo();
   initializePeriodSummary();
   initializePnlCalendar();
-  initializeReviewFocus();
+  initializeReviewWorkspace();
   initializeSidebarResize();
   initializeImportDropzones();
   initializeMarkdownEditors();
@@ -696,6 +698,262 @@ function initializePnlCalendar() {
   renderMonthly();
 }
 
+function initializeReviewWorkspace() {
+  const shell = document.querySelector("[data-review-workspace]")?.closest("[data-focus]");
+  const workspace = shell?.querySelector("[data-review-workspace]");
+  if (!shell || !workspace) return;
+
+  const editors = Array.from(workspace.querySelectorAll("[data-review-editor]"));
+  const rosterItems = Array.from(workspace.querySelectorAll("[data-review-select]"));
+  if (!editors.length) return;
+
+  shell.classList.add("is-enhanced");
+  const formState = new WeakMap();
+  const sections = ["review", "plan", "media"];
+  let activeKey = shell.dataset.activeKey || editors[0].dataset.reviewKey;
+  let activeSection = sections.includes(shell.dataset.reviewSection) ? shell.dataset.reviewSection : "review";
+
+  const stateFor = form => {
+    let state = formState.get(form);
+    if (!state) {
+      state = { savedSnapshot: reviewFormSnapshot(form), dirty: false, timer: null, savePromise: null };
+      formState.set(form, state);
+    }
+    return state;
+  };
+
+  const setStatus = (form, text, type = "") => {
+    const status = form.querySelector("[data-review-status]");
+    if (!status) return;
+    status.textContent = text;
+    status.classList.remove("is-saving", "is-error", "is-saved");
+    if (type) status.classList.add(`is-${type}`);
+  };
+
+  const setSection = (editor, section) => {
+    const nextSection = sections.includes(section) ? section : "review";
+    editor.querySelectorAll("[data-review-tab]").forEach(tab => {
+      const selected = tab.dataset.reviewTab === nextSection;
+      tab.classList.toggle("is-active", selected);
+      tab.setAttribute("aria-selected", String(selected));
+      tab.setAttribute("tabindex", selected ? "0" : "-1");
+    });
+    editor.querySelectorAll("[data-review-panel]").forEach(panel => {
+      const selected = panel.dataset.reviewPanel === nextSection;
+      panel.classList.toggle("is-active", selected);
+      panel.setAttribute("aria-hidden", String(!selected));
+    });
+  };
+
+  const updateUrl = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("focus", activeKey);
+    url.searchParams.set("section", activeSection);
+    window.history.replaceState({}, "", url);
+  };
+
+  const updateRosterState = key => {
+    const row = rosterItems.find(item => item.dataset.reviewKey === key);
+    if (row) {
+      const state = row.querySelector("[data-review-roster-state]");
+      if (state) state.textContent = "Review added";
+    }
+  };
+
+  const updateEffectiveValues = (form, payload) => {
+    const editor = form.closest("[data-review-editor]");
+    if (!editor) return;
+    const currency = shell.dataset.currency || "USD";
+    const formatMoney = value => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(Number(value || 0));
+    if (payload.trade) {
+      const pnl = editor.querySelector("[data-review-trade-pnl]");
+      const fees = editor.querySelector("[data-review-trade-fees]");
+      const row = rosterItems.find(item => item.dataset.reviewKey === editor.dataset.reviewKey);
+      const rowPnl = row?.querySelector("[data-review-roster-pnl]");
+      if (pnl) {
+        pnl.textContent = formatMoney(payload.trade.netPnl);
+        pnl.classList.toggle("text-success", Number(payload.trade.netPnl) >= 0);
+        pnl.classList.toggle("text-danger", Number(payload.trade.netPnl) < 0);
+      }
+      if (fees) fees.textContent = `All-in commission: ${formatMoney(payload.trade.fees)} · ${payload.trade.hasOverride ? "per-trade override" : "imported/settings-derived"}`;
+      if (rowPnl && rowPnl.textContent.trim() !== "OPEN") {
+        rowPnl.textContent = formatMoney(payload.trade.netPnl);
+        rowPnl.classList.toggle("text-success", Number(payload.trade.netPnl) >= 0);
+        rowPnl.classList.toggle("text-danger", Number(payload.trade.netPnl) < 0);
+      }
+    }
+    if (payload.day) {
+      const dayPnl = workspace.querySelector(".tf-review-roster-summary strong");
+      if (dayPnl) {
+        dayPnl.textContent = formatMoney(payload.day.realizedNetPnl);
+        dayPnl.classList.toggle("text-success", Number(payload.day.realizedNetPnl) >= 0);
+        dayPnl.classList.toggle("text-danger", Number(payload.day.realizedNetPnl) < 0);
+      }
+    }
+  };
+
+  const saveReview = form => {
+    const state = stateFor(form);
+    if (state.savePromise) return state.savePromise;
+    if (!state.dirty) return Promise.resolve(true);
+
+    clearTimeout(state.timer);
+    const sentSnapshot = reviewFormSnapshot(form);
+    state.savePromise = (async () => {
+      setStatus(form, "Saving…", "saving");
+      const response = await fetch(form.dataset.autosaveUrl, {
+        method: "POST",
+        body: new FormData(form),
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      let payload = {};
+      try { payload = await response.json(); } catch { /* fall through to the generic error */ }
+      if (!response.ok) {
+        if (response.status === 409 || payload.conflict) {
+          setStatus(form, "Conflict · reload latest values", "error");
+          return false;
+        }
+        throw new Error(payload.message || "The review could not be saved.");
+      }
+
+      const revision = form.querySelector("input[name=expectedRevision]");
+      if (revision && payload.revision !== undefined) revision.value = payload.revision;
+      state.savedSnapshot = sentSnapshot;
+      state.dirty = reviewFormSnapshot(form) !== state.savedSnapshot;
+      updateEffectiveValues(form, payload);
+      updateRosterState(form.closest("[data-review-editor]")?.dataset.reviewKey || "");
+      setStatus(form, state.dirty ? "Saving changes…" : "Saved", state.dirty ? "saving" : "saved");
+      if (state.dirty) window.setTimeout(() => saveReview(form), 350);
+      return true;
+    })().catch(error => {
+      console.error("Review autosave failed.", error);
+      setStatus(form, error.message || "Save failed", "error");
+      return false;
+    }).finally(() => {
+      state.savePromise = null;
+    });
+    return state.savePromise;
+  };
+
+  const scheduleSave = (form, immediate = false) => {
+    const state = stateFor(form);
+    state.dirty = reviewFormSnapshot(form) !== state.savedSnapshot;
+    if (!state.dirty) return Promise.resolve(true);
+    clearTimeout(state.timer);
+    if (immediate) return saveReview(form);
+    state.timer = window.setTimeout(() => saveReview(form), 450);
+    setStatus(form, "Unsaved", "");
+    return Promise.resolve(true);
+  };
+
+  const flushActive = async () => {
+    const editor = editors.find(item => item.dataset.reviewKey === activeKey);
+    const form = editor?.querySelector("[data-review-form]");
+    if (!form) return true;
+    const state = stateFor(form);
+    clearTimeout(state.timer);
+    if (state.savePromise) return await state.savePromise;
+    return await saveReview(form);
+  };
+
+  const activate = async (key, options = {}) => {
+    if (!key || key === activeKey) return true;
+    if (!await flushActive()) return false;
+    const next = editors.find(editor => editor.dataset.reviewKey === key);
+    if (!next) return false;
+    activeKey = key;
+    shell.dataset.activeKey = key;
+    editors.forEach(editor => {
+      const selected = editor === next;
+      editor.classList.toggle("is-active", selected);
+      editor.setAttribute("aria-hidden", String(!selected));
+    });
+    rosterItems.forEach(item => {
+      const selected = item.dataset.reviewKey === key;
+      item.classList.toggle("is-active", selected);
+      item.setAttribute("aria-pressed", String(selected));
+      if (selected && options.scrollRoster !== false) item.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+    setSection(next, activeSection);
+    updateUrl();
+    if (options.focus) next.querySelector("[data-review-tab].is-active")?.focus({ preventScroll: true });
+    return true;
+  };
+
+  editors.forEach(editor => {
+    const form = editor.querySelector("[data-review-form]");
+    if (!form) return;
+    stateFor(form);
+    form.querySelectorAll("input:not([type=hidden]), textarea, select").forEach(field => {
+      field.addEventListener("input", () => scheduleSave(form));
+      field.addEventListener("change", () => scheduleSave(form));
+      field.addEventListener("blur", () => scheduleSave(form));
+    });
+    form.addEventListener("submit", event => {
+      if (!shell.classList.contains("is-enhanced")) return;
+      event.preventDefault();
+      scheduleSave(form, true);
+    });
+    editor.querySelectorAll("[data-review-tab]").forEach(tab => tab.addEventListener("click", () => {
+      activeSection = tab.dataset.reviewTab || "review";
+      setSection(editor, activeSection);
+      updateUrl();
+    }));
+    editor.querySelector("[data-review-prev]")?.addEventListener("click", () => {
+      const index = Number(editor.dataset.reviewIndex || 1);
+      const previous = editors[index - 2];
+      if (previous) void activate(previous.dataset.reviewKey, { focus: true });
+    });
+    editor.querySelector("[data-review-next]")?.addEventListener("click", () => {
+      const index = Number(editor.dataset.reviewIndex || 1);
+      const next = editors[index];
+      if (next) void activate(next.dataset.reviewKey, { focus: true });
+    });
+  });
+
+  rosterItems.forEach(item => item.addEventListener("click", () => void activate(item.dataset.reviewKey, { focus: true })));
+  editors.forEach(editor => setSection(editor, activeSection));
+  const initial = editors.find(editor => editor.dataset.reviewKey === activeKey) || editors[0];
+  if (initial && initial.dataset.reviewKey !== activeKey) activeKey = initial.dataset.reviewKey;
+  void activate(activeKey, { scrollRoster: false });
+
+  const dateForm = shell.querySelector(".tf-review-date-form");
+  dateForm?.addEventListener("submit", event => {
+    event.preventDefault();
+    void flushActive().then(ok => { if (ok) dateForm.submit(); });
+  });
+  shell.addEventListener("click", event => {
+    const link = event.target.closest("a");
+    if (!link || !link.href || !link.href.includes("/review")) return;
+    event.preventDefault();
+    void flushActive().then(ok => { if (ok) window.location.href = link.href; });
+  });
+  window.addEventListener("beforeunload", event => {
+    const editor = editors.find(item => item.dataset.reviewKey === activeKey);
+    const form = editor?.querySelector("[data-review-form]");
+    if (form && stateFor(form).dirty) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  });
+
+  if (shell.dataset.focus) {
+    window.requestAnimationFrame(() => {
+      initial?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  }
+}
+
+function reviewFormSnapshot(form) {
+  const values = [];
+  for (const [key, value] of new FormData(form).entries()) {
+    if (key === "__RequestVerificationToken" || key === "expectedRevision" || value instanceof File) continue;
+    values.push(`${key}=${String(value)}`);
+  }
+  return values.join("&");
+}
+
 function initializeReviewFocus() {
   const shell = document.querySelector("[data-focus]");
   const focus = shell?.dataset.focus;
@@ -737,29 +995,153 @@ function initializePlotlyCharts() {
 function renderPlotlyChart(node) {
   if (node.dataset.plotlyInitialized === "true") return;
 
-  node.dataset.plotlyInitialized = "true";
-
   if (!window.Plotly) {
+    node.dataset.plotlyInitialized = "true";
     showPlotlyError(node, new Error("Plotly.js failed to load."));
     return;
   }
 
   try {
     const payload = JSON.parse(node.dataset.plotlyChart || "{}");
-    const payloadConfig = payload.config || {};
-    const config = {
-      responsive: true,
-      displaylogo: false,
-      ...payloadConfig,
-      modeBarButtonsToRemove: Array.from(new Set([...(payloadConfig.modeBarButtonsToRemove || []), "toImage"])),
-      modeBarButtonsToAdd: [...(payloadConfig.modeBarButtonsToAdd || []), createChartExportButton()]
-    };
-
-    window.Plotly.newPlot(node, payload.data || [], payload.layout || {}, config)
-      .then(() => node.removeAttribute("aria-busy"))
-      .catch(error => showPlotlyError(node, error));
+    applyPlotlyPayload(node, payload);
   } catch (error) {
     showPlotlyError(node, error);
+  }
+}
+
+function buildPlotlyConfig(payload) {
+  const payloadConfig = payload.config || {};
+  return {
+    responsive: true,
+    displaylogo: false,
+    ...payloadConfig,
+    modeBarButtonsToRemove: Array.from(new Set([...(payloadConfig.modeBarButtonsToRemove || []), "toImage"])),
+    modeBarButtonsToAdd: [...(payloadConfig.modeBarButtonsToAdd || []), createChartExportButton()]
+  };
+}
+
+function applyPlotlyPayload(node, payload) {
+  if (!window.Plotly) {
+    node.dataset.plotlyInitialized = "true";
+    showPlotlyError(node, new Error("Plotly.js failed to load."));
+    return Promise.resolve(false);
+  }
+
+  const wasInitialized = node.dataset.plotlyInitialized === "true";
+  node.dataset.plotlyInitialized = "true";
+
+  try {
+    const config = buildPlotlyConfig(payload);
+    const renderer = wasInitialized && typeof window.Plotly.react === "function"
+      ? window.Plotly.react(node, payload.data || [], payload.layout || {}, config)
+      : window.Plotly.newPlot(node, payload.data || [], payload.layout || {}, config);
+
+    return Promise.resolve(renderer)
+      .then(() => {
+        node.removeAttribute("aria-busy");
+        return true;
+      })
+      .catch(error => {
+        showPlotlyError(node, error);
+        return false;
+      });
+  } catch (error) {
+    showPlotlyError(node, error);
+    return Promise.resolve(false);
+  }
+}
+
+function initializeEquityToggle() {
+  document.querySelectorAll("[data-equity-toggle-form]").forEach(form => {
+    if (form.dataset.equityToggleInitialized === "true") return;
+
+    const checkbox = form.querySelector("input[name=daily]");
+    const card = form.closest(".tf-chart-card");
+    const host = card?.querySelector("[data-equity-chart-host]");
+    if (!checkbox || !host) return;
+
+    form.dataset.equityToggleInitialized = "true";
+    form.dataset.equityCurrentDaily = String(checkbox.checked);
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      updateEquityChart(form, checkbox, host);
+    });
+  });
+}
+
+async function updateEquityChart(form, checkbox, host) {
+  if (form.dataset.equityToggleLoading === "true") return;
+
+  const previousDaily = form.dataset.equityCurrentDaily === "true";
+  const requestedDaily = checkbox.checked;
+  const requestId = String((Number(form.dataset.equityToggleRequest || "0") || 0) + 1);
+  form.dataset.equityToggleRequest = requestId;
+  form.dataset.equityToggleLoading = "true";
+  form.setAttribute("aria-busy", "true");
+  checkbox.disabled = true;
+
+  try {
+    const url = new URL(form.action || window.location.href, window.location.href);
+    const journalId = form.querySelector("input[name=journalId]")?.value;
+    if (!journalId) throw new Error("The equity chart journal is missing.");
+    url.searchParams.set("handler", "EquityChart");
+    url.searchParams.set("journalId", journalId);
+    if (requestedDaily) url.searchParams.set("daily", "true");
+    else url.searchParams.delete("daily");
+
+    const response = await fetch(url, {
+      headers: { Accept: "text/html" },
+      credentials: "same-origin"
+    });
+    if (!response.ok) throw new Error(`Equity chart request failed (${response.status}).`);
+
+    const html = await response.text();
+    const fragment = new DOMParser().parseFromString(html, "text/html");
+    const nextChart = fragment.querySelector("[data-plotly-chart]");
+    const nextEmpty = fragment.querySelector(".chart-empty");
+    if (!nextChart && !nextEmpty) throw new Error("The equity chart response was invalid.");
+    if (requestId !== form.dataset.equityToggleRequest) return;
+
+    if (nextChart) {
+      const currentChart = host.querySelector(".tf-plotly-chart");
+      const chart = currentChart || nextChart.cloneNode(true);
+      if (!currentChart) host.replaceChildren(chart);
+
+      chart.dataset.plotlyChart = nextChart.dataset.plotlyChart || "";
+      const ariaLabel = nextChart.getAttribute("aria-label");
+      if (ariaLabel) chart.setAttribute("aria-label", ariaLabel);
+      const rendered = await applyPlotlyPayload(chart, JSON.parse(chart.dataset.plotlyChart || "{}"));
+      if (!rendered) throw new Error("The equity chart could not be rendered.");
+    } else {
+      const currentChart = host.querySelector(".tf-plotly-chart");
+      if (currentChart && currentChart.dataset.plotlyInitialized === "true" && window.Plotly?.purge) {
+        window.Plotly.purge(currentChart);
+      }
+      host.replaceChildren(nextEmpty.cloneNode(true));
+    }
+
+    const card = form.closest(".tf-chart-card");
+    const viewLabel = card?.querySelector("[data-equity-view-label]");
+    if (viewLabel) viewLabel.textContent = requestedDaily ? "Daily" : "by trade";
+    checkbox.setAttribute("aria-label", requestedDaily ? "Show equity curve by trade" : "Show Daily equity curve");
+    form.dataset.equityCurrentDaily = String(requestedDaily);
+
+    const displayUrl = new URL(window.location.href);
+    if (requestedDaily) displayUrl.searchParams.set("daily", "true");
+    else displayUrl.searchParams.delete("daily");
+    displayUrl.searchParams.delete("handler");
+    window.history.replaceState(null, "", `${displayUrl.pathname}${displayUrl.search}${displayUrl.hash}`);
+  } catch (error) {
+    if (requestId === form.dataset.equityToggleRequest) {
+      checkbox.checked = previousDaily;
+      console.error("TradeFoundry equity chart update failed.", error);
+    }
+  } finally {
+    if (requestId === form.dataset.equityToggleRequest) {
+      form.dataset.equityToggleLoading = "false";
+      form.removeAttribute("aria-busy");
+      checkbox.disabled = false;
+    }
   }
 }
 
@@ -888,6 +1270,427 @@ function chartExportFilename(title) {
 
 function showPlotlyError(node, error) {
   console.error("Plotly chart failed to render.", error);
+  node.removeAttribute("aria-busy");
+  const fallback = document.createElement("div");
+  fallback.className = "chart-empty";
+  fallback.setAttribute("role", "status");
+  fallback.textContent = "This chart could not be rendered.";
+  node.replaceChildren(fallback);
+}
+
+function initializeLightweightCharts() {
+  const chartNodes = Array.from(document.querySelectorAll("[data-lightweight-chart]"));
+  if (!chartNodes.length) return;
+
+  chartNodes.forEach(node => {
+    node.setAttribute("aria-busy", "true");
+    renderLightweightChart(node);
+  });
+}
+
+function renderLightweightChart(node) {
+  if (node.dataset.lightweightInitialized === "true") return;
+  node.dataset.lightweightInitialized = "true";
+
+  if (!window.LightweightCharts) {
+    showLightweightError(node, new Error("Lightweight Charts failed to load."));
+    return;
+  }
+
+  try {
+    const payload = JSON.parse(node.dataset.lightweightChart || "{}");
+    const library = window.LightweightCharts;
+    const chart = library.createChart(node, {
+      autoSize: true,
+      height: 420,
+      attributionLogo: true,
+      layout: {
+        background: { type: "solid", color: "#0d1117" },
+        textColor: "#8b949e",
+        panes: {
+          separatorColor: "#30363d",
+          separatorHoverColor: "#58a6ff",
+          enableResize: true
+        }
+      },
+      grid: {
+        vertLines: { color: "#21262d" },
+        horzLines: { color: "#21262d" }
+      },
+      rightPriceScale: {
+        borderColor: "#30363d",
+        scaleMargins: { top: 0.08, bottom: 0.04 }
+      },
+      timeScale: {
+        borderColor: "#30363d",
+        rightOffset: 5,
+        barSpacing: 7,
+        timeVisible: true,
+        secondsVisible: false
+      },
+      crosshair: {
+        vertLine: { color: "#8b949e", width: 1, style: 3, labelBackgroundColor: "#30363d" },
+        horzLine: { color: "#8b949e", width: 1, style: 3, labelBackgroundColor: "#30363d" }
+      },
+      handleScroll: {
+        mouseWheel: false,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: { time: true, price: true },
+        axisDoubleClickReset: true
+      },
+      localization: { timeFormatter: value => formatLightweightTime(value, payload.timeZone) }
+    });
+
+    const candles = chart.addSeries(library.CandlestickSeries, {
+      upColor: "#3fb950",
+      downColor: "#f85149",
+      borderVisible: false,
+      wickUpColor: "#3fb950",
+      wickDownColor: "#f85149",
+      lastValueVisible: false,
+      priceLineVisible: false
+    });
+    const volume = chart.addSeries(library.HistogramSeries, {
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+      base: 0,
+      lastValueVisible: false,
+      priceLineVisible: false
+    }, 1);
+    const pathOutline = chart.addSeries(library.LineSeries, {
+      color: "#000000",
+      lineWidth: 4,
+      lineStyle: 1,
+      crosshairMarkerVisible: false,
+      lastValueVisible: false,
+      priceLineVisible: false
+    });
+    const path = chart.addSeries(library.LineSeries, {
+      color: "#ffffff",
+      lineWidth: 2,
+      lineStyle: 1,
+      crosshairMarkerVisible: false,
+      lastValueVisible: false,
+      priceLineVisible: false
+    });
+
+    const state = {
+      node,
+      bars: new Map(),
+      beforeDone: false,
+      afterDone: false,
+      inFlight: { before: false, after: false },
+      failed: null,
+      lastRangeKey: "",
+      historyReady: false,
+      dataVersion: 0,
+      chart,
+      candles,
+      volume,
+      pathOutline,
+      path,
+      payload
+    };
+
+    normalizeLightweightBars(payload.bars || []).forEach(bar => state.bars.set(bar.time, bar));
+    const tradePath = normalizeLightweightPath(payload.trade?.path || []);
+    pathOutline.setData(tradePath);
+    path.setData(tradePath);
+    applyLightweightData(state, false);
+    addLightweightMarkers(state);
+    chart.timeScale().setVisibleRange({ from: payload.focus.from, to: payload.focus.to });
+    if (chart.panes().length > 1) chart.panes()[1].setHeight(96);
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (!state.historyReady) return;
+      if (!range) return;
+      const rangeKey = Math.floor(range.from) + ":" + Math.ceil(range.to);
+      if (state.failed && state.failed.rangeKey !== rangeKey) state.failed = null;
+      state.lastRangeKey = rangeKey;
+      const values = sortedLightweightBars(state);
+      if (!values.length) return;
+      const edgeThreshold = Math.min(20, Math.max(5, Math.floor(values.length * 0.2)));
+      if (range.from < edgeThreshold && !state.beforeDone && !state.inFlight.before && (!state.failed || state.failed.direction !== "before"))
+        loadLightweightBars(state, "before", rangeKey);
+      if (range.to > values.length - 1 - edgeThreshold && !state.afterDone && !state.inFlight.after && (!state.failed || state.failed.direction !== "after"))
+        loadLightweightBars(state, "after", rangeKey);
+    });
+
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => { state.historyReady = true; }));
+
+    const card = node.closest(".tf-chart-card");
+    card?.querySelector("[data-lightweight-focus]")?.addEventListener("click", () => focusLightweightTrade(state));
+    card?.querySelector("[data-lightweight-export]")?.addEventListener("click", () => downloadLightweightChart(node, state));
+    const timeframeForm = card?.querySelector("[data-lightweight-timeframe-form]");
+    const timeframeSelect = timeframeForm?.querySelector("select[name=interval]");
+    if (timeframeForm && timeframeSelect) {
+      timeframeSelect.dataset.lastInterval = timeframeSelect.value;
+      timeframeForm.addEventListener("submit", event => {
+        event.preventDefault();
+        void updateLightweightTimeframe(state, timeframeForm);
+      });
+    }
+    node._tradeFoundryLightweightState = state;
+    node.removeAttribute("aria-busy");
+  } catch (error) {
+    showLightweightError(node, error);
+  }
+}
+
+function normalizeLightweightBars(bars) {
+  return (Array.isArray(bars) ? bars : []).map(bar => ({
+    time: Number(bar.time),
+    open: Number(bar.open),
+    high: Number(bar.high),
+    low: Number(bar.low),
+    close: Number(bar.close),
+    volume: Number(bar.volume || 0)
+  })).filter(bar => Number.isFinite(bar.time) && Number.isFinite(bar.open) && Number.isFinite(bar.high) && Number.isFinite(bar.low) && Number.isFinite(bar.close));
+}
+
+function normalizeLightweightPath(path) {
+  return (Array.isArray(path) ? path : []).map(point => ({ time: Number(point.time), value: Number(point.value) })).filter(point => Number.isFinite(point.time) && Number.isFinite(point.value)).sort((left, right) => left.time - right.time);
+}
+
+function sortedLightweightBars(state) {
+  return Array.from(state.bars.values()).sort((left, right) => left.time - right.time);
+}
+
+function applyLightweightData(state, preserveRange, previousFirst) {
+  const previousRange = preserveRange ? state.chart.timeScale().getVisibleLogicalRange() : null;
+  const oldFirst = preserveRange ? previousFirst ?? sortedLightweightBars(state)[0]?.time : undefined;
+  const values = sortedLightweightBars(state);
+  state.candles.setData(values.map(bar => ({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close })));
+  state.volume.setData(values.map(bar => ({ time: bar.time, value: bar.volume, color: bar.close >= bar.open ? "#3fb95088" : "#f8514988" })));
+  if (!previousRange || oldFirst === undefined) return;
+  const addedBefore = Math.max(0, values.findIndex(bar => bar.time === oldFirst));
+  state.chart.timeScale().setVisibleLogicalRange({ from: previousRange.from + addedBefore, to: previousRange.to + addedBefore });
+}
+
+async function updateLightweightTimeframe(state, form) {
+  const select = form.querySelector("select[name=interval]");
+  if (!select?.value) return;
+
+  const requestedInterval = select.value;
+  const previousInterval = select.dataset.lastInterval || requestedInterval;
+  const requestVersion = ++state.dataVersion;
+  const url = new URL(form.action, window.location.href);
+  url.searchParams.set("handler", "CandleChart");
+  url.searchParams.set("interval", requestedInterval);
+  state.historyReady = false;
+  state.inFlight.before = false;
+  state.inFlight.after = false;
+  state.failed = null;
+  select.disabled = true;
+  form.setAttribute("aria-busy", "true");
+  state.node.setAttribute("aria-busy", "true");
+  setLightweightStatus(state, `Loading ${select.options[select.selectedIndex]?.textContent?.trim() || requestedInterval} candles…`);
+
+  try {
+    const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error("Timeframe request returned " + response.status);
+    const result = await response.json();
+    if (requestVersion !== state.dataVersion) return;
+
+    applyLightweightTimeframeData(state, result);
+    updateLightweightTimeframeUi(state, result);
+    select.dataset.lastInterval = result.requestedInterval || requestedInterval;
+
+    const pageUrl = new URL(window.location.href);
+    pageUrl.searchParams.set("interval", result.requestedInterval || requestedInterval);
+    window.history.replaceState({}, "", pageUrl);
+    setLightweightStatus(state, result.payload ? "" : result.availabilityNote || "No matching OHLCV bars for this timeframe.");
+  } catch (error) {
+    if (requestVersion !== state.dataVersion) return;
+    select.value = previousInterval;
+    state.historyReady = true;
+    setLightweightStatus(state, "The selected timeframe could not be loaded.");
+    console.error("TradeFoundry candle timeframe failed to load.", error);
+  } finally {
+    if (requestVersion === state.dataVersion) {
+      select.disabled = false;
+      form.removeAttribute("aria-busy");
+      state.node.removeAttribute("aria-busy");
+    }
+  }
+}
+
+function applyLightweightTimeframeData(state, result) {
+  const payload = result.payload;
+  state.historyReady = false;
+  state.payload = payload;
+  state.bars.clear();
+  state.beforeDone = !payload;
+  state.afterDone = !payload;
+  state.inFlight.before = false;
+  state.inFlight.after = false;
+  state.failed = null;
+  state.lastRangeKey = "";
+
+  if (!payload) {
+    state.candles.setData([]);
+    state.volume.setData([]);
+    state.pathOutline.setData([]);
+    state.path.setData([]);
+    state.markers?.setMarkers?.([]);
+    state.historyReady = true;
+    return;
+  }
+
+  normalizeLightweightBars(payload.bars || []).forEach(bar => state.bars.set(bar.time, bar));
+  const tradePath = normalizeLightweightPath(payload.trade?.path || []);
+  state.pathOutline.setData(tradePath);
+  state.path.setData(tradePath);
+  applyLightweightData(state, false);
+  addLightweightMarkers(state);
+  state.chart.timeScale().setVisibleRange({ from: payload.focus.from, to: payload.focus.to });
+  state.historyReady = true;
+}
+
+function updateLightweightTimeframeUi(state, result) {
+  const card = state.node.closest(".tf-chart-card");
+  const payload = result.payload;
+  const count = payload?.bars?.length ?? result.barCount ?? 0;
+  const interval = result.resolvedInterval || payload?.interval || "source";
+  const timeZone = result.timeZone || payload?.timeZone || "UTC";
+  const summary = card?.querySelector("[data-lightweight-summary]");
+  if (summary) summary.textContent = `${count} bars · ${interval} · ${timeZone}`;
+
+  const defaultNote = card?.querySelector("[data-lightweight-default-note]");
+  if (defaultNote) defaultNote.hidden = true;
+  const availabilityNote = card?.querySelector("[data-lightweight-availability-note]");
+  if (availabilityNote) {
+    availabilityNote.textContent = result.availabilityNote || "";
+    availabilityNote.hidden = !result.availabilityNote;
+  }
+  state.node.setAttribute("aria-label", `Candlestick chart for ${payload?.symbol || state.payload?.symbol || "trade"}, ${interval}, ${count} bars`);
+}
+
+function addLightweightMarkers(state) {
+  if (typeof window.LightweightCharts.createSeriesMarkers !== "function") return;
+  const trade = state.payload.trade || {};
+  const markers = [];
+  const addEvent = event => {
+    if (!event) return;
+    const time = Number(event.time);
+    if (!Number.isFinite(time)) return;
+
+    markers.push({
+      id: event.label + "-bar",
+      time,
+      position: event.barPosition,
+      color: event.color,
+      shape: event.shape,
+      text: event.label,
+      size: 1
+    });
+  };
+  addEvent(trade.entry);
+  addEvent(trade.exit);
+  markers.sort((left, right) => left.time - right.time || String(left.id).localeCompare(String(right.id)));
+  if (state.markers?.setMarkers) state.markers.setMarkers(markers);
+  else state.markers = window.LightweightCharts.createSeriesMarkers(state.candles, markers);
+}
+
+function focusLightweightTrade(state) {
+  if (!state.payload?.focus) return;
+  state.chart.timeScale().setVisibleRange({ from: state.payload.focus.from, to: state.payload.focus.to });
+  state.candles.priceScale().applyOptions({ autoScale: true });
+  setLightweightStatus(state, "");
+}
+
+async function loadLightweightBars(state, direction, rangeKey) {
+  const values = sortedLightweightBars(state);
+  if (!state.payload || !values.length) return;
+  const dataVersion = state.dataVersion;
+  const cursorTime = direction === "before" ? values[0].time : values[values.length - 1].time;
+  const cursor = new Date(cursorTime * 1000).toISOString();
+  state.inFlight[direction] = true;
+  setLightweightStatus(state, "Loading more candles…");
+  try {
+    const url = state.payload.historyUrl + "&direction=" + encodeURIComponent(direction) + "&cursor=" + encodeURIComponent(cursor) + "&limit=300";
+    const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error("History request returned " + response.status);
+    const result = await response.json();
+    if (dataVersion !== state.dataVersion) return;
+    const newBars = normalizeLightweightBars(result.bars || []);
+    const previousFirst = values[0].time;
+    const previousSize = state.bars.size;
+    newBars.forEach(bar => state.bars.set(bar.time, bar));
+    const addedCount = state.bars.size - previousSize;
+    const exhausted = !result.hasMore || newBars.length === 0 || addedCount === 0;
+    if (direction === "before") state.beforeDone = exhausted;
+    else state.afterDone = exhausted;
+    state.failed = null;
+    applyLightweightData(state, true, previousFirst);
+    setLightweightStatus(state, "");
+  } catch (error) {
+    if (dataVersion !== state.dataVersion) return;
+    state.failed = { direction, rangeKey };
+    setLightweightStatus(state, "More candles could not be loaded. Move the chart to retry.");
+    console.error("TradeFoundry candle history failed to load.", error);
+  } finally {
+    if (dataVersion === state.dataVersion) state.inFlight[direction] = false;
+  }
+}
+
+function setLightweightStatus(state, message) {
+  const status = state.node?.parentElement?.querySelector("[data-lightweight-status]");
+  if (status) status.textContent = message;
+}
+
+function formatLightweightTime(value, timeZone) {
+  const date = new Date(Number(value) * 1000);
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: timeZone || "UTC", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  }
+}
+
+function downloadLightweightChart(node, state) {
+  try {
+    const chartCanvas = state.chart.takeScreenshot(true, false);
+    const card = node.closest(".tf-chart-card");
+    const title = card?.querySelector(".tf-card-title")?.textContent?.replace(/\s+/g, " ").trim() || node.getAttribute("aria-label") || "TradeFoundry chart";
+    const context = getChartExportContext();
+    const contextLines = [];
+    if (context.owner) contextLines.push("Owner: " + context.owner);
+    if (context.journal) contextLines.push("Journal: " + context.journal);
+    const scale = 2;
+    const width = Math.max(chartCanvas.width, 480 * scale);
+    const headerHeight = (44 + contextLines.length * 15) * scale;
+    const output = document.createElement("canvas");
+    output.width = width;
+    output.height = chartCanvas.height + headerHeight;
+    const context2d = output.getContext("2d");
+    context2d.fillStyle = "#0d1117";
+    context2d.fillRect(0, 0, output.width, output.height);
+    context2d.fillStyle = "#c9d1d9";
+    context2d.font = (13 * scale) + "px Segoe UI, system-ui, sans-serif";
+    context2d.fillText(title, 16 * scale, 19 * scale);
+    context2d.fillStyle = "#8b949e";
+    context2d.font = (10 * scale) + "px Segoe UI, system-ui, sans-serif";
+    contextLines.forEach((line, index) => context2d.fillText(line, 16 * scale, (35 + index * 15) * scale));
+    context2d.drawImage(chartCanvas, 0, headerHeight);
+    const link = document.createElement("a");
+    link.download = chartExportFilename(title);
+    link.href = output.toDataURL("image/png");
+    link.click();
+  } catch (error) {
+    setLightweightStatus(state, "The chart image could not be downloaded.");
+    console.error("TradeFoundry Lightweight Charts PNG export failed.", error);
+  }
+}
+
+function showLightweightError(node, error) {
+  console.error("Lightweight Chart failed to render.", error);
   node.removeAttribute("aria-busy");
   const fallback = document.createElement("div");
   fallback.className = "chart-empty";

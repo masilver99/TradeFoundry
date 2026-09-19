@@ -9,8 +9,13 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeSectionInfo();
   initializePeriodSummary();
   initializePnlCalendar();
+  initializeDailyJournal();
   initializeReviewWorkspace();
+  initializeReviewAttachmentPaste();
+  initializeReviewAttachmentCaptions();
+  initializeReviewAttachmentRemovals();
   initializeSidebarResize();
+  initializeSidebarVisibility();
   initializeImportDropzones();
   initializeMarkdownEditors();
 
@@ -72,6 +77,351 @@ function initializeImportDropzones() {
   });
 }
 
+function updateReviewImageIndicator(key, hasImages) {
+  const row = Array.from(document.querySelectorAll("[data-review-select]")).find(item => item.dataset.reviewKey === key);
+  row?.querySelector("[data-review-indicator=images]")?.toggleAttribute("hidden", !hasImages);
+}
+
+function initializeReviewAttachmentPaste() {
+  const supportedTypes = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
+  document.querySelectorAll("[data-review-attachment-form]").forEach(form => {
+    const zone = form.querySelector("[data-review-paste-zone]");
+    const fileInput = form.querySelector("[data-review-image-input]");
+    const preview = form.querySelector("[data-review-image-preview]");
+    const previewImage = form.querySelector("[data-review-image-preview-image]");
+    const previewName = form.querySelector("[data-review-image-preview-name]");
+    const status = form.querySelector("[data-review-image-paste-status]");
+    const submitButton = form.querySelector("[data-review-attachment-submit]");
+    const editor = form.closest("[data-review-editor]");
+    const attachments = editor?.querySelector("[data-review-attachments]");
+    const template = editor?.querySelector("[data-review-attachment-template]");
+    if (!zone || !fileInput) return;
+
+    let objectUrl = "";
+    let uploading = false;
+    const setStatus = text => {
+      if (status) status.textContent = text;
+    };
+    const showFile = file => {
+      if (!file) return;
+      if (!supportedTypes.has(String(file.type || "").toLowerCase())) {
+        setStatus("Only PNG, JPEG, and WebP images are supported.");
+        return;
+      }
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = URL.createObjectURL(file);
+      if (previewImage) previewImage.src = objectUrl;
+      if (previewName) previewName.textContent = `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB`;
+      if (preview) preview.hidden = false;
+      setStatus("Image ready. Add a caption, then attach it.");
+    };
+
+    const appendAttachment = attachment => {
+      if (!attachments || !template?.content?.firstElementChild) throw new Error("The attachment area is unavailable.");
+      const card = template.content.firstElementChild.cloneNode(true);
+      const link = card.querySelector("[data-review-attachment-link]");
+      const image = card.querySelector("[data-review-attachment-image]");
+      const captionForm = card.querySelector("[data-review-attachment-caption-form]");
+      const captionInput = card.querySelector("[data-review-attachment-caption]");
+      const captionLabel = card.querySelector("[data-review-attachment-caption-label]");
+      const removeForm = card.querySelector("[data-review-attachment-remove-form]");
+      const meta = card.querySelector("[data-review-attachment-meta]");
+      const id = String(attachment.id);
+      const fileName = String(attachment.originalFileName || "screenshot");
+      const caption = String(attachment.caption || "");
+      const url = String(attachment.url || "");
+
+      card.dataset.attachmentId = id;
+      if (link) link.href = url;
+      if (image) {
+        image.src = url;
+        image.alt = caption || fileName;
+        image.dataset.captionFallback = fileName;
+      }
+      if (captionForm) {
+        if (attachment.captionUrl) {
+          captionForm.action = attachment.captionUrl;
+          captionForm.dataset.captionUrl = attachment.captionUrl;
+        }
+        const idInput = captionForm.querySelector('input[name="attachmentId"]');
+        if (idInput) idInput.value = id;
+      }
+      if (captionInput) {
+        captionInput.value = caption;
+        captionInput.defaultValue = caption;
+        captionInput.id = `attachment-caption-${id}`;
+      }
+      if (captionLabel && captionInput) {
+        captionLabel.htmlFor = captionInput.id;
+        captionLabel.textContent = `Caption for ${fileName}`;
+      }
+      if (removeForm) {
+        const idInput = removeForm.querySelector('input[name="attachmentId"]');
+        if (idInput) idInput.value = id;
+      }
+      if (meta) meta.textContent = `${fileName} · ${Math.max(1, Math.round(Number(attachment.length || 0) / 1024))} KB`;
+
+      attachments.appendChild(card);
+      attachments.hidden = false;
+      window.tradeFoundryRegisterReviewAttachmentCaption?.(captionForm);
+      return card;
+    };
+
+    const resetUpload = () => {
+      fileInput.value = "";
+      const captionInput = form.querySelector('input[name="AttachmentCaption"]');
+      if (captionInput) captionInput.value = "";
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = "";
+      if (previewImage) previewImage.removeAttribute("src");
+      if (previewName) previewName.textContent = "";
+      if (preview) preview.hidden = true;
+    };
+
+    const upload = async () => {
+      if (uploading) return false;
+      const file = fileInput.files?.[0];
+      if (!file) {
+        setStatus("Choose or paste an image before attaching it.");
+        return false;
+      }
+
+      uploading = true;
+      if (submitButton) submitButton.disabled = true;
+      setStatus("Uploading image…");
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: new FormData(form),
+          credentials: "same-origin",
+          headers: { "X-Requested-With": "XMLHttpRequest" }
+        });
+        let result = {};
+        try { result = await response.json(); } catch { /* The status below is enough for a malformed response. */ }
+        if (!response.ok || !result.saved || !result.attachment) {
+          throw new Error(result.message || "Could not attach the image.");
+        }
+
+        const card = appendAttachment(result.attachment);
+        resetUpload();
+        setStatus("Image attached.");
+        card?.querySelector("[data-review-attachment-caption]")?.focus({ preventScroll: true });
+        return true;
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not attach the image.");
+        return false;
+      } finally {
+        uploading = false;
+        if (submitButton) submitButton.disabled = false;
+      }
+    };
+
+    fileInput.addEventListener("change", () => showFile(fileInput.files?.[0]));
+    form.addEventListener("paste", event => {
+      const item = Array.from(event.clipboardData?.items || []).find(candidate => supportedTypes.has(String(candidate.type || "").toLowerCase()) && candidate.kind === "file");
+      if (!item) return;
+      const blob = item.getAsFile();
+      if (!blob) return;
+
+      const type = String(item.type || blob.type || "image/png").toLowerCase();
+      const extension = type === "image/jpeg" || type === "image/jpg" ? "jpg" : type === "image/webp" ? "webp" : "png";
+      const file = new File([blob], `pasted-image.${extension}`, { type, lastModified: Date.now() });
+      let assigned = false;
+      try {
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        fileInput.files = transfer.files;
+        assigned = true;
+      } catch {
+        setStatus("Your browser could not attach the clipboard image. Use the file picker instead.");
+      }
+      if (!assigned) return;
+
+      event.preventDefault();
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      void upload();
+    });
+
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      void upload();
+    });
+
+    zone.addEventListener("click", () => zone.focus({ preventScroll: true }));
+    zone.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      fileInput.click();
+    });
+  });
+}
+
+function initializeReviewAttachmentCaptions() {
+  const flushers = [];
+  const forms = [];
+  const bindForm = form => {
+    if (!form || form.dataset.reviewAttachmentCaptionBound === "true") return;
+    const input = form.querySelector("[data-review-attachment-caption]");
+    const status = form.querySelector("[data-review-attachment-caption-status]");
+    const image = form.closest(".tf-review-attachment-card")?.querySelector("[data-review-attachment-image]");
+    const url = form.dataset.captionUrl || form.action;
+    if (!input || !url) return;
+    form.dataset.reviewAttachmentCaptionBound = "true";
+    forms.push(form);
+
+    let savedValue = input.value;
+    let timer = null;
+    let inFlight = null;
+
+    const setStatus = (text, type = "") => {
+      if (!status) return;
+      status.textContent = text;
+      status.classList.remove("is-saving", "is-saved", "is-error");
+      if (type) status.classList.add(type);
+    };
+
+    const schedule = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => { void save(); }, 450);
+    };
+
+    const save = () => {
+      if (input.value === savedValue) {
+        setStatus("");
+        return Promise.resolve(true);
+      }
+      if (inFlight) return inFlight;
+
+      const value = input.value;
+      const payload = new FormData(form);
+      payload.set("caption", value);
+      setStatus("Saving…", "is-saving");
+      let failed = false;
+      inFlight = fetch(url, {
+        method: "POST",
+        body: payload,
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      }).then(async response => {
+        let result = {};
+        try { result = await response.json(); } catch { /* The status below is enough for a malformed response. */ }
+        if (!response.ok || !result.saved) throw new Error(result.message || "Could not save caption.");
+        savedValue = String(result.caption ?? value);
+        if (input.value === value) {
+          input.value = savedValue;
+          input.defaultValue = savedValue;
+          if (image) image.alt = savedValue || image.dataset.captionFallback || "";
+          setStatus("Saved", "is-saved");
+        } else {
+          setStatus("Unsaved");
+        }
+        return true;
+      }).catch(error => {
+        failed = true;
+        setStatus(error instanceof Error ? error.message : "Could not save caption.", "is-error");
+        return false;
+      }).finally(() => {
+        inFlight = null;
+        if (!failed && input.value !== savedValue) schedule();
+      });
+      return inFlight;
+    };
+
+    flushers.push(async () => {
+      if (timer) window.clearTimeout(timer);
+      const result = inFlight ? await inFlight : await save();
+      if (result !== false && input.value !== savedValue) return await save();
+      return result !== false;
+    });
+
+    input.addEventListener("input", () => {
+      setStatus("Unsaved");
+      schedule();
+    });
+    input.addEventListener("blur", () => {
+      if (timer) window.clearTimeout(timer);
+      void save();
+    });
+    input.addEventListener("keydown", event => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      input.blur();
+    });
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      void save();
+    });
+  };
+
+  document.querySelectorAll("[data-review-attachment-caption-form]").forEach(bindForm);
+  window.tradeFoundryRegisterReviewAttachmentCaption = bindForm;
+
+  window.tradeFoundryFlushAttachmentCaptions = async () => {
+    const results = await Promise.all(flushers.map(flush => flush()));
+    return results.every(Boolean);
+  };
+  window.addEventListener("beforeunload", event => {
+    if (forms.some(form => {
+      const input = form.querySelector("[data-review-attachment-caption]");
+      return input && input.value !== input.defaultValue;
+    })) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  });
+}
+
+function initializeReviewAttachmentRemovals() {
+  document.querySelectorAll("[data-review-editor]").forEach(editor => {
+    if (editor.dataset.reviewAttachmentRemoveBound === "true") return;
+    editor.dataset.reviewAttachmentRemoveBound = "true";
+
+    editor.addEventListener("submit", event => {
+      const form = event.target.closest("[data-review-attachment-remove-form]");
+      if (!form || !editor.contains(form)) return;
+      if (form.dataset.removing === "true") {
+        event.preventDefault();
+        return;
+      }
+
+      const card = form.closest(".tf-review-attachment-card");
+      const button = form.querySelector("button[type=submit]");
+      if (!card || !button) return;
+
+      event.preventDefault();
+      form.dataset.removing = "true";
+      const status = form.querySelector("[data-review-attachment-remove-status]");
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Removing…";
+      if (status) status.textContent = "";
+
+      fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      }).then(async response => {
+        let result = {};
+        try { result = await response.json(); } catch { /* The status below is enough for a malformed response. */ }
+        if (!response.ok || !result.removed) throw new Error(result.message || "Could not remove the image.");
+
+        card.remove();
+        const attachments = editor.querySelector("[data-review-attachments]");
+        const hasImages = Boolean(attachments?.querySelector(".tf-review-attachment-card"));
+        if (attachments) attachments.hidden = !hasImages;
+        updateReviewImageIndicator(editor.dataset.reviewKey || "", result.hasReviewImages ?? hasImages);
+      }).catch(error => {
+        if (status) status.textContent = error instanceof Error ? error.message : "Could not remove the image.";
+        button.disabled = false;
+        button.textContent = originalText;
+      }).finally(() => {
+        delete form.dataset.removing;
+      });
+    });
+  });
+}
+
 function initializeMarkdownEditors() {
   document.querySelectorAll("[data-markdown-editor]").forEach(editor => {
     const input = editor.querySelector("[data-markdown-input]");
@@ -101,6 +451,110 @@ function initializeMarkdownEditors() {
     });
 
     input.addEventListener("input", updatePreview);
+  });
+}
+
+function initializeDailyJournal() {
+  const form = document.querySelector("[data-daily-journal-form]");
+  const input = form?.querySelector("[name=dailyJournalText]");
+  const status = form?.querySelector("[data-daily-journal-status]");
+  if (!form || !input) return;
+
+  let savedSnapshot = input.value;
+  let timer = null;
+  let savePromise = null;
+
+  const setStatus = (text, type = "") => {
+    if (!status) return;
+    status.textContent = text;
+    status.classList.remove("is-saving", "is-error", "is-saved");
+    if (type) status.classList.add(`is-${type}`);
+  };
+
+  const save = () => {
+    if (savePromise) return savePromise;
+    if (input.value === savedSnapshot) return Promise.resolve(true);
+    const sentSnapshot = input.value;
+    savePromise = (async () => {
+      setStatus("Saving…", "saving");
+      const response = await fetch(form.dataset.autosaveUrl, {
+        method: "POST",
+        body: new FormData(form),
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      let payload = {};
+      try { payload = await response.json(); } catch { /* fall through to the generic error */ }
+      if (!response.ok) {
+        if (response.status === 409 || payload.conflict) {
+          setStatus("Conflict · reload latest values", "error");
+          return false;
+        }
+        throw new Error(payload.message || "The daily journal could not be saved.");
+      }
+      const revision = form.querySelector("input[name=expectedRevision]");
+      if (revision && payload.revision !== undefined) revision.value = payload.revision;
+      savedSnapshot = sentSnapshot;
+      const dirty = input.value !== savedSnapshot;
+      setStatus(dirty ? "Saving changes…" : "Saved", dirty ? "saving" : "saved");
+      if (dirty) window.setTimeout(save, 350);
+      return true;
+    })().catch(error => {
+      console.error("Daily journal autosave failed.", error);
+      setStatus(error.message || "Save failed", "error");
+      return false;
+    }).finally(() => {
+      savePromise = null;
+    });
+    return savePromise;
+  };
+
+  const schedule = (immediate = false) => {
+    clearTimeout(timer);
+    if (input.value === savedSnapshot) return Promise.resolve(true);
+    setStatus("Unsaved");
+    if (immediate) return save();
+    timer = window.setTimeout(save, 450);
+    return Promise.resolve(true);
+  };
+
+  const flush = async () => {
+    clearTimeout(timer);
+    return savePromise ? await savePromise : await save();
+  };
+  window.tradeFoundryFlushDailyJournal = flush;
+
+  input.addEventListener("input", () => schedule());
+  input.addEventListener("blur", () => schedule(true));
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    void schedule(true);
+  });
+
+  const shell = form.closest("[data-focus]");
+  const flushNavigation = event => {
+    const link = event.target.closest("a");
+    if (!link || !link.href) return;
+    const url = new URL(link.href, window.location.href);
+    if (url.origin !== window.location.origin) return;
+    event.preventDefault();
+    void flush().then(ok => { if (ok) window.location.href = link.href; });
+  };
+
+  if (!document.querySelector("[data-review-workspace]")) {
+    const dateForm = document.querySelector(".tf-review-date-form");
+    dateForm?.addEventListener("submit", event => {
+      event.preventDefault();
+      void flush().then(ok => { if (ok) dateForm.submit(); });
+    });
+    shell?.addEventListener("click", flushNavigation);
+  }
+
+  window.addEventListener("beforeunload", event => {
+    if (input.value !== savedSnapshot) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
   });
 }
 
@@ -307,6 +761,42 @@ function initializeSidebarResize() {
   window.addEventListener("resize", () => {
     setWidth(sidebar.getBoundingClientRect().width);
   });
+}
+
+function initializeSidebarVisibility() {
+  const app = document.querySelector(".tf-app");
+  const sidebar = app?.querySelector(".tf-sidebar");
+  const toggles = Array.from(app?.querySelectorAll("[data-sidebar-toggle]") || []);
+  if (!app || !sidebar || !toggles.length) return;
+
+  const storageKey = "tradefoundry.sidebar.hidden";
+  let hidden = false;
+  try {
+    hidden = window.localStorage.getItem(storageKey) === "true";
+  } catch {
+    // Ignore storage restrictions; visibility still works for the current page.
+  }
+
+  const syncState = (nextHidden, persist = false) => {
+    hidden = nextHidden;
+    app.classList.toggle("tf-sidebar-hidden", hidden);
+    toggles.forEach(toggle => {
+      const show = hidden;
+      toggle.setAttribute("aria-expanded", String(!show));
+      toggle.setAttribute("aria-label", `${show ? "Show" : "Hide"} sidebar`);
+      toggle.setAttribute("title", `${show ? "Show" : "Hide"} sidebar`);
+      if (toggle.classList.contains("tf-sidebar-reopen")) toggle.hidden = !show;
+    });
+    if (!persist) return;
+    try {
+      window.localStorage.setItem(storageKey, String(hidden));
+    } catch {
+      // Ignore storage restrictions; the current visibility remains applied.
+    }
+  };
+
+  toggles.forEach(toggle => toggle.addEventListener("click", () => syncState(!hidden, true)));
+  syncState(hidden);
 }
 
 function initializeSectionInfo() {
@@ -752,11 +1242,11 @@ function initializeReviewWorkspace() {
     window.history.replaceState({}, "", url);
   };
 
-  const updateRosterState = key => {
+  const updateRosterState = (key, payload) => {
     const row = rosterItems.find(item => item.dataset.reviewKey === key);
     if (row) {
-      const state = row.querySelector("[data-review-roster-state]");
-      if (state) state.textContent = "Review added";
+      row.querySelector("[data-review-indicator=images]")?.toggleAttribute("hidden", !payload?.hasReviewImages);
+      row.querySelector("[data-review-indicator=notes]")?.toggleAttribute("hidden", !payload?.hasReviewNotes);
     }
   };
 
@@ -767,7 +1257,11 @@ function initializeReviewWorkspace() {
     const formatMoney = value => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(Number(value || 0));
     if (payload.trade) {
       const pnl = editor.querySelector("[data-review-trade-pnl]");
+      const pnlStat = editor.querySelector("[data-review-trade-pnl-stat]");
       const fees = editor.querySelector("[data-review-trade-fees]");
+      const feesStat = editor.querySelector("[data-review-trade-fees-stat]");
+      const detailFees = editor.querySelector("[data-review-trade-fees-detail]");
+      const feeBreakdown = editor.querySelectorAll("[data-review-trade-fee-breakdown]");
       const row = rosterItems.find(item => item.dataset.reviewKey === editor.dataset.reviewKey);
       const rowPnl = row?.querySelector("[data-review-roster-pnl]");
       if (pnl) {
@@ -775,7 +1269,17 @@ function initializeReviewWorkspace() {
         pnl.classList.toggle("text-success", Number(payload.trade.netPnl) >= 0);
         pnl.classList.toggle("text-danger", Number(payload.trade.netPnl) < 0);
       }
-      if (fees) fees.textContent = `All-in commission: ${formatMoney(payload.trade.fees)} · ${payload.trade.hasOverride ? "per-trade override" : "imported/settings-derived"}`;
+      const feeText = `${formatMoney(payload.trade.fees)} · ${payload.trade.hasAllInOverride ? "all-in override" : payload.trade.hasComponentOverride ? "component override" : "imported/settings-derived"}`;
+      const breakdownText = `Exchange ${formatMoney(payload.trade.exchangeFees)} · NFA ${formatMoney(payload.trade.nfaFees)} · Clearing / commission ${formatMoney(payload.trade.clearingFees)}${payload.trade.hasAllInOverride ? " · not used while all-in override is set" : payload.trade.hasComponentOverride ? " · per-trade component override" : " · imported/instrument-derived"}`;
+      if (pnlStat) {
+        pnlStat.textContent = formatMoney(payload.trade.netPnl);
+        pnlStat.classList.toggle("text-success", Number(payload.trade.netPnl) >= 0);
+        pnlStat.classList.toggle("text-danger", Number(payload.trade.netPnl) < 0);
+      }
+      if (fees) fees.textContent = `All-in commission: ${feeText}`;
+      if (feesStat) feesStat.textContent = feeText;
+      if (detailFees) detailFees.textContent = feeText;
+      feeBreakdown.forEach(item => { item.textContent = breakdownText; });
       if (rowPnl && rowPnl.textContent.trim() !== "OPEN") {
         rowPnl.textContent = formatMoney(payload.trade.netPnl);
         rowPnl.classList.toggle("text-success", Number(payload.trade.netPnl) >= 0);
@@ -822,7 +1326,7 @@ function initializeReviewWorkspace() {
       state.savedSnapshot = sentSnapshot;
       state.dirty = reviewFormSnapshot(form) !== state.savedSnapshot;
       updateEffectiveValues(form, payload);
-      updateRosterState(form.closest("[data-review-editor]")?.dataset.reviewKey || "");
+      updateRosterState(form.closest("[data-review-editor]")?.dataset.reviewKey || "", payload.trade);
       setStatus(form, state.dirty ? "Saving changes…" : "Saved", state.dirty ? "saving" : "saved");
       if (state.dirty) window.setTimeout(() => saveReview(form), 350);
       return true;
@@ -857,9 +1361,25 @@ function initializeReviewWorkspace() {
     return await saveReview(form);
   };
 
-  const activate = async (key, options = {}) => {
-    if (!key || key === activeKey) return true;
+  const flushContext = async () => {
     if (!await flushActive()) return false;
+    const flushDailyJournal = window.tradeFoundryFlushDailyJournal;
+    if (flushDailyJournal && !await flushDailyJournal()) return false;
+    const flushAttachmentCaptions = window.tradeFoundryFlushAttachmentCaptions;
+    return flushAttachmentCaptions ? await flushAttachmentCaptions() : true;
+  };
+
+  const activate = async (key, options = {}) => {
+    if (!key) return true;
+    if (key === activeKey) {
+      const current = editors.find(editor => editor.dataset.reviewKey === activeKey);
+      if (current) void loadReviewChart(current.querySelector("[data-review-chart]"));
+      updateUrl();
+      return true;
+    }
+    if (!await flushActive()) return false;
+    const flushAttachmentCaptions = window.tradeFoundryFlushAttachmentCaptions;
+    if (flushAttachmentCaptions && !await flushAttachmentCaptions()) return false;
     const next = editors.find(editor => editor.dataset.reviewKey === key);
     if (!next) return false;
     activeKey = key;
@@ -877,6 +1397,7 @@ function initializeReviewWorkspace() {
     });
     setSection(next, activeSection);
     updateUrl();
+    void loadReviewChart(next.querySelector("[data-review-chart]"));
     if (options.focus) next.querySelector("[data-review-tab].is-active")?.focus({ preventScroll: true });
     return true;
   };
@@ -921,13 +1442,15 @@ function initializeReviewWorkspace() {
   const dateForm = shell.querySelector(".tf-review-date-form");
   dateForm?.addEventListener("submit", event => {
     event.preventDefault();
-    void flushActive().then(ok => { if (ok) dateForm.submit(); });
+    void flushContext().then(ok => { if (ok) dateForm.submit(); });
   });
   shell.addEventListener("click", event => {
     const link = event.target.closest("a");
-    if (!link || !link.href || !link.href.includes("/review")) return;
+    if (!link || !link.href) return;
+    const url = new URL(link.href, window.location.href);
+    if (url.origin !== window.location.origin) return;
     event.preventDefault();
-    void flushActive().then(ok => { if (ok) window.location.href = link.href; });
+    void flushContext().then(ok => { if (ok) window.location.href = link.href; });
   });
   window.addEventListener("beforeunload", event => {
     const editor = editors.find(item => item.dataset.reviewKey === activeKey);
@@ -1278,6 +1801,156 @@ function showPlotlyError(node, error) {
   node.replaceChildren(fallback);
 }
 
+function bindLightweightTimeframeForm(form, node) {
+  const select = form?.querySelector("select[name=interval]");
+  if (!form || !select || form.dataset.lightweightBound === "true") return;
+
+  form.dataset.lightweightBound = "true";
+  select.dataset.lastInterval = select.value || "";
+  const update = () => {
+    const state = node?._tradeFoundryLightweightState;
+    if (state) void updateLightweightTimeframe(state, form);
+    else void loadReviewChart(node, select.value);
+  };
+  select.addEventListener("change", update);
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    update();
+  });
+}
+
+async function loadReviewChart(node, requestedInterval) {
+  if (!node?.matches("[data-review-chart]")) return;
+
+  const card = node.closest("[data-review-chart-card]") || node.closest(".tf-chart-card");
+  const form = card?.querySelector("[data-review-chart-form]") || card?.querySelector("[data-lightweight-timeframe-form]");
+  const select = form?.querySelector("select[name=interval]");
+  bindLightweightTimeframeForm(form, node);
+
+  const reviewState = node._tradeFoundryReviewChartState || (node._tradeFoundryReviewChartState = { loading: false, loaded: false, interval: "", requestVersion: 0 });
+  const pageInterval = new URL(window.location.href).searchParams.get("interval") || "";
+  const targetInterval = requestedInterval || select?.value || pageInterval || "";
+  if (node._tradeFoundryLightweightState || (reviewState.loaded && (!targetInterval || targetInterval === reviewState.interval))) return;
+  if (reviewState.loading) return;
+
+  const requestVersion = ++reviewState.requestVersion;
+  reviewState.loading = true;
+  const url = new URL(node.dataset.reviewChartUrl, window.location.href);
+  url.searchParams.set("handler", "CandleChart");
+  if (targetInterval) url.searchParams.set("interval", targetInterval);
+  else url.searchParams.delete("interval");
+
+  if (form) form.setAttribute("aria-busy", "true");
+  if (select) select.disabled = true;
+  node.setAttribute("aria-busy", "true");
+  setReviewChartEmpty(card, true, "");
+  setLightweightStatusForNode(node, "Loading chart…");
+
+  try {
+    const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error("Chart request returned " + response.status);
+    const result = await response.json();
+    if (requestVersion !== reviewState.requestVersion) return;
+
+    updateReviewChartControls(card, result);
+    const payload = result.payload;
+    reviewState.interval = result.requestedInterval || result.resolvedInterval || targetInterval;
+    node.dataset.lightweightChart = payload ? JSON.stringify(payload) : "";
+    node.hidden = !payload;
+
+    if (payload) {
+      if (!node._tradeFoundryLightweightState) renderLightweightChart(node);
+      const state = node._tradeFoundryLightweightState;
+      if (state) {
+        updateLightweightTimeframeUi(state, result);
+        setLightweightStatus(state, "");
+      } else {
+        node.hidden = true;
+        setReviewChartEmpty(card, false, "The chart could not be rendered.");
+        setLightweightStatusForNode(node, "The chart could not be rendered.");
+      }
+    } else {
+      setReviewChartEmpty(card, false, result.availabilityNote || "No matching OHLCV bars for this timeframe.");
+      setLightweightStatusForNode(node, result.availabilityNote || "No matching OHLCV bars for this timeframe.");
+      updateReviewChartSummary(card, result);
+      updateReviewChartDecorations(card, false, result);
+    }
+
+    reviewState.loaded = true;
+  } catch (error) {
+    if (requestVersion !== reviewState.requestVersion) return;
+    reviewState.loaded = false;
+    node.hidden = true;
+    setReviewChartEmpty(card, false, "The chart could not be loaded.");
+    setLightweightStatusForNode(node, "The chart could not be loaded. Select a timeframe to retry.");
+    console.error("TradeFoundry review candle chart failed to load.", error);
+  } finally {
+    if (requestVersion === reviewState.requestVersion) {
+      reviewState.loading = false;
+      node.removeAttribute("aria-busy");
+      if (form) form.removeAttribute("aria-busy");
+      if (select && !reviewState.loaded) select.disabled = false;
+    }
+  }
+}
+
+function updateReviewChartControls(card, result) {
+  const select = card?.querySelector("[data-review-chart-interval]");
+  if (!select) return;
+  const intervals = Array.isArray(result.availableIntervals) ? result.availableIntervals.filter(Boolean) : [];
+  const selectedInterval = result.requestedInterval || result.resolvedInterval || "";
+  select.replaceChildren();
+
+  if (!intervals.length) {
+    select.add(new Option("No chart timeframes", ""));
+    select.disabled = true;
+    select.dataset.lastInterval = "";
+    return;
+  }
+
+  intervals.forEach(interval => select.add(new Option(interval, interval)));
+  select.value = intervals.includes(selectedInterval) ? selectedInterval : intervals[0];
+  select.dataset.lastInterval = select.value;
+  select.disabled = false;
+}
+
+function updateReviewChartSummary(card, result) {
+  if (!card) return;
+  const payload = result.payload;
+  const count = payload?.bars?.length ?? result.barCount ?? 0;
+  const interval = result.resolvedInterval || payload?.interval || "source";
+  const timeZone = result.timeZone || payload?.timeZone || "UTC";
+  const summary = card.querySelector("[data-lightweight-summary]");
+  if (summary) summary.textContent = `${count} bars · ${interval} · ${timeZone}`;
+  const availabilityNote = card.querySelector("[data-lightweight-availability-note]");
+  if (availabilityNote) {
+    availabilityNote.textContent = result.availabilityNote || "";
+    availabilityNote.hidden = !result.availabilityNote;
+  }
+}
+
+function updateReviewChartDecorations(card, hasPayload, result) {
+  if (!card) return;
+  card.querySelector("[data-lightweight-focus]")?.toggleAttribute("disabled", !hasPayload);
+  card.querySelector("[data-lightweight-export]")?.toggleAttribute("disabled", !hasPayload);
+  const attribution = card.querySelector("[data-lightweight-attribution]");
+  if (attribution) attribution.hidden = !hasPayload;
+  const defaultNote = card.querySelector("[data-lightweight-default-note]");
+  if (defaultNote) defaultNote.hidden = result?.usedDefaultBarInterval !== true;
+}
+
+function setReviewChartEmpty(card, hidden, message) {
+  const empty = card?.querySelector("[data-review-chart-empty]");
+  if (!empty) return;
+  empty.textContent = message || "";
+  empty.hidden = hidden;
+}
+
+function setLightweightStatusForNode(node, message) {
+  const status = node?.parentElement?.querySelector("[data-lightweight-status]");
+  if (status) status.textContent = message;
+}
+
 function initializeLightweightCharts() {
   const chartNodes = Array.from(document.querySelectorAll("[data-lightweight-chart]"));
   if (!chartNodes.length) return;
@@ -1326,7 +1999,8 @@ function renderLightweightChart(node) {
         rightOffset: 5,
         barSpacing: 7,
         timeVisible: true,
-        secondsVisible: false
+        secondsVisible: false,
+        tickMarkFormatter: value => formatLightweightTime(value, payload.timeZone)
       },
       crosshair: {
         vertLine: { color: "#8b949e", width: 1, style: 3, labelBackgroundColor: "#30363d" },
@@ -1427,15 +2101,7 @@ function renderLightweightChart(node) {
     const card = node.closest(".tf-chart-card");
     card?.querySelector("[data-lightweight-focus]")?.addEventListener("click", () => focusLightweightTrade(state));
     card?.querySelector("[data-lightweight-export]")?.addEventListener("click", () => downloadLightweightChart(node, state));
-    const timeframeForm = card?.querySelector("[data-lightweight-timeframe-form]");
-    const timeframeSelect = timeframeForm?.querySelector("select[name=interval]");
-    if (timeframeForm && timeframeSelect) {
-      timeframeSelect.dataset.lastInterval = timeframeSelect.value;
-      timeframeForm.addEventListener("submit", event => {
-        event.preventDefault();
-        void updateLightweightTimeframe(state, timeframeForm);
-      });
-    }
+    bindLightweightTimeframeForm(card?.querySelector("[data-lightweight-timeframe-form]"), node);
     node._tradeFoundryLightweightState = state;
     node.removeAttribute("aria-busy");
   } catch (error) {
@@ -1556,19 +2222,22 @@ function applyLightweightTimeframeData(state, result) {
 function updateLightweightTimeframeUi(state, result) {
   const card = state.node.closest(".tf-chart-card");
   const payload = result.payload;
-  const count = payload?.bars?.length ?? result.barCount ?? 0;
-  const interval = result.resolvedInterval || payload?.interval || "source";
-  const timeZone = result.timeZone || payload?.timeZone || "UTC";
-  const summary = card?.querySelector("[data-lightweight-summary]");
-  if (summary) summary.textContent = `${count} bars · ${interval} · ${timeZone}`;
+  if (card?.matches("[data-review-chart-card]")) {
+    state.node.hidden = !payload;
+    setReviewChartEmpty(card, Boolean(payload), payload ? "" : result.availabilityNote || "No matching OHLCV bars for this timeframe.");
+  }
+  updateReviewChartSummary(card, result);
 
   const defaultNote = card?.querySelector("[data-lightweight-default-note]");
-  if (defaultNote) defaultNote.hidden = true;
+  if (defaultNote) defaultNote.hidden = result.usedDefaultBarInterval !== true;
   const availabilityNote = card?.querySelector("[data-lightweight-availability-note]");
   if (availabilityNote) {
     availabilityNote.textContent = result.availabilityNote || "";
     availabilityNote.hidden = !result.availabilityNote;
   }
+  updateReviewChartDecorations(card, Boolean(payload), result);
+  const count = payload?.bars?.length ?? result.barCount ?? 0;
+  const interval = result.resolvedInterval || payload?.interval || "source";
   state.node.setAttribute("aria-label", `Candlestick chart for ${payload?.symbol || state.payload?.symbol || "trade"}, ${interval}, ${count} bars`);
 }
 

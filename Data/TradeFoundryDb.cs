@@ -18,13 +18,18 @@ public sealed class TradeFoundryDb
     private const string DerivedFillSource = "Derived fills";
     private const string JournalColumns = "id, name, execution_context, labels, description_markdown, timezone, currency, grouping_policy, starting_equity, created_utc";
     private const string ImportColumns = "id, journal_id, file_name, source_application, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message";
-    private const string EffectiveFeesSql = "COALESCE(r.all_in_commission, t.fees)";
-    private const string EffectiveNetPnlSql = "CASE WHEN r.all_in_commission IS NOT NULL THEN CAST(t.gross_pnl AS REAL) - CAST(r.all_in_commission AS REAL) ELSE CAST(t.net_pnl AS REAL) END";
-    private const string EffectiveNetPnlTextSql = "CASE WHEN r.all_in_commission IS NOT NULL THEN CAST(CAST(t.gross_pnl AS REAL) - CAST(r.all_in_commission AS REAL) AS TEXT) ELSE t.net_pnl END";
+    private const string EffectiveExchangeFeesSql = "COALESCE(r.exchange_fees, t.exchange_fees)";
+    private const string EffectiveNfaFeesSql = "COALESCE(r.nfa_fees, t.nfa_fees)";
+    private const string EffectiveClearingFeesSql = "COALESCE(r.clearing_fees, t.clearing_fees)";
+    private const string EffectiveComponentFeesSql = "ROUND(COALESCE(CAST(r.exchange_fees AS REAL), CAST(t.exchange_fees AS REAL), 0) + COALESCE(CAST(r.nfa_fees AS REAL), CAST(t.nfa_fees AS REAL), 0) + COALESCE(CAST(r.clearing_fees AS REAL), CAST(t.clearing_fees AS REAL), 0), 8)";
+    private const string EffectiveFeesSql = "CASE WHEN r.all_in_commission IS NOT NULL THEN CAST(r.all_in_commission AS REAL) WHEN r.exchange_fees IS NOT NULL OR r.nfa_fees IS NOT NULL OR r.clearing_fees IS NOT NULL OR CAST(t.exchange_fees AS REAL) <> 0 OR CAST(t.nfa_fees AS REAL) <> 0 OR CAST(t.clearing_fees AS REAL) <> 0 THEN " + EffectiveComponentFeesSql + " ELSE CAST(t.fees AS REAL) END";
+    private const string EffectiveFeesTextSql = "CASE WHEN r.all_in_commission IS NOT NULL THEN r.all_in_commission WHEN r.exchange_fees IS NOT NULL OR r.nfa_fees IS NOT NULL OR r.clearing_fees IS NOT NULL OR CAST(t.exchange_fees AS REAL) <> 0 OR CAST(t.nfa_fees AS REAL) <> 0 OR CAST(t.clearing_fees AS REAL) <> 0 THEN CAST(" + EffectiveComponentFeesSql + " AS TEXT) ELSE t.fees END";
+    private const string EffectiveNetPnlSql = $"ROUND(CAST(t.gross_pnl AS REAL) - ({EffectiveFeesSql}), 8)";
+    private const string EffectiveNetPnlTextSql = $"CAST(ROUND(CAST(t.gross_pnl AS REAL) - ({EffectiveFeesSql}), 8) AS TEXT)";
     private const string TradeFrom = "trades t LEFT JOIN trade_review_annotations r ON r.journal_id = t.journal_id AND r.review_key = t.review_key";
-    private const string TradeColumns = "t.id, t.journal_id, t.import_batch_id, t.source_type, t.source_key, t.grouping_policy, t.sequence, t.symbol, t.account, t.direction, t.entry_utc, t.exit_utc, t.entry_price, t.exit_price, t.quantity, t.closed_quantity, t.gross_points, t.average_points, t.gross_pnl, " + EffectiveFeesSql + " AS fees, " + EffectiveNetPnlTextSql + " AS net_pnl, t.mae_points, t.mfe_points, t.point_value, t.tick_size, t.initial_stop_price, t.initial_target_price, t.initial_risk_points, t.initial_risk_currency, t.r_multiple, t.exit_type, t.entry_order_price, t.exit_order_price, t.entry_chase_points, t.exit_chase_points, t.status, t.note, t.instrument, t.review_key, CASE WHEN LENGTH(TRIM(COALESCE(r.review_note, ''))) > 0 THEN 1 ELSE 0 END AS has_review_note, EXISTS (SELECT 1 FROM trade_review_attachments a WHERE a.journal_id = t.journal_id AND a.review_key = t.review_key AND a.removed_utc IS NULL) AS has_review_image";
-    private const string TradeReviewColumns = "id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc";
-    private const string FillColumns = "id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, row_number, instrument, point_value, tick_size";
+    private const string TradeColumns = "t.id, t.journal_id, t.import_batch_id, t.source_type, t.source_key, t.grouping_policy, t.sequence, t.symbol, t.account, t.direction, t.entry_utc, t.exit_utc, t.entry_price, t.exit_price, t.quantity, t.closed_quantity, t.gross_points, t.average_points, t.gross_pnl, " + EffectiveExchangeFeesSql + " AS exchange_fees, " + EffectiveNfaFeesSql + " AS nfa_fees, " + EffectiveClearingFeesSql + " AS clearing_fees, " + EffectiveFeesTextSql + " AS fees, " + EffectiveNetPnlTextSql + " AS net_pnl, t.mae_points, t.mfe_points, t.point_value, t.tick_size, t.initial_stop_price, t.initial_target_price, t.initial_risk_points, t.initial_risk_currency, t.r_multiple, t.exit_type, t.entry_order_price, t.exit_order_price, t.entry_chase_points, t.exit_chase_points, t.status, t.note, t.instrument, t.review_key, CASE WHEN LENGTH(TRIM(COALESCE(r.review_note, ''))) > 0 THEN 1 ELSE 0 END AS has_review_note, EXISTS (SELECT 1 FROM trade_review_attachments a WHERE a.journal_id = t.journal_id AND a.review_key = t.review_key AND a.removed_utc IS NULL) AS has_review_image, t.source_timeframe";
+    private const string TradeReviewColumns = "id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, exchange_fees, nfa_fees, clearing_fees, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc";
+    private const string FillColumns = "id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, exchange_fee_per_contract, nfa_fee_per_contract, clearing_fee_per_contract, row_number, instrument, point_value, tick_size, source_timeframe";
     private const string OrderEventColumns = "id, journal_id, import_batch_id, source_type, source_key, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, internal_order_id, service_order_id, parent_order_id, exchange_order_id, fill_execution_id, order_type, order_status, side, open_close, price, price2, quantity, filled_quantity, fill_price, position_quantity, note, client_order_id, time_in_force, username, is_automated, fees, row_number, instrument";
     private const string AccountBalanceColumns = "id, journal_id, import_batch_id, source_type, source_key, event_utc, transaction_utc, source_time_text, account, balance, note, row_number";
     private const string AccountTransactionColumns = "id, journal_id, transaction_type, effective_utc, amount, note, revision, created_utc, updated_utc, deleted_utc";
@@ -82,25 +87,25 @@ public sealed class TradeFoundryDb
             "CREATE TABLE IF NOT EXISTS app_users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, created_utc TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS journals (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES app_users(id), name TEXT NOT NULL, execution_context TEXT NOT NULL, labels TEXT NOT NULL DEFAULT '', description_markdown TEXT NOT NULL DEFAULT '', timezone TEXT NOT NULL DEFAULT 'UTC', currency TEXT NOT NULL DEFAULT 'USD', grouping_policy TEXT NOT NULL DEFAULT 'flat_to_flat', starting_equity TEXT NULL, created_utc TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
             "CREATE INDEX IF NOT EXISTS ix_journals_owner ON journals(owner_user_id, archived, created_utc)",
-            "CREATE TABLE IF NOT EXISTS instruments (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, default_commission TEXT NULL, point_value TEXT NOT NULL, tick_size TEXT NOT NULL DEFAULT '0', created_utc TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS instruments (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, default_commission TEXT NULL, exchange_fee_per_contract TEXT NULL, nfa_fee_per_contract TEXT NULL, clearing_fee_per_contract TEXT NULL, point_value TEXT NOT NULL, tick_size TEXT NOT NULL DEFAULT '0', created_utc TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS source_instrument_mappings (id TEXT PRIMARY KEY, application_key TEXT NOT NULL, match_regex TEXT NOT NULL, instrument_code TEXT NOT NULL REFERENCES instruments(code), commission_override TEXT NULL, position INTEGER NOT NULL DEFAULT 0, created_utc TEXT NOT NULL, UNIQUE(application_key, match_regex))",
             "CREATE INDEX IF NOT EXISTS ix_source_instrument_mappings_application ON source_instrument_mappings(application_key, position, id)",
             "CREATE TABLE IF NOT EXISTS app_settings (settings_key TEXT PRIMARY KEY, settings_value TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS import_batches (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), file_name TEXT NOT NULL, source_application TEXT NOT NULL DEFAULT '', source_type TEXT NOT NULL, imported_utc TEXT NOT NULL, total_rows INTEGER NOT NULL, new_rows INTEGER NOT NULL, duplicate_rows INTEGER NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL DEFAULT '')",
             "CREATE INDEX IF NOT EXISTS ix_import_batches_journal ON import_batches(journal_id, imported_utc DESC)",
             "CREATE TABLE IF NOT EXISTS raw_records (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, row_number INTEGER NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
-            "CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, activity_type TEXT NOT NULL DEFAULT 'Fills', order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', side TEXT NOT NULL, quantity INTEGER NOT NULL, price TEXT NOT NULL, price2 TEXT NULL, filled_quantity INTEGER NULL, open_close TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', high TEXT NULL, low TEXT NULL, note TEXT NOT NULL DEFAULT '', position_quantity INTEGER NULL, order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, account_balance TEXT NULL, fees TEXT NOT NULL DEFAULT '0', row_number INTEGER NOT NULL, instrument TEXT NOT NULL DEFAULT '', point_value TEXT NOT NULL DEFAULT '0', tick_size TEXT NOT NULL DEFAULT '0', UNIQUE(journal_id, source_type, source_key))",
+            "CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, activity_type TEXT NOT NULL DEFAULT 'Fills', order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', side TEXT NOT NULL, quantity INTEGER NOT NULL, price TEXT NOT NULL, price2 TEXT NULL, filled_quantity INTEGER NULL, open_close TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', high TEXT NULL, low TEXT NULL, note TEXT NOT NULL DEFAULT '', position_quantity INTEGER NULL, order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, account_balance TEXT NULL, fees TEXT NOT NULL DEFAULT '0', exchange_fee_per_contract TEXT NULL, nfa_fee_per_contract TEXT NULL, clearing_fee_per_contract TEXT NULL, row_number INTEGER NOT NULL, instrument TEXT NOT NULL DEFAULT '', point_value TEXT NOT NULL DEFAULT '0', tick_size TEXT NOT NULL DEFAULT '0', source_timeframe TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_fills_journal_time ON fills(journal_id, symbol, account, event_utc, row_number)",
-            "CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, grouping_policy TEXT NOT NULL, sequence INTEGER NOT NULL, symbol TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL, entry_utc TEXT NOT NULL, exit_utc TEXT NULL, entry_price TEXT NOT NULL, exit_price TEXT NULL, quantity INTEGER NOT NULL, closed_quantity INTEGER NOT NULL, gross_points TEXT NOT NULL DEFAULT '0', average_points TEXT NOT NULL DEFAULT '0', gross_pnl TEXT NOT NULL DEFAULT '0', fees TEXT NOT NULL DEFAULT '0', net_pnl TEXT NOT NULL DEFAULT '0', mae_points TEXT NULL, mfe_points TEXT NULL, point_value TEXT NOT NULL DEFAULT '1', tick_size TEXT NOT NULL DEFAULT '0', initial_stop_price TEXT NULL, initial_target_price TEXT NULL, initial_risk_points TEXT NULL, initial_risk_currency TEXT NULL, r_multiple TEXT NULL, exit_type TEXT NOT NULL DEFAULT '', entry_order_price TEXT NULL, exit_order_price TEXT NULL, entry_chase_points TEXT NULL, exit_chase_points TEXT NULL, status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL, instrument TEXT NOT NULL DEFAULT '', review_key TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
+            "CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, grouping_policy TEXT NOT NULL, sequence INTEGER NOT NULL, symbol TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL, entry_utc TEXT NOT NULL, exit_utc TEXT NULL, entry_price TEXT NOT NULL, exit_price TEXT NULL, quantity INTEGER NOT NULL, closed_quantity INTEGER NOT NULL, gross_points TEXT NOT NULL DEFAULT '0', average_points TEXT NOT NULL DEFAULT '0', gross_pnl TEXT NOT NULL DEFAULT '0', exchange_fees TEXT NOT NULL DEFAULT '0', nfa_fees TEXT NOT NULL DEFAULT '0', clearing_fees TEXT NOT NULL DEFAULT '0', fees TEXT NOT NULL DEFAULT '0', net_pnl TEXT NOT NULL DEFAULT '0', mae_points TEXT NULL, mfe_points TEXT NULL, point_value TEXT NOT NULL DEFAULT '1', tick_size TEXT NOT NULL DEFAULT '0', initial_stop_price TEXT NULL, initial_target_price TEXT NULL, initial_risk_points TEXT NULL, initial_risk_currency TEXT NULL, r_multiple TEXT NULL, exit_type TEXT NOT NULL DEFAULT '', entry_order_price TEXT NULL, exit_order_price TEXT NULL, entry_chase_points TEXT NULL, exit_chase_points TEXT NULL, status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL, instrument TEXT NOT NULL DEFAULT '', review_key TEXT NOT NULL DEFAULT '', source_timeframe TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_time ON trades(journal_id, entry_utc)",
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_status_time ON trades(journal_id, status, entry_utc)",
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_symbol_time ON trades(journal_id, symbol, entry_utc)",
             "CREATE TABLE IF NOT EXISTS trade_fill_allocations (trade_id TEXT NOT NULL REFERENCES trades(id) ON DELETE CASCADE, fill_id TEXT NOT NULL REFERENCES fills(id) ON DELETE CASCADE, quantity INTEGER NOT NULL, PRIMARY KEY(trade_id, fill_id))",
-            "CREATE TABLE IF NOT EXISTS trade_review_annotations (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, review_note TEXT NOT NULL DEFAULT '', setup TEXT NOT NULL DEFAULT '', tags_json TEXT NOT NULL DEFAULT '[]', planned_entry_price TEXT NULL, planned_stop_price TEXT NULL, planned_target_price TEXT NULL, planned_risk_points TEXT NULL, planned_risk_currency TEXT NULL, all_in_commission TEXT NULL, plan_adherence TEXT NOT NULL DEFAULT '', process_rating INTEGER NULL, mistakes TEXT NOT NULL DEFAULT '', lessons TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL, UNIQUE(journal_id, review_key))",
+            "CREATE TABLE IF NOT EXISTS trade_review_annotations (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, review_note TEXT NOT NULL DEFAULT '', setup TEXT NOT NULL DEFAULT '', tags_json TEXT NOT NULL DEFAULT '[]', planned_entry_price TEXT NULL, planned_stop_price TEXT NULL, planned_target_price TEXT NULL, planned_risk_points TEXT NULL, planned_risk_currency TEXT NULL, exchange_fees TEXT NULL, nfa_fees TEXT NULL, clearing_fees TEXT NULL, all_in_commission TEXT NULL, plan_adherence TEXT NOT NULL DEFAULT '', process_rating INTEGER NULL, mistakes TEXT NOT NULL DEFAULT '', lessons TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL, UNIQUE(journal_id, review_key))",
             "CREATE INDEX IF NOT EXISTS ix_trade_review_annotations_journal ON trade_review_annotations(journal_id, updated_utc DESC)",
             "CREATE TABLE IF NOT EXISTS trade_review_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', reason TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_trade_review_history_trade ON trade_review_history(journal_id, review_key, revision DESC)",
-            "CREATE TABLE IF NOT EXISTS trade_review_attachments (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, storage_key TEXT NOT NULL, original_file_name TEXT NOT NULL, content_type TEXT NOT NULL, length INTEGER NOT NULL, created_utc TEXT NOT NULL, removed_utc TEXT NULL)",
+            "CREATE TABLE IF NOT EXISTS trade_review_attachments (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, storage_key TEXT NOT NULL, original_file_name TEXT NOT NULL, caption TEXT NOT NULL DEFAULT '', content_type TEXT NOT NULL, length INTEGER NOT NULL, created_utc TEXT NOT NULL, removed_utc TEXT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_trade_review_attachments_trade ON trade_review_attachments(journal_id, review_key, created_utc DESC)",
             "CREATE TABLE IF NOT EXISTS daily_review_journals (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, journal_text TEXT NOT NULL DEFAULT '', updated_utc TEXT NULL, UNIQUE(journal_id, review_date))",
             "CREATE INDEX IF NOT EXISTS ix_daily_review_journals_journal_date ON daily_review_journals(journal_id, review_date)",
@@ -168,6 +173,7 @@ public sealed class TradeFoundryDb
         EnsureColumn(connection, "fills", "instrument", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "fills", "point_value", "TEXT NOT NULL DEFAULT '0'");
         EnsureColumn(connection, "fills", "tick_size", "TEXT NOT NULL DEFAULT '0'");
+        EnsureColumn(connection, "fills", "source_timeframe", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "order_events", "order_action_source", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "order_events", "service_order_id", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "order_events", "instrument", "TEXT NOT NULL DEFAULT ''");
@@ -185,7 +191,21 @@ public sealed class TradeFoundryDb
         EnsureColumn(connection, "trades", "exit_chase_points", "TEXT NULL");
         EnsureColumn(connection, "trades", "instrument", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "trades", "review_key", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "trades", "source_timeframe", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "trades", "exchange_fees", "TEXT NOT NULL DEFAULT '0'");
+        EnsureColumn(connection, "trades", "nfa_fees", "TEXT NOT NULL DEFAULT '0'");
+        EnsureColumn(connection, "trades", "clearing_fees", "TEXT NOT NULL DEFAULT '0'");
+        EnsureColumn(connection, "fills", "exchange_fee_per_contract", "TEXT NULL");
+        EnsureColumn(connection, "fills", "nfa_fee_per_contract", "TEXT NULL");
+        EnsureColumn(connection, "fills", "clearing_fee_per_contract", "TEXT NULL");
+        EnsureColumn(connection, "instruments", "exchange_fee_per_contract", "TEXT NULL");
+        EnsureColumn(connection, "instruments", "nfa_fee_per_contract", "TEXT NULL");
+        EnsureColumn(connection, "instruments", "clearing_fee_per_contract", "TEXT NULL");
         EnsureColumn(connection, "trade_review_annotations", "all_in_commission", "TEXT NULL");
+        EnsureColumn(connection, "trade_review_annotations", "exchange_fees", "TEXT NULL");
+        EnsureColumn(connection, "trade_review_annotations", "nfa_fees", "TEXT NULL");
+        EnsureColumn(connection, "trade_review_annotations", "clearing_fees", "TEXT NULL");
+        EnsureColumn(connection, "trade_review_attachments", "caption", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "bars", "number_of_trades", "INTEGER NULL");
         EnsureColumn(connection, "bars", "bid_volume", "INTEGER NULL");
         EnsureColumn(connection, "bars", "ask_volume", "INTEGER NULL");
@@ -220,7 +240,7 @@ public sealed class TradeFoundryDb
         {
             using var instrument = connection.CreateCommand();
             instrument.Transaction = transaction;
-            instrument.CommandText = "INSERT OR IGNORE INTO instruments (id, code, default_commission, point_value, tick_size, created_utc) VALUES ($id, $code, NULL, $pointValue, $tickSize, $created)";
+            instrument.CommandText = "INSERT OR IGNORE INTO instruments (id, code, default_commission, exchange_fee_per_contract, nfa_fee_per_contract, clearing_fee_per_contract, point_value, tick_size, created_utc) VALUES ($id, $code, NULL, NULL, NULL, NULL, $pointValue, $tickSize, $created)";
             instrument.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
             instrument.Parameters.AddWithValue("$code", spec.Root);
             instrument.Parameters.AddWithValue("$pointValue", NumberFormat.Decimal(spec.PointValue));
@@ -601,7 +621,7 @@ public sealed class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, code, default_commission, point_value, tick_size FROM instruments ORDER BY code";
+        command.CommandText = "SELECT id, code, default_commission, exchange_fee_per_contract, nfa_fee_per_contract, clearing_fee_per_contract, point_value, tick_size FROM instruments ORDER BY code";
         using var reader = command.ExecuteReader();
         var instruments = new List<InstrumentDefinition>();
         while (reader.Read())
@@ -611,8 +631,11 @@ public sealed class TradeFoundryDb
                 Id = Guid.Parse(reader.GetString(0)),
                 Code = reader.GetString(1),
                 DefaultCommission = NullableDecimal(reader, 2),
-                PointValue = ParseDecimal(reader.GetString(3)),
-                TickSize = ParseDecimal(reader.GetString(4))
+                ExchangeFeePerContract = NullableDecimal(reader, 3),
+                NfaFeePerContract = NullableDecimal(reader, 4),
+                ClearingFeePerContract = NullableDecimal(reader, 5),
+                PointValue = ParseDecimal(reader.GetString(6)),
+                TickSize = ParseDecimal(reader.GetString(7))
             });
         }
         return instruments;
@@ -644,10 +667,10 @@ public sealed class TradeFoundryDb
 
     public InstrumentConfiguration GetInstrumentConfiguration() => new(GetInstruments(), GetInstrumentMappings());
 
-    public bool SaveInstrument(Guid? instrumentId, string code, decimal? defaultCommission, decimal pointValue, decimal tickSize)
+    public bool SaveInstrument(Guid? instrumentId, string code, decimal? defaultCommission, decimal? exchangeFeePerContract, decimal? nfaFeePerContract, decimal? clearingFeePerContract, decimal pointValue, decimal tickSize)
     {
         code = InstrumentConfiguration.NormalizeCode(code);
-        if (string.IsNullOrWhiteSpace(code) || code.Length > 32 || pointValue <= 0m || tickSize < 0m || defaultCommission is < 0m) return false;
+        if (string.IsNullOrWhiteSpace(code) || code.Length > 32 || pointValue <= 0m || tickSize < 0m || defaultCommission is < 0m || exchangeFeePerContract is < 0m || nfaFeePerContract is < 0m || clearingFeePerContract is < 0m) return false;
 
         using var connection = OpenConnection();
         try
@@ -655,20 +678,26 @@ public sealed class TradeFoundryDb
             if (instrumentId.HasValue && instrumentId.Value != Guid.Empty)
             {
                 using var update = connection.CreateCommand();
-                update.CommandText = "UPDATE instruments SET code = $code, default_commission = $commission, point_value = $pointValue, tick_size = $tickSize WHERE id = $id";
+                update.CommandText = "UPDATE instruments SET code = $code, default_commission = $commission, exchange_fee_per_contract = $exchangeFee, nfa_fee_per_contract = $nfaFee, clearing_fee_per_contract = $clearingFee, point_value = $pointValue, tick_size = $tickSize WHERE id = $id";
                 update.Parameters.AddWithValue("$id", instrumentId.Value.ToString("D"));
                 update.Parameters.AddWithValue("$code", code);
                 AddNullable(update, "$commission", defaultCommission);
+                AddNullable(update, "$exchangeFee", exchangeFeePerContract);
+                AddNullable(update, "$nfaFee", nfaFeePerContract);
+                AddNullable(update, "$clearingFee", clearingFeePerContract);
                 update.Parameters.AddWithValue("$pointValue", NumberFormat.Decimal(pointValue));
                 update.Parameters.AddWithValue("$tickSize", NumberFormat.Decimal(tickSize));
                 return update.ExecuteNonQuery() == 1;
             }
 
             using var insert = connection.CreateCommand();
-            insert.CommandText = "INSERT INTO instruments (id, code, default_commission, point_value, tick_size, created_utc) VALUES ($id, $code, $commission, $pointValue, $tickSize, $created)";
+            insert.CommandText = "INSERT INTO instruments (id, code, default_commission, exchange_fee_per_contract, nfa_fee_per_contract, clearing_fee_per_contract, point_value, tick_size, created_utc) VALUES ($id, $code, $commission, $exchangeFee, $nfaFee, $clearingFee, $pointValue, $tickSize, $created)";
             insert.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
             insert.Parameters.AddWithValue("$code", code);
             AddNullable(insert, "$commission", defaultCommission);
+            AddNullable(insert, "$exchangeFee", exchangeFeePerContract);
+            AddNullable(insert, "$nfaFee", nfaFeePerContract);
+            AddNullable(insert, "$clearingFee", clearingFeePerContract);
             insert.Parameters.AddWithValue("$pointValue", NumberFormat.Decimal(pointValue));
             insert.Parameters.AddWithValue("$tickSize", NumberFormat.Decimal(tickSize));
             insert.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
@@ -762,6 +791,9 @@ public sealed class TradeFoundryDb
         decimal grossPnl;
         decimal netPnl;
         decimal points;
+        decimal exchangeFees;
+        decimal nfaFees;
+        decimal clearingFees;
         decimal fees;
         decimal winningPnl;
         decimal losingPnl;
@@ -771,20 +803,23 @@ public sealed class TradeFoundryDb
         int losingTrades;
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT COALESCE(SUM(CAST(t.gross_pnl AS REAL)), 0), COALESCE(SUM({EffectiveNetPnlSql}), 0), COALESCE(SUM(CAST(t.gross_points AS REAL)), 0), COALESCE(SUM(CAST({EffectiveFeesSql} AS REAL)), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), SUM(CASE WHEN t.status = 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status <> 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN 1 ELSE 0 END) FROM {TradeFrom} WHERE t.journal_id = $journal";
+            command.CommandText = $"SELECT COALESCE(SUM(CAST(t.gross_pnl AS REAL)), 0), COALESCE(SUM({EffectiveNetPnlSql}), 0), COALESCE(SUM(CAST(t.gross_points AS REAL)), 0), COALESCE(SUM(CAST({EffectiveExchangeFeesSql} AS REAL)), 0), COALESCE(SUM(CAST({EffectiveNfaFeesSql} AS REAL)), 0), COALESCE(SUM(CAST({EffectiveClearingFeesSql} AS REAL)), 0), COALESCE(SUM(CAST({EffectiveFeesSql} AS REAL)), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), SUM(CASE WHEN t.status = 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status <> 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN 1 ELSE 0 END) FROM {TradeFrom} WHERE t.journal_id = $journal";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             using var reader = command.ExecuteReader();
             if (!reader.Read()) throw new InvalidOperationException("The journal metrics could not be read.");
             grossPnl = AggregateDecimal(reader, 0);
             netPnl = AggregateDecimal(reader, 1);
             points = AggregateDecimal(reader, 2);
-            fees = AggregateDecimal(reader, 3);
-            winningPnl = AggregateDecimal(reader, 4);
-            losingPnl = Math.Abs(AggregateDecimal(reader, 5));
-            closedTradeCount = AggregateInt(reader, 6);
-            openTradeCount = AggregateInt(reader, 7);
-            winningTrades = AggregateInt(reader, 8);
-            losingTrades = AggregateInt(reader, 9);
+            exchangeFees = AggregateDecimal(reader, 3);
+            nfaFees = AggregateDecimal(reader, 4);
+            clearingFees = AggregateDecimal(reader, 5);
+            fees = AggregateDecimal(reader, 6);
+            winningPnl = AggregateDecimal(reader, 7);
+            losingPnl = Math.Abs(AggregateDecimal(reader, 8));
+            closedTradeCount = AggregateInt(reader, 9);
+            openTradeCount = AggregateInt(reader, 10);
+            winningTrades = AggregateInt(reader, 11);
+            losingTrades = AggregateInt(reader, 12);
         }
 
         var recentTrades = new List<Trade>();
@@ -847,6 +882,9 @@ public sealed class TradeFoundryDb
             NetPnl = netPnl,
             GrossPnl = grossPnl,
             Points = points,
+            ExchangeFees = exchangeFees,
+            NfaFees = nfaFees,
+            ClearingFees = clearingFees,
             Fees = fees,
             StartingEquity = startingEquity,
             ClosedTradeCount = closedTradeCount,
@@ -984,6 +1022,7 @@ public sealed class TradeFoundryDb
         if (patch.ExpectedRevision < 0) throw new ArgumentOutOfRangeException(nameof(patch.ExpectedRevision));
         if (patch.ProcessRating is < 1 or > 5) throw new ArgumentOutOfRangeException(nameof(patch.ProcessRating), "Process rating must be between 1 and 5.");
         if (patch.PlannedRiskPoints is < 0m || patch.PlannedRiskCurrency is < 0m) throw new ArgumentOutOfRangeException(nameof(patch), "Planned risk cannot be negative.");
+        if (patch.ExchangeFees is < 0m || patch.NfaFees is < 0m || patch.ClearingFees is < 0m) throw new ArgumentOutOfRangeException(nameof(patch), "Fee components cannot be negative.");
         if (patch.AllInCommission is < 0m) throw new ArgumentOutOfRangeException(nameof(patch.AllInCommission), "All-in commission cannot be negative.");
         if (!string.IsNullOrWhiteSpace(patch.PlanAdherence) && !new[] { "adhered", "partial", "broken" }.Contains(patch.PlanAdherence, StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException("Plan adherence must be Adhered, Partial, or Broken.", nameof(patch));
@@ -1005,7 +1044,7 @@ public sealed class TradeFoundryDb
         using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
-            command.CommandText = "INSERT INTO trade_review_annotations (id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc) VALUES ($id, $journal, $reviewKey, $revision, $note, $setup, $tags, $plannedEntry, $plannedStop, $plannedTarget, $riskPoints, $riskCurrency, $allInCommission, $adherence, $rating, $mistakes, $lessons, $updated) ON CONFLICT(journal_id, review_key) DO UPDATE SET revision = excluded.revision, review_note = excluded.review_note, setup = excluded.setup, tags_json = excluded.tags_json, planned_entry_price = excluded.planned_entry_price, planned_stop_price = excluded.planned_stop_price, planned_target_price = excluded.planned_target_price, planned_risk_points = excluded.planned_risk_points, planned_risk_currency = excluded.planned_risk_currency, all_in_commission = excluded.all_in_commission, plan_adherence = excluded.plan_adherence, process_rating = excluded.process_rating, mistakes = excluded.mistakes, lessons = excluded.lessons, updated_utc = excluded.updated_utc";
+            command.CommandText = "INSERT INTO trade_review_annotations (id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, exchange_fees, nfa_fees, clearing_fees, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc) VALUES ($id, $journal, $reviewKey, $revision, $note, $setup, $tags, $plannedEntry, $plannedStop, $plannedTarget, $riskPoints, $riskCurrency, $exchangeFees, $nfaFees, $clearingFees, $allInCommission, $adherence, $rating, $mistakes, $lessons, $updated) ON CONFLICT(journal_id, review_key) DO UPDATE SET revision = excluded.revision, review_note = excluded.review_note, setup = excluded.setup, tags_json = excluded.tags_json, planned_entry_price = excluded.planned_entry_price, planned_stop_price = excluded.planned_stop_price, planned_target_price = excluded.planned_target_price, planned_risk_points = excluded.planned_risk_points, planned_risk_currency = excluded.planned_risk_currency, exchange_fees = excluded.exchange_fees, nfa_fees = excluded.nfa_fees, clearing_fees = excluded.clearing_fees, all_in_commission = excluded.all_in_commission, plan_adherence = excluded.plan_adherence, process_rating = excluded.process_rating, mistakes = excluded.mistakes, lessons = excluded.lessons, updated_utc = excluded.updated_utc";
             command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             command.Parameters.AddWithValue("$reviewKey", reviewKey);
@@ -1018,6 +1057,9 @@ public sealed class TradeFoundryDb
             AddNullable(command, "$plannedTarget", annotation.PlannedTargetPrice);
             AddNullable(command, "$riskPoints", annotation.PlannedRiskPoints);
             AddNullable(command, "$riskCurrency", annotation.PlannedRiskCurrency);
+            AddNullable(command, "$exchangeFees", annotation.ExchangeFees);
+            AddNullable(command, "$nfaFees", annotation.NfaFees);
+            AddNullable(command, "$clearingFees", annotation.ClearingFees);
             AddNullable(command, "$allInCommission", annotation.AllInCommission);
             command.Parameters.AddWithValue("$adherence", annotation.PlanAdherence);
             AddNullable(command, "$rating", annotation.ProcessRating);
@@ -1056,7 +1098,7 @@ public sealed class TradeFoundryDb
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, journal_id, review_key, storage_key, original_file_name, content_type, length, created_utc FROM trade_review_attachments WHERE journal_id = $journal AND review_key = $reviewKey AND removed_utc IS NULL ORDER BY created_utc DESC";
+        command.CommandText = "SELECT id, journal_id, review_key, storage_key, original_file_name, caption, content_type, length, created_utc FROM trade_review_attachments WHERE journal_id = $journal AND review_key = $reviewKey AND removed_utc IS NULL ORDER BY created_utc DESC";
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$reviewKey", reviewKey);
         using var reader = command.ExecuteReader();
@@ -1070,7 +1112,7 @@ public sealed class TradeFoundryDb
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, journal_id, review_key, storage_key, original_file_name, content_type, length, created_utc FROM trade_review_attachments WHERE id = $id AND journal_id = $journal AND removed_utc IS NULL";
+        command.CommandText = "SELECT id, journal_id, review_key, storage_key, original_file_name, caption, content_type, length, created_utc FROM trade_review_attachments WHERE id = $id AND journal_id = $journal AND removed_utc IS NULL";
         command.Parameters.AddWithValue("$id", attachmentId.ToString("D"));
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         using var reader = command.ExecuteReader();
@@ -1134,7 +1176,7 @@ public sealed class TradeFoundryDb
         return new DailyJournalSaveResult { Saved = true, Entry = entry };
     }
 
-    public TradeReviewAttachment AddTradeReviewAttachment(Guid journalId, string reviewKey, string storageKey, string originalFileName, string contentType, long length)
+    public TradeReviewAttachment AddTradeReviewAttachment(Guid journalId, string reviewKey, string storageKey, string originalFileName, string contentType, long length, string? caption = null)
     {
         if (string.IsNullOrWhiteSpace(reviewKey)) throw new ArgumentException("A review key is required.", nameof(reviewKey));
         if (string.IsNullOrWhiteSpace(storageKey)) throw new ArgumentException("A storage key is required.", nameof(storageKey));
@@ -1142,16 +1184,17 @@ public sealed class TradeFoundryDb
         var attachment = new TradeReviewAttachment
         {
             Id = Guid.NewGuid(), JournalId = journalId, ReviewKey = reviewKey, StorageKey = storageKey,
-            OriginalFileName = originalFileName, ContentType = contentType, Length = length, CreatedUtc = DateTimeOffset.UtcNow
+            OriginalFileName = originalFileName, Caption = TrimTo(caption, 500), ContentType = contentType, Length = length, CreatedUtc = DateTimeOffset.UtcNow
         };
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO trade_review_attachments (id, journal_id, review_key, storage_key, original_file_name, content_type, length, created_utc, removed_utc) VALUES ($id, $journal, $reviewKey, $storageKey, $fileName, $contentType, $length, $created, NULL)";
+        command.CommandText = "INSERT INTO trade_review_attachments (id, journal_id, review_key, storage_key, original_file_name, caption, content_type, length, created_utc, removed_utc) VALUES ($id, $journal, $reviewKey, $storageKey, $fileName, $caption, $contentType, $length, $created, NULL)";
         command.Parameters.AddWithValue("$id", attachment.Id.ToString("D"));
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$reviewKey", reviewKey);
         command.Parameters.AddWithValue("$storageKey", storageKey);
         command.Parameters.AddWithValue("$fileName", attachment.OriginalFileName);
+        command.Parameters.AddWithValue("$caption", attachment.Caption);
         command.Parameters.AddWithValue("$contentType", attachment.ContentType);
         command.Parameters.AddWithValue("$length", attachment.Length);
         command.Parameters.AddWithValue("$created", attachment.CreatedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
@@ -1171,6 +1214,24 @@ public sealed class TradeFoundryDb
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.ExecuteNonQuery();
         return attachment;
+    }
+
+    public TradeReviewAttachment? UpdateTradeReviewAttachmentCaption(Guid journalId, string reviewKey, Guid attachmentId, string? caption)
+    {
+        var attachment = GetTradeReviewAttachment(journalId, attachmentId);
+        if (attachment is null || !string.Equals(attachment.ReviewKey, reviewKey, StringComparison.Ordinal)) return null;
+
+        using (var connection = OpenConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE trade_review_attachments SET caption = $caption WHERE id = $id AND journal_id = $journal AND review_key = $reviewKey AND removed_utc IS NULL";
+            command.Parameters.AddWithValue("$caption", TrimTo(caption, 500));
+            command.Parameters.AddWithValue("$id", attachmentId.ToString("D"));
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            command.Parameters.AddWithValue("$reviewKey", reviewKey);
+            command.ExecuteNonQuery();
+        }
+        return GetTradeReviewAttachment(journalId, attachmentId);
     }
 
     public IReadOnlyList<OrderEvent> GetOrderEvents(Guid journalId)
@@ -2195,7 +2256,7 @@ public sealed class TradeFoundryDb
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT OR IGNORE INTO fills (id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, row_number, instrument, point_value, tick_size) VALUES ($id, $journal, $batch, $source, $key, $activity, $orderActionSource, $event, $transaction, $sourceTime, $symbol, $account, $side, $quantity, $price, $price2, $filledQuantity, $openClose, $orderType, $orderStatus, $parent, $high, $low, $note, $position, $order, $serviceOrder, $exchangeOrder, $fillExecution, $clientOrder, $timeInForce, $username, $automated, $accountBalance, $fees, $row, $instrument, $pointValue, $tickSize)";
+        command.CommandText = "INSERT OR IGNORE INTO fills (id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, exchange_fee_per_contract, nfa_fee_per_contract, clearing_fee_per_contract, row_number, instrument, point_value, tick_size, source_timeframe) VALUES ($id, $journal, $batch, $source, $key, $activity, $orderActionSource, $event, $transaction, $sourceTime, $symbol, $account, $side, $quantity, $price, $price2, $filledQuantity, $openClose, $orderType, $orderStatus, $parent, $high, $low, $note, $position, $order, $serviceOrder, $exchangeOrder, $fillExecution, $clientOrder, $timeInForce, $username, $automated, $accountBalance, $fees, $exchangeFee, $nfaFee, $clearingFee, $row, $instrument, $pointValue, $tickSize, $sourceTimeframe)";
         command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$batch", batchId.ToString("D"));
@@ -2231,10 +2292,14 @@ public sealed class TradeFoundryDb
         AddNullable(command, "$automated", fill.IsAutomated.HasValue ? (fill.IsAutomated.Value ? 1 : 0) : null);
         AddNullable(command, "$accountBalance", fill.AccountBalance);
         command.Parameters.AddWithValue("$fees", NumberFormat.Decimal(fill.Fees));
+        AddNullable(command, "$exchangeFee", fill.ExchangeFeePerContract);
+        AddNullable(command, "$nfaFee", fill.NfaFeePerContract);
+        AddNullable(command, "$clearingFee", fill.ClearingFeePerContract);
         command.Parameters.AddWithValue("$row", fill.RowNumber);
         command.Parameters.AddWithValue("$instrument", fill.Instrument);
         command.Parameters.AddWithValue("$pointValue", NumberFormat.Decimal(fill.PointValue));
         command.Parameters.AddWithValue("$tickSize", NumberFormat.Decimal(fill.TickSize));
+        command.Parameters.AddWithValue("$sourceTimeframe", fill.SourceTimeframe);
         return command.ExecuteNonQuery() > 0;
     }
 
@@ -2381,7 +2446,7 @@ public sealed class TradeFoundryDb
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT OR IGNORE INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc, instrument, review_key) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $fees, $netPnl, NULL, NULL, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, NULL, NULL, NULL, NULL, $status, $note, $created, $instrument, $reviewKey)";
+        command.CommandText = "INSERT OR IGNORE INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, exchange_fees, nfa_fees, clearing_fees, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc, instrument, review_key, source_timeframe) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $exchangeFees, $nfaFees, $clearingFees, $fees, $netPnl, NULL, NULL, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, NULL, NULL, NULL, NULL, $status, $note, $created, $instrument, $reviewKey, $sourceTimeframe)";
         var quantity = Math.Max(1, draft.Quantity);
         var averagePoints = quantity == 0 ? 0m : draft.GrossPoints / quantity;
         var instrument = string.IsNullOrWhiteSpace(draft.Instrument) ? InstrumentCatalog.ExtractRoot(draft.Symbol) : draft.Instrument;
@@ -2407,6 +2472,9 @@ public sealed class TradeFoundryDb
         command.Parameters.AddWithValue("$grossPoints", NumberFormat.Decimal(draft.GrossPoints));
         command.Parameters.AddWithValue("$averagePoints", NumberFormat.Decimal(averagePoints));
         command.Parameters.AddWithValue("$grossPnl", NumberFormat.Decimal(draft.GrossPnl));
+        command.Parameters.AddWithValue("$exchangeFees", NumberFormat.Decimal(draft.ExchangeFees));
+        command.Parameters.AddWithValue("$nfaFees", NumberFormat.Decimal(draft.NfaFees));
+        command.Parameters.AddWithValue("$clearingFees", NumberFormat.Decimal(draft.ClearingFees));
         command.Parameters.AddWithValue("$fees", NumberFormat.Decimal(draft.Fees));
         command.Parameters.AddWithValue("$netPnl", NumberFormat.Decimal(draft.NetPnl));
         command.Parameters.AddWithValue("$pointValue", NumberFormat.Decimal(pointValue));
@@ -2422,6 +2490,7 @@ public sealed class TradeFoundryDb
         command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$instrument", instrument);
         command.Parameters.AddWithValue("$reviewKey", CreateTradeReviewKey(journalId, draft.SourceType, draft.SourceKey, groupingPolicy, draft.Account, draft.Symbol, draft.Direction));
+        command.Parameters.AddWithValue("$sourceTimeframe", draft.SourceTimeframe);
         return command.ExecuteNonQuery() > 0;
     }
 
@@ -2508,7 +2577,7 @@ public sealed class TradeFoundryDb
         var enrichment = EnrichTrade(state, entryPrice, exitPrice, Math.Max(state.MaxOpenQuantity, closed), orderLifecycles);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc, instrument, review_key) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $fees, $netPnl, $mae, $mfe, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, $entryOrderPrice, $exitOrderPrice, $entryChasePoints, $exitChasePoints, $status, $note, $created, $instrument, $reviewKey)";
+        command.CommandText = "INSERT INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, exchange_fees, nfa_fees, clearing_fees, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc, instrument, review_key, source_timeframe) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $exchangeFees, $nfaFees, $clearingFees, $fees, $netPnl, $mae, $mfe, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, $entryOrderPrice, $exitOrderPrice, $entryChasePoints, $exitChasePoints, $status, $note, $created, $instrument, $reviewKey, $sourceTimeframe)";
         command.Parameters.AddWithValue("$id", tradeId);
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$batch", state.ImportBatchId?.ToString("D") ?? (object)DBNull.Value);
@@ -2528,6 +2597,9 @@ public sealed class TradeFoundryDb
         command.Parameters.AddWithValue("$grossPoints", NumberFormat.Decimal(state.GrossPoints));
         command.Parameters.AddWithValue("$averagePoints", NumberFormat.Decimal(averagePoints));
         command.Parameters.AddWithValue("$grossPnl", NumberFormat.Decimal(state.GrossPnl));
+        command.Parameters.AddWithValue("$exchangeFees", NumberFormat.Decimal(state.ExchangeFees));
+        command.Parameters.AddWithValue("$nfaFees", NumberFormat.Decimal(state.NfaFees));
+        command.Parameters.AddWithValue("$clearingFees", NumberFormat.Decimal(state.ClearingFees));
         command.Parameters.AddWithValue("$fees", NumberFormat.Decimal(state.Fees));
         command.Parameters.AddWithValue("$netPnl", NumberFormat.Decimal(state.GrossPnl - state.Fees));
         AddNullable(command, "$mae", state.MaePoints);
@@ -2549,6 +2621,7 @@ public sealed class TradeFoundryDb
         command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$instrument", state.Instrument);
         command.Parameters.AddWithValue("$reviewKey", CreateTradeReviewKey(journalId, DerivedFillSource, state.EntrySourceKey, groupingPolicy, state.Account, state.Symbol, state.Direction));
+        command.Parameters.AddWithValue("$sourceTimeframe", state.SourceTimeframe);
         command.ExecuteNonQuery();
 
         foreach (var allocation in state.Allocations)
@@ -2577,7 +2650,7 @@ public sealed class TradeFoundryDb
         {
             fills.Add(new Fill
             {
-                Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), ActivityType = reader.GetString(5), OrderActionSource = reader.GetString(6), EventUtc = ParseDate(reader.GetString(7)), TransactionUtc = reader.IsDBNull(8) ? null : ParseDate(reader.GetString(8)), SourceTimeText = reader.GetString(9), Symbol = reader.GetString(10), Account = reader.GetString(11), Side = reader.GetString(12), Quantity = reader.GetInt32(13), Price = ParseDecimal(reader.GetString(14)), Price2 = NullableDecimal(reader, 15), FilledQuantity = reader.IsDBNull(16) ? null : reader.GetInt32(16), OpenClose = reader.GetString(17), OrderType = reader.GetString(18), OrderStatus = reader.GetString(19), ParentOrderId = reader.GetString(20), High = NullableDecimal(reader, 21), Low = NullableDecimal(reader, 22), Note = reader.GetString(23), PositionQuantity = reader.IsDBNull(24) ? null : reader.GetInt32(24), OrderId = reader.GetString(25), ServiceOrderId = reader.GetString(26), ExchangeOrderId = reader.GetString(27), FillExecutionId = reader.GetString(28), ClientOrderId = reader.GetString(29), TimeInForce = reader.GetString(30), Username = reader.GetString(31), IsAutomated = NullableBool(reader, 32), AccountBalance = NullableDecimal(reader, 33), Fees = ParseDecimal(reader.GetString(34)), RowNumber = reader.GetInt32(35), Instrument = string.IsNullOrWhiteSpace(reader.GetString(36)) ? InstrumentCatalog.ExtractRoot(reader.GetString(10)) : reader.GetString(36), PointValue = ParsePositiveOrFallback(reader, 37, InstrumentCatalog.Resolve(reader.GetString(10)).PointValue), TickSize = ParsePositiveOrFallback(reader, 38, InstrumentCatalog.Resolve(reader.GetString(10)).TickSize)
+                Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), ActivityType = reader.GetString(5), OrderActionSource = reader.GetString(6), EventUtc = ParseDate(reader.GetString(7)), TransactionUtc = reader.IsDBNull(8) ? null : ParseDate(reader.GetString(8)), SourceTimeText = reader.GetString(9), Symbol = reader.GetString(10), Account = reader.GetString(11), Side = reader.GetString(12), Quantity = reader.GetInt32(13), Price = ParseDecimal(reader.GetString(14)), Price2 = NullableDecimal(reader, 15), FilledQuantity = reader.IsDBNull(16) ? null : reader.GetInt32(16), OpenClose = reader.GetString(17), OrderType = reader.GetString(18), OrderStatus = reader.GetString(19), ParentOrderId = reader.GetString(20), High = NullableDecimal(reader, 21), Low = NullableDecimal(reader, 22), Note = reader.GetString(23), PositionQuantity = reader.IsDBNull(24) ? null : reader.GetInt32(24), OrderId = reader.GetString(25), ServiceOrderId = reader.GetString(26), ExchangeOrderId = reader.GetString(27), FillExecutionId = reader.GetString(28), ClientOrderId = reader.GetString(29), TimeInForce = reader.GetString(30), Username = reader.GetString(31), IsAutomated = NullableBool(reader, 32), AccountBalance = NullableDecimal(reader, 33), Fees = ParseDecimal(reader.GetString(34)), ExchangeFeePerContract = NullableDecimal(reader, 35), NfaFeePerContract = NullableDecimal(reader, 36), ClearingFeePerContract = NullableDecimal(reader, 37), RowNumber = reader.GetInt32(38), Instrument = string.IsNullOrWhiteSpace(reader.GetString(39)) ? InstrumentCatalog.ExtractRoot(reader.GetString(10)) : reader.GetString(39), PointValue = ParsePositiveOrFallback(reader, 40, InstrumentCatalog.Resolve(reader.GetString(10)).PointValue), TickSize = ParsePositiveOrFallback(reader, 41, InstrumentCatalog.Resolve(reader.GetString(10)).TickSize), SourceTimeframe = reader.GetString(42)
             });
         }
         return fills;
@@ -3023,12 +3096,15 @@ public sealed class TradeFoundryDb
             PlannedTargetPrice = NullableDecimal(reader, 9),
             PlannedRiskPoints = NullableDecimal(reader, 10),
             PlannedRiskCurrency = NullableDecimal(reader, 11),
-            AllInCommission = NullableDecimal(reader, 12),
-            PlanAdherence = reader.GetString(13),
-            ProcessRating = reader.IsDBNull(14) ? null : reader.GetInt32(14),
-            Mistakes = reader.GetString(15),
-            Lessons = reader.GetString(16),
-            UpdatedUtc = ParseDate(reader.GetString(17))
+            ExchangeFees = NullableDecimal(reader, 12),
+            NfaFees = NullableDecimal(reader, 13),
+            ClearingFees = NullableDecimal(reader, 14),
+            AllInCommission = NullableDecimal(reader, 15),
+            PlanAdherence = reader.GetString(16),
+            ProcessRating = reader.IsDBNull(17) ? null : reader.GetInt32(17),
+            Mistakes = reader.GetString(18),
+            Lessons = reader.GetString(19),
+            UpdatedUtc = ParseDate(reader.GetString(20))
         };
     }
 
@@ -3052,9 +3128,10 @@ public sealed class TradeFoundryDb
         ReviewKey = reader.GetString(2),
         StorageKey = reader.GetString(3),
         OriginalFileName = reader.GetString(4),
-        ContentType = reader.GetString(5),
-        Length = reader.GetInt64(6),
-        CreatedUtc = ParseDate(reader.GetString(7))
+        Caption = reader.GetString(5),
+        ContentType = reader.GetString(6),
+        Length = reader.GetInt64(7),
+        CreatedUtc = ParseDate(reader.GetString(8))
     };
 
     private static DailyJournalEntry ReadDailyJournal(SqliteDataReader reader) => new()
@@ -3113,6 +3190,9 @@ public sealed class TradeFoundryDb
         PlannedTargetPrice = patch.PlannedTargetPrice,
         PlannedRiskPoints = patch.PlannedRiskPoints,
         PlannedRiskCurrency = patch.PlannedRiskCurrency,
+        ExchangeFees = patch.ExchangeFees,
+        NfaFees = patch.NfaFees,
+        ClearingFees = patch.ClearingFees,
         AllInCommission = patch.AllInCommission,
         PlanAdherence = TrimTo(patch.PlanAdherence, 32).ToLowerInvariant(),
         ProcessRating = patch.ProcessRating,
@@ -3135,6 +3215,9 @@ public sealed class TradeFoundryDb
         PlannedTargetPrice = patch.PlannedTargetPrice,
         PlannedRiskPoints = patch.PlannedRiskPoints,
         PlannedRiskCurrency = patch.PlannedRiskCurrency,
+        ExchangeFees = patch.ExchangeFees,
+        NfaFees = patch.NfaFees,
+        ClearingFees = patch.ClearingFees,
         AllInCommission = patch.AllInCommission,
         PlanAdherence = patch.PlanAdherence,
         ProcessRating = patch.ProcessRating,
@@ -3153,6 +3236,9 @@ public sealed class TradeFoundryDb
         PlannedTargetPrice = annotation.PlannedTargetPrice,
         PlannedRiskPoints = annotation.PlannedRiskPoints,
         PlannedRiskCurrency = annotation.PlannedRiskCurrency,
+        ExchangeFees = annotation.ExchangeFees,
+        NfaFees = annotation.NfaFees,
+        ClearingFees = annotation.ClearingFees,
         AllInCommission = annotation.AllInCommission,
         PlanAdherence = annotation.PlanAdherence,
         ProcessRating = annotation.ProcessRating,
@@ -3258,7 +3344,7 @@ public sealed class TradeFoundryDb
 
     private static Trade ReadTrade(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), GroupingPolicy = reader.GetString(5), Sequence = reader.GetInt32(6), Symbol = reader.GetString(7), Account = reader.GetString(8), Direction = reader.GetString(9), EntryUtc = ParseDate(reader.GetString(10)), ExitUtc = reader.IsDBNull(11) ? null : ParseDate(reader.GetString(11)), EntryPrice = ParseDecimal(reader.GetString(12)), ExitPrice = reader.IsDBNull(13) ? null : ParseDecimal(reader.GetString(13)), Quantity = reader.GetInt32(14), ClosedQuantity = reader.GetInt32(15), GrossPoints = ParseDecimal(reader.GetString(16)), AveragePoints = ParseDecimal(reader.GetString(17)), GrossPnl = ParseDecimal(reader.GetString(18)), Fees = ParseDecimal(reader.GetString(19)), NetPnl = ParseDecimal(reader.GetString(20)), MaePoints = reader.IsDBNull(21) ? null : ParseDecimal(reader.GetString(21)), MfePoints = reader.IsDBNull(22) ? null : ParseDecimal(reader.GetString(22)), PointValue = ParseDecimal(reader.GetString(23)), TickSize = ParseDecimal(reader.GetString(24)), InitialStopPrice = NullableDecimal(reader, 25), InitialTargetPrice = NullableDecimal(reader, 26), InitialRiskPoints = NullableDecimal(reader, 27), InitialRiskCurrency = NullableDecimal(reader, 28), RMultiple = NullableDecimal(reader, 29), ExitType = reader.GetString(30), EntryOrderPrice = NullableDecimal(reader, 31), ExitOrderPrice = NullableDecimal(reader, 32), EntryChasePoints = NullableDecimal(reader, 33), ExitChasePoints = NullableDecimal(reader, 34), Status = reader.GetString(35), Note = reader.GetString(36), Instrument = string.IsNullOrWhiteSpace(reader.GetString(37)) ? InstrumentCatalog.ExtractRoot(reader.GetString(7)) : reader.GetString(37), ReviewKey = reader.GetString(38), HasReviewNotes = Convert.ToInt32(reader.GetValue(39), CultureInfo.InvariantCulture) != 0, HasReviewImages = Convert.ToInt32(reader.GetValue(40), CultureInfo.InvariantCulture) != 0
+        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), GroupingPolicy = reader.GetString(5), Sequence = reader.GetInt32(6), Symbol = reader.GetString(7), Account = reader.GetString(8), Direction = reader.GetString(9), EntryUtc = ParseDate(reader.GetString(10)), ExitUtc = reader.IsDBNull(11) ? null : ParseDate(reader.GetString(11)), EntryPrice = ParseDecimal(reader.GetString(12)), ExitPrice = reader.IsDBNull(13) ? null : ParseDecimal(reader.GetString(13)), Quantity = reader.GetInt32(14), ClosedQuantity = reader.GetInt32(15), GrossPoints = ParseDecimal(reader.GetString(16)), AveragePoints = ParseDecimal(reader.GetString(17)), GrossPnl = ParseDecimal(reader.GetString(18)), ExchangeFees = ParseDecimal(reader.GetString(19)), NfaFees = ParseDecimal(reader.GetString(20)), ClearingFees = ParseDecimal(reader.GetString(21)), Fees = ParseDecimal(reader.GetString(22)), NetPnl = ParseDecimal(reader.GetString(23)), MaePoints = reader.IsDBNull(24) ? null : ParseDecimal(reader.GetString(24)), MfePoints = reader.IsDBNull(25) ? null : ParseDecimal(reader.GetString(25)), PointValue = ParseDecimal(reader.GetString(26)), TickSize = ParseDecimal(reader.GetString(27)), InitialStopPrice = NullableDecimal(reader, 28), InitialTargetPrice = NullableDecimal(reader, 29), InitialRiskPoints = NullableDecimal(reader, 30), InitialRiskCurrency = NullableDecimal(reader, 31), RMultiple = NullableDecimal(reader, 32), ExitType = reader.GetString(33), EntryOrderPrice = NullableDecimal(reader, 34), ExitOrderPrice = NullableDecimal(reader, 35), EntryChasePoints = NullableDecimal(reader, 36), ExitChasePoints = NullableDecimal(reader, 37), Status = reader.GetString(38), Note = reader.GetString(39), Instrument = string.IsNullOrWhiteSpace(reader.GetString(40)) ? InstrumentCatalog.ExtractRoot(reader.GetString(7)) : reader.GetString(40), ReviewKey = reader.GetString(41), HasReviewNotes = Convert.ToInt32(reader.GetValue(42), CultureInfo.InvariantCulture) != 0, HasReviewImages = Convert.ToInt32(reader.GetValue(43), CultureInfo.InvariantCulture) != 0, SourceTimeframe = reader.GetString(44)
     };
 
     private static Bar ReadBar(SqliteDataReader reader) => new()
@@ -3272,9 +3358,9 @@ public sealed class TradeFoundryDb
         return new Fill
         {
             Id = fill.Id, JournalId = fill.JournalId, ImportBatchId = fill.ImportBatchId, SourceType = fill.SourceType, SourceKey = fill.SourceKey,
-            ActivityType = fill.ActivityType, OrderActionSource = fill.OrderActionSource, EventUtc = fill.EventUtc, TransactionUtc = fill.TransactionUtc, SourceTimeText = fill.SourceTimeText, Symbol = fill.Symbol, Account = fill.Account, Side = fill.Side,
+            ActivityType = fill.ActivityType, OrderActionSource = fill.OrderActionSource, EventUtc = fill.EventUtc, TransactionUtc = fill.TransactionUtc, SourceTimeText = fill.SourceTimeText, SourceTimeframe = fill.SourceTimeframe, Symbol = fill.Symbol, Account = fill.Account, Side = fill.Side,
             Quantity = quantity, Price = fill.Price, Price2 = fill.Price2, FilledQuantity = fill.FilledQuantity, OpenClose = fill.OpenClose, OrderType = fill.OrderType, OrderStatus = fill.OrderStatus, ParentOrderId = fill.ParentOrderId, High = fill.High, Low = fill.Low, Note = fill.Note,
-            PositionQuantity = fill.PositionQuantity, OrderId = fill.OrderId, ServiceOrderId = fill.ServiceOrderId, ExchangeOrderId = fill.ExchangeOrderId, FillExecutionId = fill.FillExecutionId, ClientOrderId = fill.ClientOrderId, TimeInForce = fill.TimeInForce, Username = fill.Username, IsAutomated = fill.IsAutomated, AccountBalance = fill.AccountBalance, Fees = fee, RowNumber = fill.RowNumber, Instrument = fill.Instrument, PointValue = fill.PointValue, TickSize = fill.TickSize
+            PositionQuantity = fill.PositionQuantity, OrderId = fill.OrderId, ServiceOrderId = fill.ServiceOrderId, ExchangeOrderId = fill.ExchangeOrderId, FillExecutionId = fill.FillExecutionId, ClientOrderId = fill.ClientOrderId, TimeInForce = fill.TimeInForce, Username = fill.Username, IsAutomated = fill.IsAutomated, AccountBalance = fill.AccountBalance, Fees = fee, ExchangeFeePerContract = fill.ExchangeFeePerContract, NfaFeePerContract = fill.NfaFeePerContract, ClearingFeePerContract = fill.ClearingFeePerContract, RowNumber = fill.RowNumber, Instrument = fill.Instrument, PointValue = fill.PointValue, TickSize = fill.TickSize
         };
     }
 
@@ -3392,13 +3478,14 @@ public sealed class TradeFoundryDb
     {
         private PositionState(Fill fill, int direction, int quantity)
         {
-            Symbol = fill.Symbol; Instrument = string.IsNullOrWhiteSpace(fill.Instrument) ? InstrumentCatalog.ExtractRoot(fill.Symbol) : fill.Instrument; Account = fill.Account; Direction = direction > 0 ? "Long" : "Short"; PointValue = fill.PointValue > 0m ? fill.PointValue : InstrumentCatalog.Resolve(Instrument).PointValue; TickSize = fill.TickSize > 0m ? fill.TickSize : InstrumentCatalog.Resolve(Instrument).TickSize; SignedQuantity = direction * quantity; OpenQuantity = quantity; MaxOpenQuantity = quantity; EntryCost = fill.Price * quantity; EntryUtc = fill.EventUtc; EntrySourceKey = fill.SourceKey; ImportBatchId = fill.ImportBatchId; Fees = fill.Fees; EntryReferences.Add(OrderReference.From(fill, quantity)); Notes.Add(fill.Note); AddExcursion(fill, fill.Price, direction);
+            Symbol = fill.Symbol; Instrument = string.IsNullOrWhiteSpace(fill.Instrument) ? InstrumentCatalog.ExtractRoot(fill.Symbol) : fill.Instrument; Account = fill.Account; Direction = direction > 0 ? "Long" : "Short"; PointValue = fill.PointValue > 0m ? fill.PointValue : InstrumentCatalog.Resolve(Instrument).PointValue; TickSize = fill.TickSize > 0m ? fill.TickSize : InstrumentCatalog.Resolve(Instrument).TickSize; ExchangeFeePerContract = fill.ExchangeFeePerContract; NfaFeePerContract = fill.NfaFeePerContract; ClearingFeePerContract = fill.ClearingFeePerContract; HasFeeBreakdown = fill.ExchangeFeePerContract.HasValue || fill.NfaFeePerContract.HasValue || fill.ClearingFeePerContract.HasValue; SignedQuantity = direction * quantity; OpenQuantity = quantity; MaxOpenQuantity = quantity; EntryCost = fill.Price * quantity; EntryUtc = fill.EventUtc; EntrySourceKey = fill.SourceKey; ImportBatchId = fill.ImportBatchId; SourceTimeframe = fill.SourceTimeframe; if (HasFeeBreakdown) AddBreakdownFees(fill, quantity); else Fees = fill.Fees; EntryReferences.Add(OrderReference.From(fill, quantity)); Notes.Add(fill.Note); AddExcursion(fill, fill.Price, direction);
         }
 
         public string Symbol { get; }
         public string Instrument { get; }
         public string Account { get; }
         public string Direction { get; }
+        public string SourceTimeframe { get; private set; }
         public decimal PointValue { get; }
         public decimal TickSize { get; }
         public int SignedQuantity { get; private set; }
@@ -3410,7 +3497,14 @@ public sealed class TradeFoundryDb
         public decimal ExitCost { get; private set; }
         public decimal GrossPoints { get; private set; }
         public decimal GrossPnl { get; private set; }
+        public decimal ExchangeFees { get; private set; }
+        public decimal NfaFees { get; private set; }
+        public decimal ClearingFees { get; private set; }
         public decimal Fees { get; private set; }
+        private decimal? ExchangeFeePerContract { get; }
+        private decimal? NfaFeePerContract { get; }
+        private decimal? ClearingFeePerContract { get; }
+        private bool HasFeeBreakdown { get; }
         public decimal? MaePoints { get; private set; }
         public decimal? MfePoints { get; private set; }
         public DateTimeOffset EntryUtc { get; }
@@ -3427,12 +3521,13 @@ public sealed class TradeFoundryDb
 
         public void AddOpening(Fill fill, int quantity)
         {
+            if (string.IsNullOrWhiteSpace(SourceTimeframe)) SourceTimeframe = fill.SourceTimeframe;
             var total = OpenQuantity + quantity;
             EntryCost += fill.Price * quantity;
             OpenQuantity = total;
             SignedQuantity = Math.Sign(SignedQuantity) * total;
             MaxOpenQuantity = Math.Max(MaxOpenQuantity, total);
-            Fees += fill.Fees;
+            if (HasFeeBreakdown) AddBreakdownFees(fill, quantity); else Fees += fill.Fees;
             EntryReferences.Add(OrderReference.From(fill, quantity));
             Notes.Add(fill.Note);
             AddExcursion(fill, EntryCost / Math.Max(1, OpenQuantity), Math.Sign(SignedQuantity));
@@ -3440,6 +3535,7 @@ public sealed class TradeFoundryDb
 
         public void Close(Fill fill, int quantity)
         {
+            if (string.IsNullOrWhiteSpace(SourceTimeframe)) SourceTimeframe = fill.SourceTimeframe;
             var entryAverage = EntryCost / Math.Max(1, OpenQuantity);
             var direction = Math.Sign(SignedQuantity);
             var move = direction > 0 ? fill.Price - entryAverage : entryAverage - fill.Price;
@@ -3448,7 +3544,7 @@ public sealed class TradeFoundryDb
             ExitCost += fill.Price * quantity;
             GrossPoints += move * quantity;
             GrossPnl += move * quantity * PointValue;
-            Fees += feePortion;
+            if (HasFeeBreakdown) AddBreakdownFees(fill, quantity); else Fees += feePortion;
             ClosedQuantity += quantity;
             EntryCost -= entryAverage * quantity;
             OpenQuantity -= quantity;
@@ -3469,6 +3565,17 @@ public sealed class TradeFoundryDb
             var adverse = direction > 0 ? entryAverage - low : high - entryAverage;
             MfePoints = Math.Max(MfePoints ?? 0m, favorable);
             MaePoints = Math.Max(MaePoints ?? 0m, adverse);
+        }
+
+        private void AddBreakdownFees(Fill fill, int quantity)
+        {
+            var exchange = (fill.ExchangeFeePerContract ?? ExchangeFeePerContract ?? 0m) * quantity;
+            var nfa = (fill.NfaFeePerContract ?? NfaFeePerContract ?? 0m) * quantity;
+            var clearing = (fill.ClearingFeePerContract ?? ClearingFeePerContract ?? 0m) * quantity;
+            ExchangeFees += exchange;
+            NfaFees += nfa;
+            ClearingFees += clearing;
+            Fees += exchange + nfa + clearing;
         }
     }
 

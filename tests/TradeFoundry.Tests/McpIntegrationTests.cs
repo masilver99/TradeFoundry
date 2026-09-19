@@ -99,6 +99,9 @@ public sealed class McpIntegrationTests
             Assert.Single(dstDay.ClosedTrades);
             Assert.Equal(6.25m, dstDay.RealizedMetrics.NetPnl);
             Assert.Empty(service.GetTradingDay(journal.Id, "2026-03-07").ClosedTrades);
+            var trade = Assert.Single(database.GetAllTrades(journal.Id));
+            var detail = service.GetTradeDetail(journal.Id, trade.ReviewKey);
+            Assert.Contains($"/review?date=2026-03-08&focus={Uri.EscapeDataString(trade.ReviewKey)}", detail.AppPath, StringComparison.Ordinal);
         }
         finally
         {
@@ -214,8 +217,12 @@ public sealed class McpIntegrationTests
             var overview = await AssertToolSucceeds(client, "get_journal_overview", Arguments(("journal_id", journal.Id)));
             Assert.Equal(6.25m, overview.GetProperty("metrics").GetProperty("expectancy").GetDecimal());
             Assert.Equal(System.Text.Json.JsonValueKind.Null, overview.GetProperty("metrics").GetProperty("profit_factor").ValueKind);
-            await AssertToolSucceeds(client, "search_trades", Arguments(("journal_id", journal.Id)));
+            var search = await AssertToolSucceeds(client, "search_trades", Arguments(("journal_id", journal.Id)));
+            Assert.All(search.GetProperty("trades").EnumerateArray(), item =>
+                Assert.DoesNotContain("/trades/", item.GetProperty("app_path").GetString(), StringComparison.Ordinal));
             var detail = await AssertToolSucceeds(client, "get_trade_detail", Arguments(("journal_id", journal.Id), ("review_key", reviewKey)));
+            Assert.Contains("/review?date=2026-09-09&focus=", detail.GetProperty("app_path").GetString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("/trades/", detail.GetProperty("app_path").GetString(), StringComparison.Ordinal);
             Assert.Equal(1000, detail.GetProperty("evidence").GetProperty("source_note").GetString()!.Length);
             Assert.Equal(2, detail.GetProperty("evidence").GetProperty("fills").GetArrayLength());
             await AssertToolSucceeds(client, "get_trade_price_context", Arguments(("journal_id", journal.Id), ("review_key", reviewKey)));

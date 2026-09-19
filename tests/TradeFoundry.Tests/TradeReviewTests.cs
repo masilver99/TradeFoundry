@@ -93,9 +93,15 @@ public sealed class TradeReviewTests
             var reviewService = new TradeReviewService(database);
             await using (var screenshot = new MemoryStream(PngSignature()))
             {
-                var attachment = await reviewService.SaveAttachmentAsync(journal.Id, trade.ReviewKey, screenshot, "chart.png", "image/png", screenshot.Length);
+                var attachment = await reviewService.SaveAttachmentAsync(journal.Id, trade.ReviewKey, screenshot, "chart.png", "image/png", screenshot.Length, "Entry and exit context");
+                Assert.Equal("Entry and exit context", attachment.Caption);
+                Assert.Equal("Entry and exit context", Assert.Single(reviewService.GetAttachments(journal.Id, trade.ReviewKey)).Caption);
                 Assert.Single(reviewService.GetAttachments(journal.Id, trade.ReviewKey));
                 Assert.NotNull(reviewService.GetAttachmentPath(journal.Id, attachment));
+                var updatedAttachment = reviewService.UpdateAttachmentCaption(journal.Id, trade.ReviewKey, attachment.Id, "  Updated context  ");
+                Assert.NotNull(updatedAttachment);
+                Assert.Equal("Updated context", updatedAttachment!.Caption);
+                Assert.Equal("Updated context", Assert.Single(reviewService.GetAttachments(journal.Id, trade.ReviewKey)).Caption);
                 Assert.True(reviewService.RemoveAttachment(journal.Id, attachment.Id));
                 Assert.Empty(reviewService.GetAttachments(journal.Id, trade.ReviewKey));
             }
@@ -181,6 +187,9 @@ public sealed class TradeReviewTests
 
             var saved = database.SaveTradeReview(journal.Id, imported.ReviewKey, new TradeReviewPatch
             {
+                ExchangeFees = 1.00m,
+                NfaFees = .50m,
+                ClearingFees = .75m,
                 AllInCommission = 2.25m,
                 ExpectedRevision = 0,
                 Reason = "Corrected all-in round-trip commission"
@@ -188,6 +197,9 @@ public sealed class TradeReviewTests
 
             Assert.True(saved.Saved);
             Assert.Equal(2.25m, saved.Annotation.AllInCommission);
+            Assert.Equal(1.00m, saved.Annotation.ExchangeFees);
+            Assert.Equal(.50m, saved.Annotation.NfaFees);
+            Assert.Equal(.75m, saved.Annotation.ClearingFees);
             Assert.Equal(2.25m, database.GetTradeReview(journal.Id, imported.ReviewKey)!.AllInCommission);
 
             var fromLedger = Assert.Single(database.GetTrades(new TradeQuery { JournalId = journal.Id, PageSize = 50 }).Items);
@@ -198,6 +210,9 @@ public sealed class TradeReviewTests
             Assert.Equal(2.25m, fromDetail.Fees);
             Assert.Equal(2.75m, fromDetail.NetPnl);
             Assert.Equal(2.25m, fromOverview.Fees);
+            Assert.Equal(1.00m, fromDetail.ExchangeFees);
+            Assert.Equal(.50m, fromDetail.NfaFees);
+            Assert.Equal(.75m, fromDetail.ClearingFees);
             Assert.Equal(2.75m, fromOverview.NetPnl);
             Assert.Equal(2.75m, Assert.Single(fromOverview.DailyPnl).NetPnl);
             Assert.Equal(2.75m, Assert.Single(fromOverview.Equity).CumulativePnl);
@@ -217,6 +232,113 @@ public sealed class TradeReviewTests
             Assert.True(cleared.Saved);
             Assert.Equal(1.00m, Assert.Single(database.GetAllTrades(journal.Id)).Fees);
             Assert.Equal(4.00m, Assert.Single(database.GetAllTrades(journal.Id)).NetPnl);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void InstrumentFeeBreakdownIsAggregatedAcrossFillsAndSnapshottedOnTradeEvidence()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var instrument = Assert.Single(database.GetInstruments(), item => item.Code == "MES");
+            Assert.True(database.SaveInstrument(instrument.Id, "MES", null, .35m, .01m, .13m, 5m, .25m));
+
+            var csv = string.Join('\n',
+                "Activity Type,DateTime,Symbol,BuySell,Quantity,Fill Price",
+                "Fills,2026-09-10 12:00:00,MESZ26,Buy,1,5000",
+                "Fills,2026-09-10 13:00:00,MESZ26,Sell,1,5001");
+            var parsed = new ImportService(database).Parse(csv, "sierra", "source", "UTC", configuration: database.GetInstrumentConfiguration());
+            Assert.Equal(.35m, parsed.Records[0].Fill!.ExchangeFeePerContract);
+            database.CommitImport(journal.Id, "mes.txt", parsed, "flat_to_flat", "source");
+
+            var trade = Assert.Single(database.GetAllTrades(journal.Id));
+            Assert.Equal(.70m, trade.ExchangeFees);
+            Assert.Equal(.02m, trade.NfaFees);
+            Assert.Equal(.26m, trade.ClearingFees);
+            Assert.Equal(.98m, trade.Fees);
+            Assert.Equal(4.02m, trade.NetPnl);
+            var overview = database.GetOverview(journal.Id);
+            Assert.Equal(.70m, overview.ExchangeFees);
+            Assert.Equal(.02m, overview.NfaFees);
+            Assert.Equal(.26m, overview.ClearingFees);
+            Assert.Equal(.98m, overview.Fees);
+
+            var componentOverride = database.SaveTradeReview(journal.Id, trade.ReviewKey, new TradeReviewPatch
+            {
+                ExchangeFees = 1.10m,
+                NfaFees = .03m,
+                ClearingFees = .40m,
+                ExpectedRevision = 0,
+                Reason = "Corrected fee components"
+            });
+            Assert.True(componentOverride.Saved);
+            var componentTrade = Assert.Single(database.GetAllTrades(journal.Id));
+            Assert.Equal(1.10m, componentTrade.ExchangeFees);
+            Assert.Equal(.03m, componentTrade.NfaFees);
+            Assert.Equal(.40m, componentTrade.ClearingFees);
+            Assert.Equal(1.53m, componentTrade.Fees);
+            Assert.Equal(3.47m, componentTrade.NetPnl);
+
+            var allInOverride = database.SaveTradeReview(journal.Id, trade.ReviewKey, new TradeReviewPatch
+            {
+                ExchangeFees = 9m,
+                NfaFees = 9m,
+                ClearingFees = 9m,
+                AllInCommission = 2m,
+                ExpectedRevision = 1,
+                Reason = "Use all-in correction"
+            });
+            Assert.True(allInOverride.Saved);
+            var allInTrade = Assert.Single(database.GetAllTrades(journal.Id));
+            Assert.Equal(2m, allInTrade.Fees);
+            Assert.Equal(3m, allInTrade.NetPnl);
+
+            Assert.True(database.SaveInstrument(instrument.Id, "MES", null, 1m, 2m, 3m, 5m, .25m));
+            database.RebuildFlatTrades(journal.Id, "flat_to_flat");
+            var rebuilt = Assert.Single(database.GetAllTrades(journal.Id));
+            Assert.Equal(9m, rebuilt.ExchangeFees);
+            Assert.Equal(9m, rebuilt.NfaFees);
+            Assert.Equal(9m, rebuilt.ClearingFees);
+            Assert.Equal(2m, rebuilt.Fees);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void SierraImportUsesEmbeddedMinuteTimeframeForDerivedTrade()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var csv = string.Join('\n',
+                "Activity Type,DateTime,Symbol,BuySell,Quantity,Fill Price,Order Action Source",
+                "Fills,2026-09-10 12:00:00,MESZ26,Buy,1,5000,Chart Trade 5 min",
+                "Fills,2026-09-10 13:00:00,MESZ26,Sell,1,5001,Chart Trade 5 min");
+
+            var parsed = new ImportService(database).Parse(csv, "sierra", "source", "UTC");
+
+            Assert.All(parsed.Records, record => Assert.Equal("5m", record.Fill?.SourceTimeframe));
+            database.CommitImport(journal.Id, "sierra.csv", parsed, "flat_to_flat", "source");
+
+            var trade = Assert.Single(database.GetAllTrades(journal.Id));
+            Assert.Equal("5m", trade.SourceTimeframe);
+
+            database.RebuildFlatTrades(journal.Id, "flat_to_flat");
+            Assert.Equal("5m", Assert.Single(database.GetAllTrades(journal.Id)).SourceTimeframe);
         }
         finally
         {

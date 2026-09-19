@@ -63,7 +63,7 @@ public class AnalyticsModel : PageModel
     public string WaterfallChart => ChartRenderer.TearSheetWaterfall(Trades);
     public string DailyDistributionChart => ChartRenderer.TearSheetDailyDistribution(Trades);
     public string PnlDistributionChart => ChartRenderer.TearSheetPnlDistribution(Trades);
-    public string WinnersLosersChart => ChartRenderer.TearSheetWinLossDistribution(Trades);
+    public string TradePnlRangeChart => ChartRenderer.TearSheetTradePnlRangeDistribution(Trades);
     public string MfeMaeChart => ChartRenderer.TearSheetMfeMae(Trades);
     public string MaeWinnersChart => ChartRenderer.TearSheetMaeWinners(Trades);
     public string DurationProfitChart => ChartRenderer.TearSheetDurationProfit(Trades);
@@ -73,6 +73,7 @@ public class AnalyticsModel : PageModel
     public string ExitEfficiencyChart => ChartRenderer.TearSheetExitEfficiency(Trades);
     public string TimingChart => ChartRenderer.TearSheetTimingHeatmap(Trades, Journal?.TimeZone);
     public string PositionSizeChart => ChartRenderer.TearSheetPositionSize(Trades);
+    public string TradeSizeDistributionChart => ChartRenderer.TearSheetTradeSizeDistribution(Trades);
     public string ConcentrationChart => ChartRenderer.TearSheetProfitConcentration(Trades);
     public string StreakStateChart => ChartRenderer.TearSheetStreakState(Trades);
     public string WinRateChart => ChartRenderer.TearSheetWinRateOverTime(Trades);

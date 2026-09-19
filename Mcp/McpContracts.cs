@@ -76,6 +76,9 @@ public sealed record McpPerformanceMetrics(
     int Breakeven,
     decimal GrossPnl,
     decimal NetPnl,
+    decimal ExchangeFees,
+    decimal NfaFees,
+    decimal ClearingFees,
     decimal Fees,
     decimal GrossPoints,
     decimal WinRatePercent,
@@ -125,6 +128,9 @@ public sealed record McpTradeSummary(
     int Quantity,
     int ClosedQuantity,
     decimal GrossPnl,
+    decimal ExchangeFees,
+    decimal NfaFees,
+    decimal ClearingFees,
     decimal Fees,
     decimal NetPnl,
     decimal? RMultiple,
@@ -291,5 +297,5 @@ internal static class McpResponseDefaults
 {
     public const string DataBoundary = "Historical journal evidence only. Win/loss, profit factor, and expectancy use gross P&L; net P&L includes fees. No live market data, signals, order placement, or record mutation.";
     public static readonly AppliedTradeFilters EmptyFilters = new(null, null, "exit", null, null, null, null, "all", null, null, null, null, null);
-    public static readonly McpPerformanceMetrics EmptyMetrics = new(0, 0, 0, 0, 0, 0m, 0m, 0m, 0m, 0m, null, null, null, null, 0m, null, null, null, null);
+    public static readonly McpPerformanceMetrics EmptyMetrics = new(0, 0, 0, 0, 0, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, null, null, null, null, 0m, null, null, null, null);
 }

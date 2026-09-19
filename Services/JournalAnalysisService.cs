@@ -109,7 +109,7 @@ public sealed class JournalAnalysisService
         return new McpTradeDetailResponse
         {
             JournalId = journalId.ToString("D"), JournalTimeZone = journal.TimeZone, Currency = journal.Currency,
-            AppPath = $"/journal/{journalId:D}/trades/{trade.Id:D}", Trade = ToSummary(trade, journal), DataGaps = gaps,
+            AppPath = ReviewAppPath(trade, journal), Trade = ToSummary(trade, journal), DataGaps = gaps,
             Truncated = ordersTruncated || fillsTruncated,
             Evidence = new McpTradeEvidence(
                 trade.InitialStopPrice, trade.InitialTargetPrice, trade.InitialRiskPoints, trade.InitialRiskCurrency,
@@ -148,7 +148,7 @@ public sealed class JournalAnalysisService
             EntryUtc = trade.EntryUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
             ExitUtc = trade.ExitUtc?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
             EntryPrice = trade.EntryPrice, ExitPrice = trade.ExitPrice,
-            Bars = bars, Truncated = query.Bars.Count > limit, DataGaps = gaps, AppPath = $"/journal/{journalId:D}/trades/{trade.Id:D}"
+            Bars = bars, Truncated = query.Bars.Count > limit, DataGaps = gaps, AppPath = ReviewAppPath(trade, journal)
         };
     }
 
@@ -317,8 +317,17 @@ public sealed class JournalAnalysisService
         trade.ReviewKey, trade.Symbol, trade.Instrument, trade.Account, trade.Direction, trade.Status,
         trade.EntryUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture), FormatLocal(trade.EntryUtc, journal.TimeZone),
         trade.ExitUtc?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture), trade.ExitUtc.HasValue ? FormatLocal(trade.ExitUtc.Value, journal.TimeZone) : null,
-        trade.EntryPrice, trade.ExitPrice, trade.Quantity, trade.ClosedQuantity, trade.GrossPnl, trade.Fees, trade.NetPnl, trade.RMultiple,
-        trade.SourceType, $"/journal/{journal.Id:D}/trades/{trade.Id:D}");
+        trade.EntryPrice, trade.ExitPrice, trade.Quantity, trade.ClosedQuantity, trade.GrossPnl, trade.ExchangeFees, trade.NfaFees, trade.ClearingFees, trade.Fees, trade.NetPnl, trade.RMultiple,
+        trade.SourceType, ReviewAppPath(trade, journal));
+
+    private static string ReviewAppPath(Trade trade, Journal journal)
+    {
+        var timestamp = trade.ExitUtc.HasValue && trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase)
+            ? trade.ExitUtc.Value
+            : trade.EntryUtc;
+        var date = LocalDate(timestamp, journal.TimeZone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return $"/journal/{journal.Id:D}/review?date={date}&focus={Uri.EscapeDataString(trade.ReviewKey)}";
+    }
 
     private static McpPerformanceMetrics BuildMetrics(IEnumerable<Trade> source, string timeZoneId)
     {
@@ -341,7 +350,7 @@ public sealed class JournalAnalysisService
         var durations = closed.Where(x => x.Duration.HasValue).Select(x => x.Duration!.Value.TotalSeconds).ToArray();
         return new McpPerformanceMetrics(
             closed.Length, all.Length - closed.Length, winners.Length, losers.Length, closed.Count(x => x.GrossPnl == 0m),
-            closed.Sum(x => x.GrossPnl), closed.Sum(x => x.NetPnl), closed.Sum(x => x.Fees), closed.Sum(x => x.GrossPoints),
+            closed.Sum(x => x.GrossPnl), closed.Sum(x => x.NetPnl), closed.Sum(x => x.ExchangeFees), closed.Sum(x => x.NfaFees), closed.Sum(x => x.ClearingFees), closed.Sum(x => x.Fees), closed.Sum(x => x.GrossPoints),
             closed.Length == 0 ? 0m : (decimal)winners.Length / closed.Length * 100m,
             grossLosses == 0m ? null : grossWins / grossLosses,
             closed.Length == 0 ? null : closed.Average(x => x.GrossPnl),

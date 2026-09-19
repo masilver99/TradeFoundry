@@ -7,6 +7,7 @@ namespace TradeFoundry.Services;
 public sealed class TradeReviewService
 {
     public const long MaxAttachmentLength = 10 * 1024 * 1024;
+    public const int MaxAttachmentCaptionLength = 500;
 
     private readonly TradeFoundryDb _database;
     private readonly string _attachmentRoot;
@@ -30,15 +31,26 @@ public sealed class TradeReviewService
         var summaries = DailyTradeAggregation.Build(_database.GetAllTrades(journalId), journal.TimeZone);
         var summary = summaries.FirstOrDefault(item => item.Date == date);
         var annotations = _database.GetTradeReviewAnnotations(journalId);
+        var imports = new Dictionary<Guid, ImportBatch>();
 
         DailyReviewTrade Map(Trade trade)
         {
             var annotation = annotations.TryGetValue(trade.ReviewKey, out var existing)
                 ? existing
                 : new TradeReviewAnnotation { JournalId = journalId, ReviewKey = trade.ReviewKey };
+            ImportBatch? import = null;
+            if (trade.ImportBatchId.HasValue)
+            {
+                if (!imports.TryGetValue(trade.ImportBatchId.Value, out import))
+                {
+                    import = _database.GetImport(trade.ImportBatchId.Value);
+                    if (import is not null) imports[import.Id] = import;
+                }
+            }
             return new DailyReviewTrade
             {
                 Trade = trade,
+                ImportBatch = import,
                 Annotation = annotation,
                 Attachments = _database.GetTradeReviewAttachments(journalId, trade.ReviewKey),
                 History = _database.GetTradeReviewHistory(journalId, trade.ReviewKey)
@@ -80,12 +92,23 @@ public sealed class TradeReviewService
     public TradeReviewAttachment? GetAttachment(Guid journalId, Guid attachmentId) =>
         _database.GetTradeReviewAttachment(journalId, attachmentId);
 
-    public async Task<TradeReviewAttachment> SaveAttachmentAsync(Guid journalId, string reviewKey, Stream content, string originalFileName, string contentType, long length, CancellationToken cancellationToken = default)
+    public TradeReviewAttachment? UpdateAttachmentCaption(Guid journalId, string reviewKey, Guid attachmentId, string? caption)
+    {
+        if (string.IsNullOrWhiteSpace(reviewKey)) throw new ArgumentException("A review key is required.", nameof(reviewKey));
+        _ = _database.GetTradeByReviewKey(journalId, reviewKey) ?? throw new InvalidOperationException("The trade for this review could not be found.");
+        return _database.UpdateTradeReviewAttachmentCaption(journalId, reviewKey, attachmentId, TrimCaption(caption));
+    }
+
+    public Task<TradeReviewAttachment> SaveAttachmentAsync(Guid journalId, string reviewKey, Stream content, string originalFileName, string contentType, long length, CancellationToken cancellationToken = default) =>
+        SaveAttachmentAsync(journalId, reviewKey, content, originalFileName, contentType, length, null, cancellationToken);
+
+    public async Task<TradeReviewAttachment> SaveAttachmentAsync(Guid journalId, string reviewKey, Stream content, string originalFileName, string contentType, long length, string? caption, CancellationToken cancellationToken = default)
     {
         if (length <= 0 || length > MaxAttachmentLength) throw new InvalidOperationException("Screenshots must be between 1 byte and 10 MB.");
         var extension = ExtensionFor(contentType);
         if (extension is null) throw new InvalidOperationException("Only PNG, JPEG, and WebP screenshots are supported.");
         _ = _database.GetTradeByReviewKey(journalId, reviewKey) ?? throw new InvalidOperationException("The trade for this review could not be found.");
+        var normalizedCaption = TrimCaption(caption);
 
         var directory = Path.Combine(_attachmentRoot, journalId.ToString("D"));
         Directory.CreateDirectory(directory);
@@ -109,7 +132,7 @@ public sealed class TradeReviewService
             }
 
             var safeFileName = Path.GetFileName(string.IsNullOrWhiteSpace(originalFileName) ? $"screenshot{extension}" : originalFileName);
-            return _database.AddTradeReviewAttachment(journalId, reviewKey, storageKey, TrimFileName(safeFileName), contentType, actualLength);
+            return _database.AddTradeReviewAttachment(journalId, reviewKey, storageKey, TrimFileName(safeFileName), contentType, actualLength, normalizedCaption);
         }
         catch
         {
@@ -180,5 +203,11 @@ public sealed class TradeReviewService
     {
         var trimmed = value.Trim();
         return trimmed.Length <= 180 ? trimmed : trimmed[..180];
+    }
+
+    private static string TrimCaption(string? value)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        return trimmed.Length <= MaxAttachmentCaptionLength ? trimmed : trimmed[..MaxAttachmentCaptionLength];
     }
 }

@@ -280,7 +280,10 @@ public static class TearSheetMetrics
                 Money("Net P&L", stats.TotalNetPnl, "After fees", currency),
                 Money("Gross P&L", stats.TotalGrossPnl, "Before fees", currency),
                 Money("Avg Daily P&L", stats.AvgDailyNetPnl, "Completed trading days", currency),
-                Money("Total Fees", stats.TotalFees, "Imported commission and fees", currency, "negative"),
+                Money("Exchange Fees", stats.ExchangeFees, "Exchange component", currency, "negative"),
+                Money("NFA Fees", stats.NfaFees, "NFA component", currency, "negative"),
+                Money("Clearing / commission", stats.ClearingFees, "Clearing and commission component", currency, "negative"),
+                Money("Total Fees", stats.TotalFees, "Sum of fee components or all-in values", currency, "negative"),
                 Number("Closed trades", stats.TradeCount, "Completed positions"),
                 Percent("Win Rate", stats.WinRate, "Gross P&L winners", positiveAt: .5m),
                 Ratio("Profit Factor", stats.ProfitFactor, "Gross profit ÷ gross loss"),
@@ -300,7 +303,10 @@ public static class TearSheetMetrics
                         Money("Gross P&L", stats.TotalGrossPnl, "Before fees", currency),
                         Money("Net P&L", stats.TotalNetPnl, "After fees", currency),
                         Money("Avg Daily P&L", stats.AvgDailyNetPnl, "Net P&L ÷ trading days", currency),
-                        Money("Total Fees", stats.TotalFees, "Imported commission and fees", currency, "negative"),
+                        Money("Exchange Fees", stats.ExchangeFees, "Exchange component", currency, "negative"),
+                        Money("NFA Fees", stats.NfaFees, "NFA component", currency, "negative"),
+                        Money("Clearing / commission", stats.ClearingFees, "Clearing and commission component", currency, "negative"),
+                        Money("Total Fees", stats.TotalFees, "Sum of fee components or all-in values", currency, "negative"),
                         Number("Trades", stats.TradeCount, "Completed positions"),
                         Percent("Win Rate", stats.WinRate, "Gross P&L winners", positiveAt: .5m),
                         Percent("Win Rate (BE)", stats.WinRateBe, "Gross P&L above breakeven"),
@@ -717,6 +723,9 @@ public static class TearSheetMetrics
                     ScMoneyRow("Average Winning Trade Open Loss", columns, stats => stats.AverageWinningOpenLoss),
                     ScMoneyRow("Average Losing Trade Open Profit", columns, stats => stats.AverageLosingOpenProfit),
                     ScMoneyRow("Average Losing Trade Open Loss", columns, stats => stats.AverageLosingOpenLoss),
+                    ScMoneyRow("Exchange Fees", columns, stats => stats.ExchangeFees, forcedTone: "negative"),
+                    ScMoneyRow("NFA Fees", columns, stats => stats.NfaFees, forcedTone: "negative"),
+                    ScMoneyRow("Clearing / commission", columns, stats => stats.ClearingFees, forcedTone: "negative"),
                     ScMoneyRow("Total Commissions", columns, stats => stats.TotalCommissions, forcedTone: "negative")
                 }),
                 new TearSheetScSection("Trade Counts", new[]
@@ -826,6 +835,9 @@ public static class TearSheetMetrics
             AverageWinningOpenLoss = winningOpenLoss.Length == 0 ? null : winningOpenLoss.Average(),
             AverageLosingOpenProfit = losingOpenProfit.Length == 0 ? null : losingOpenProfit.Average(),
             AverageLosingOpenLoss = losingOpenLoss.Length == 0 ? null : losingOpenLoss.Average(),
+            ExchangeFees = trades.Sum(trade => trade.ExchangeFees),
+            NfaFees = trades.Sum(trade => trade.NfaFees),
+            ClearingFees = trades.Sum(trade => trade.ClearingFees),
             TotalCommissions = trades.Sum(trade => trade.Fees),
             TotalTrades = trades.Length,
             PercentProfitable = (decimal)winners.Length / trades.Length * 100m,
@@ -996,6 +1008,9 @@ public static class TearSheetMetrics
             TradeCount = trades.Count,
             TotalGrossPnl = gross.Sum(),
             TotalNetPnl = net.Sum(),
+            ExchangeFees = trades.Sum(trade => trade.ExchangeFees),
+            NfaFees = trades.Sum(trade => trade.NfaFees),
+            ClearingFees = trades.Sum(trade => trade.ClearingFees),
             TotalFees = trades.Sum(trade => trade.Fees),
             Points = trades.Sum(trade => trade.GrossPoints),
             WinRate = winRate,
@@ -1558,6 +1573,9 @@ public static class TearSheetMetrics
         public decimal? AverageWinningOpenLoss { get; init; }
         public decimal? AverageLosingOpenProfit { get; init; }
         public decimal? AverageLosingOpenLoss { get; init; }
+        public decimal? ExchangeFees { get; init; }
+        public decimal? NfaFees { get; init; }
+        public decimal? ClearingFees { get; init; }
         public decimal? TotalCommissions { get; init; }
         public int? TotalTrades { get; init; }
         public decimal? PercentProfitable { get; init; }
@@ -1608,6 +1626,9 @@ public static class TearSheetMetrics
         public decimal TotalGrossPnl { get; init; }
         public decimal TotalNetPnl { get; init; }
         public decimal TotalFees { get; init; }
+        public decimal ExchangeFees { get; init; }
+        public decimal NfaFees { get; init; }
+        public decimal ClearingFees { get; init; }
         public decimal Points { get; init; }
         public decimal WinRate { get; init; }
         public decimal WinRateBe { get; init; }

@@ -1,0 +1,10 @@
+@model TradeFoundry.Core.Trade
+
+<span class="tf-review-indicators" aria-label="Review indicators">
+    <span class="tf-review-indicator" data-review-indicator="images" title="Images added to review" aria-label="Images added to review" hidden="@(Model.HasReviewImages ? null : "hidden")">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg>
+    </span>
+    <span class="tf-review-indicator" data-review-indicator="notes" title="Review notes added" aria-label="Review notes added" hidden="@(Model.HasReviewNotes ? null : "hidden")">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H11l-5.5 5v-5.25A2.5 2.5 0 0 1 4 13.5z"/><path d="M8 8h8M8 12h5"/></svg>
+    </span>
+</span>

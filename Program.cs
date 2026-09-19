@@ -36,7 +36,6 @@ builder.Services.AddAuthorization();
 builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AddPageRoute("/Index", "/journal/{journalId:guid}/overview");
-    options.Conventions.AddPageRoute("/Trade", "/journal/{journalId:guid}/trades/{id:guid}");
     options.Conventions.AddPageRoute("/NotFound", "/Error/404");
 });
 

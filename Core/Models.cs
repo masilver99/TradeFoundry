@@ -74,6 +74,7 @@ public sealed class Fill
     public DateTimeOffset EventUtc { get; init; }
     public DateTimeOffset? TransactionUtc { get; init; }
     public string SourceTimeText { get; init; } = string.Empty;
+    public string SourceTimeframe { get; init; } = string.Empty;
     public string Symbol { get; init; } = string.Empty;
     public string Account { get; init; } = string.Empty;
     public string Side { get; init; } = string.Empty;
@@ -99,6 +100,9 @@ public sealed class Fill
     public bool? IsAutomated { get; init; }
     public decimal? AccountBalance { get; init; }
     public decimal Fees { get; init; }
+    public decimal? ExchangeFeePerContract { get; init; }
+    public decimal? NfaFeePerContract { get; init; }
+    public decimal? ClearingFeePerContract { get; init; }
     public int RowNumber { get; init; }
     public string Instrument { get; init; } = string.Empty;
     public decimal PointValue { get; init; }
@@ -226,6 +230,9 @@ public sealed class Trade
     public decimal GrossPoints { get; init; }
     public decimal AveragePoints { get; init; }
     public decimal GrossPnl { get; init; }
+    public decimal ExchangeFees { get; init; }
+    public decimal NfaFees { get; init; }
+    public decimal ClearingFees { get; init; }
     public decimal Fees { get; init; }
     public decimal NetPnl { get; init; }
     public decimal? MaePoints { get; init; }
@@ -246,6 +253,7 @@ public sealed class Trade
     public string Note { get; init; } = string.Empty;
     public string Instrument { get; init; } = string.Empty;
     public string ReviewKey { get; init; } = string.Empty;
+    public string SourceTimeframe { get; init; } = string.Empty;
     public bool HasReviewImages { get; init; }
     public bool HasReviewNotes { get; init; }
     public TimeSpan? Duration => ExitUtc.HasValue ? ExitUtc.Value - EntryUtc : null;
@@ -372,6 +380,9 @@ public sealed class JournalOverview
     public decimal NetPnl { get; init; }
     public decimal GrossPnl { get; init; }
     public decimal Points { get; init; }
+    public decimal ExchangeFees { get; init; }
+    public decimal NfaFees { get; init; }
+    public decimal ClearingFees { get; init; }
     public decimal Fees { get; init; }
     public decimal? StartingEquity { get; init; }
     public int ClosedTradeCount { get; init; }
@@ -557,6 +568,9 @@ public sealed class TradeReviewAnnotation
     public decimal? PlannedTargetPrice { get; init; }
     public decimal? PlannedRiskPoints { get; init; }
     public decimal? PlannedRiskCurrency { get; init; }
+    public decimal? ExchangeFees { get; init; }
+    public decimal? NfaFees { get; init; }
+    public decimal? ClearingFees { get; init; }
     public decimal? AllInCommission { get; init; }
     public string PlanAdherence { get; init; } = string.Empty;
     public int? ProcessRating { get; init; }
@@ -571,6 +585,9 @@ public sealed class TradeReviewAnnotation
         || PlannedTargetPrice.HasValue
         || PlannedRiskPoints.HasValue
         || PlannedRiskCurrency.HasValue
+        || ExchangeFees.HasValue
+        || NfaFees.HasValue
+        || ClearingFees.HasValue
         || AllInCommission.HasValue
         || !string.IsNullOrWhiteSpace(PlanAdherence)
         || ProcessRating.HasValue
@@ -588,6 +605,9 @@ public sealed class TradeReviewPatch
     public decimal? PlannedTargetPrice { get; set; }
     public decimal? PlannedRiskPoints { get; set; }
     public decimal? PlannedRiskCurrency { get; set; }
+    public decimal? ExchangeFees { get; set; }
+    public decimal? NfaFees { get; set; }
+    public decimal? ClearingFees { get; set; }
     public decimal? AllInCommission { get; set; }
     public string PlanAdherence { get; set; } = string.Empty;
     public int? ProcessRating { get; set; }
@@ -617,6 +637,7 @@ public sealed class TradeReviewAttachment
     public string ReviewKey { get; init; } = string.Empty;
     public string StorageKey { get; init; } = string.Empty;
     public string OriginalFileName { get; init; } = string.Empty;
+    public string Caption { get; init; } = string.Empty;
     public string ContentType { get; init; } = string.Empty;
     public long Length { get; init; }
     public DateTimeOffset CreatedUtc { get; init; }
@@ -625,6 +646,7 @@ public sealed class TradeReviewAttachment
 public sealed class DailyReviewTrade
 {
     public Trade Trade { get; init; } = new();
+    public ImportBatch? ImportBatch { get; init; }
     public TradeReviewAnnotation Annotation { get; init; } = new();
     public IReadOnlyList<TradeReviewAttachment> Attachments { get; init; } = Array.Empty<TradeReviewAttachment>();
     public IReadOnlyList<TradeReviewHistoryEntry> History { get; init; } = Array.Empty<TradeReviewHistoryEntry>();
@@ -685,6 +707,7 @@ public sealed class FillDraft
     public DateTimeOffset EventUtc { get; init; }
     public DateTimeOffset? TransactionUtc { get; init; }
     public string SourceTimeText { get; init; } = string.Empty;
+    public string SourceTimeframe { get; init; } = string.Empty;
     public string Symbol { get; init; } = string.Empty;
     public string Account { get; init; } = string.Empty;
     public string Side { get; init; } = string.Empty;
@@ -710,6 +733,9 @@ public sealed class FillDraft
     public bool? IsAutomated { get; init; }
     public decimal? AccountBalance { get; init; }
     public decimal Fees { get; init; }
+    public decimal? ExchangeFeePerContract { get; init; }
+    public decimal? NfaFeePerContract { get; init; }
+    public decimal? ClearingFeePerContract { get; init; }
     public int RowNumber { get; init; }
     public string Instrument { get; init; } = string.Empty;
     public decimal PointValue { get; init; }
@@ -804,6 +830,9 @@ public sealed class ImportedTradeDraft
     public int Quantity { get; init; }
     public decimal GrossPoints { get; init; }
     public decimal GrossPnl { get; init; }
+    public decimal ExchangeFees { get; init; }
+    public decimal NfaFees { get; init; }
+    public decimal ClearingFees { get; init; }
     public decimal Fees { get; init; }
     public decimal NetPnl { get; init; }
     public decimal? InitialStopPrice { get; init; }
@@ -816,6 +845,7 @@ public sealed class ImportedTradeDraft
     public string Instrument { get; init; } = string.Empty;
     public decimal PointValue { get; init; }
     public decimal TickSize { get; init; }
+    public string SourceTimeframe { get; init; } = string.Empty;
 }
 
 public sealed class ParsedRecord

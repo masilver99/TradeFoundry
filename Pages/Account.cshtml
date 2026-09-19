@@ -92,7 +92,22 @@
                         <tr class="@(entry.IsBeforeBaseline ? "tf-account-outside" : string.Empty)">
                             <td>@Model.LocalDateTime(entry.EffectiveUtc)@if (entry.IsBeforeBaseline){<small>Outside inferred period</small>}</td>
                             <td><span class="tf-account-type tf-account-type-@entry.Kind.Replace("_", "-", StringComparison.Ordinal)">@entry.Label</span>@if (entry.IsOpeningBaseline){<small>Opening baseline</small>}</td>
-                            <td>@if (entry.TradeId.HasValue){<a class="row-link" href="@($"/journal/{journal.Id:D}/trades/{entry.TradeId.Value:D}")">@entry.Description</a>}else{<strong>@entry.Description</strong>}@if (!string.IsNullOrWhiteSpace(entry.Account)){<small>@entry.Account</small>}</td>
+                            <td>
+                                @if (entry.TradeId.HasValue && !string.IsNullOrWhiteSpace(entry.TradeReviewKey))
+                                {
+                                    var reviewDate = TimeZoneCatalog.Format(entry.EffectiveUtc, journal.TimeZone, "yyyy-MM-dd");
+                                    var reviewUrl = $"/journal/{journal.Id:D}/review?date={reviewDate}&focus={Uri.EscapeDataString(entry.TradeReviewKey)}";
+                                    <a class="row-link" href="@reviewUrl">@entry.Description</a>
+                                }
+                                else
+                                {
+                                    <strong>@entry.Description</strong>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(entry.Account))
+                                {
+                                    <small>@entry.Account</small>
+                                }
+                            </td>
                             <td class="@amountClass">@(entry.Amount.HasValue ? Model.SignedMoney(entry.Amount.Value) : "—")</td>
                             <td>@(entry.CalculatedBalance.HasValue ? Model.Money(entry.CalculatedBalance.Value) : "—")</td>
                             <td>@(entry.ReportedBalance.HasValue ? Model.Money(entry.ReportedBalance.Value) : "—")</td>

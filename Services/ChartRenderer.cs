@@ -192,11 +192,11 @@ public static partial class ChartRenderer
 
     public static string Daily(IEnumerable<DailyPnl> daily)
     {
-        var values = daily.OrderBy(x => x.Date).ToArray();
+        var values = daily.Where(x => x.TradeCount > 0).OrderBy(x => x.Date).ToArray();
         if (values.Length == 0) return Empty("Daily bars will appear after the first closed trade.");
 
         var layout = CartesianLayout();
-        SetAxis(layout, "xaxis", "exit date", date: true);
+        SetAxis(layout, "xaxis", "exit date", category: true);
         SetAxis(layout, "yaxis", "net P&L");
         return Plotly("Daily net P&L", new object[]
         {
@@ -722,7 +722,7 @@ public static partial class ChartRenderer
                 exit,
                 path
             },
-            historyUrl = $"/journal/{trade.JournalId:D}/trades/{trade.Id:D}?handler=CandleBars&interval={Uri.EscapeDataString(query.ResolvedInterval)}"
+            historyUrl = $"/journal/{trade.JournalId:D}/review?handler=CandleBars&reviewKey={Uri.EscapeDataString(trade.ReviewKey)}&interval={Uri.EscapeDataString(query.ResolvedInterval)}"
         };
         return payload;
     }
@@ -878,12 +878,13 @@ public static partial class ChartRenderer
         ["automargin"] = true
     };
 
-    private static void SetAxis(Dictionary<string, object?> layout, string key, string title, bool date = false, bool percent = false)
+    private static void SetAxis(Dictionary<string, object?> layout, string key, string title, bool date = false, bool percent = false, bool category = false)
     {
         var axis = Axis();
         if (!string.IsNullOrWhiteSpace(title))
             axis["title"] = new { text = title, font = new { color = Muted, size = 11 } };
         if (date) axis["type"] = "date";
+        if (category) axis["type"] = "category";
         if (percent) axis["ticksuffix"] = "%";
         layout[key] = axis;
     }

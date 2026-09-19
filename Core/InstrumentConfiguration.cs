@@ -7,8 +7,14 @@ public sealed class InstrumentDefinition
     public Guid Id { get; init; }
     public string Code { get; init; } = string.Empty;
     public decimal? DefaultCommission { get; init; }
+    public decimal? ExchangeFeePerContract { get; init; }
+    public decimal? NfaFeePerContract { get; init; }
+    public decimal? ClearingFeePerContract { get; init; }
     public decimal PointValue { get; init; }
     public decimal TickSize { get; init; }
+
+    public bool HasFeeBreakdown => ExchangeFeePerContract.HasValue || NfaFeePerContract.HasValue || ClearingFeePerContract.HasValue;
+    public decimal FeePerContract => (ExchangeFeePerContract ?? 0m) + (NfaFeePerContract ?? 0m) + (ClearingFeePerContract ?? 0m);
 }
 
 public sealed class InstrumentMapping
@@ -27,7 +33,13 @@ public sealed class InstrumentResolution
     public decimal PointValue { get; init; }
     public decimal TickSize { get; init; }
     public decimal? CommissionPerContract { get; init; }
+    public decimal? ExchangeFeePerContract { get; init; }
+    public decimal? NfaFeePerContract { get; init; }
+    public decimal? ClearingFeePerContract { get; init; }
     public bool IsMapped { get; init; }
+
+    public bool HasFeeBreakdown => ExchangeFeePerContract.HasValue || NfaFeePerContract.HasValue || ClearingFeePerContract.HasValue;
+    public decimal FeePerContract => (ExchangeFeePerContract ?? 0m) + (NfaFeePerContract ?? 0m) + (ClearingFeePerContract ?? 0m);
 }
 
 /// <summary>
@@ -82,7 +94,10 @@ public sealed class InstrumentConfiguration
             InstrumentCode = definition.Code,
             PointValue = definition.PointValue > 0m ? definition.PointValue : InstrumentCatalog.Resolve(definition.Code).PointValue,
             TickSize = definition.TickSize > 0m ? definition.TickSize : InstrumentCatalog.Resolve(definition.Code).TickSize,
-            CommissionPerContract = mapping?.CommissionOverride ?? definition.DefaultCommission,
+            CommissionPerContract = mapping?.CommissionOverride ?? (definition.HasFeeBreakdown ? null : definition.DefaultCommission),
+            ExchangeFeePerContract = mapping?.CommissionOverride.HasValue == true ? null : definition.ExchangeFeePerContract,
+            NfaFeePerContract = mapping?.CommissionOverride.HasValue == true ? null : definition.NfaFeePerContract,
+            ClearingFeePerContract = mapping?.CommissionOverride.HasValue == true ? null : definition.ClearingFeePerContract,
             IsMapped = mapping is not null
         };
     }

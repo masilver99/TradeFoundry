@@ -31,10 +31,10 @@ public class InstrumentsModel : PageModel
         return Page();
     }
 
-    public IActionResult OnPostSaveInstrument(Guid? instrumentId, string code, decimal? defaultCommission, decimal pointValue, decimal tickSize)
+    public IActionResult OnPostSaveInstrument(Guid? instrumentId, string code, decimal? defaultCommission, decimal? exchangeFeePerContract, decimal? nfaFeePerContract, decimal? clearingFeePerContract, decimal pointValue, decimal tickSize)
     {
         if (_database.GetJournal(JournalId) is null) return NotFound();
-        var saved = _database.SaveInstrument(instrumentId, code, defaultCommission, pointValue, tickSize);
+        var saved = _database.SaveInstrument(instrumentId, code, defaultCommission, exchangeFeePerContract, nfaFeePerContract, clearingFeePerContract, pointValue, tickSize);
         TempData["FlashMessage"] = saved
             ? $"Instrument {InstrumentConfiguration.NormalizeCode(code)} saved."
             : "The instrument could not be saved. Check that its code is unique and its point value is positive.";

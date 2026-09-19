@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
@@ -82,6 +83,8 @@ public sealed class TradeCandleChartTests
         Assert.DoesNotContain(path.EnumerateArray(), point => point.GetProperty("time").GetInt64() == trade.EntryUtc.ToUnixTimeSeconds());
         Assert.DoesNotContain(path.EnumerateArray(), point => point.GetProperty("time").GetInt64() == trade.ExitUtc.Value.ToUnixTimeSeconds());
         Assert.Contains("handler=CandleBars", root.GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
+        Assert.Contains("/review?", root.GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("/trades/", root.GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -258,20 +261,20 @@ public sealed class TradeCandleChartTests
             var start = Utc(2026, 9, 14, 13, 0);
             ImportBars(database, journal.Id, start, 5, "1m", includeTrade: true);
             var trade = Assert.Single(database.GetAllTrades(journal.Id));
-            var page = new TradeModel(database);
+            var page = new ReviewModel(new TradeReviewService(database), database);
 
-            var json = Assert.IsType<JsonResult>(page.OnGetCandleBars(trade.Id, journal.Id, "1m", "after", start.AddMinutes(1).ToString("O"), 2));
+            var json = Assert.IsType<JsonResult>(page.OnGetCandleBars(journal.Id, trade.ReviewKey, "1m", "after", start.AddMinutes(1).ToString("O"), 2));
             using (var document = JsonDocument.Parse(JsonSerializer.Serialize(json.Value)))
             {
                 Assert.Equal("1m", document.RootElement.GetProperty("interval").GetString());
                 Assert.Equal(2, document.RootElement.GetProperty("bars").GetArrayLength());
             }
 
-            Assert.IsType<BadRequestObjectResult>(page.OnGetCandleBars(trade.Id, journal.Id, "1m", "sideways", start.ToString("O"), 2));
-            Assert.IsType<BadRequestObjectResult>(page.OnGetCandleBars(trade.Id, journal.Id, "1m", "after", start.ToString("O"), 501));
-            Assert.IsType<BadRequestObjectResult>(page.OnGetCandleBars(trade.Id, journal.Id, "bogus", "after", start.ToString("O"), 2));
-            Assert.IsType<BadRequestObjectResult>(page.OnGetCandleBars(trade.Id, journal.Id, "1m", "after", start.AddHours(1).ToString("Ozzz"), 2));
-            Assert.IsType<NotFoundResult>(page.OnGetCandleBars(trade.Id, Guid.NewGuid(), "1m", "after", start.ToString("O"), 2));
+            Assert.IsType<BadRequestObjectResult>(page.OnGetCandleBars(journal.Id, trade.ReviewKey, "1m", "sideways", start.ToString("O"), 2));
+            Assert.IsType<BadRequestObjectResult>(page.OnGetCandleBars(journal.Id, trade.ReviewKey, "1m", "after", start.ToString("O"), 501));
+            Assert.IsType<BadRequestObjectResult>(page.OnGetCandleBars(journal.Id, trade.ReviewKey, "bogus", "after", start.ToString("O"), 2));
+            Assert.IsType<BadRequestObjectResult>(page.OnGetCandleBars(journal.Id, trade.ReviewKey, "1m", "after", start.AddHours(1).ToString("Ozzz"), 2));
+            Assert.IsType<NotFoundResult>(page.OnGetCandleBars(Guid.NewGuid(), trade.ReviewKey, "1m", "after", start.ToString("O"), 2));
         }
         finally
         {
@@ -291,9 +294,9 @@ public sealed class TradeCandleChartTests
             var start = Utc(2026, 9, 14, 13, 0);
             ImportBars(database, journal.Id, start, 10, "1m", includeTrade: true);
             var trade = Assert.Single(database.GetAllTrades(journal.Id));
-            var page = new TradeModel(database);
+            var page = new ReviewModel(new TradeReviewService(database), database);
 
-            var json = Assert.IsType<JsonResult>(page.OnGetCandleChart(trade.Id, journal.Id, "2m"));
+            var json = Assert.IsType<JsonResult>(page.OnGetCandleChart(journal.Id, trade.ReviewKey, "2m"));
             using var document = JsonDocument.Parse(JsonSerializer.Serialize(json.Value));
             var root = document.RootElement;
             Assert.Equal("2m", root.GetProperty("requestedInterval").GetString());
@@ -302,6 +305,61 @@ public sealed class TradeCandleChartTests
             Assert.Equal(5, root.GetProperty("payload").GetProperty("bars").GetArrayLength());
             Assert.Contains("handler=CandleBars", root.GetProperty("payload").GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
             Assert.Contains("interval=2m", root.GetProperty("payload").GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
+            Assert.Contains("/review?", root.GetProperty("payload").GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("/trades/", root.GetProperty("payload").GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void ReviewFocusSelectsRequestedTradeAndFallsBackToFirstTradeSafely()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "America/New_York", "USD", "flat_to_flat");
+            var start = Utc(2026, 9, 14, 13, 0);
+            var parsed = new ParsedImport { SourceType = TradeFoundryConstants.TradingViewStrategy, SourceApplication = TradeFoundryConstants.TradingView };
+            parsed.Trades.AddRange(new[]
+            {
+                new ImportedTradeDraft
+                {
+                    SourceType = TradeFoundryConstants.TradingViewStrategy, SourceKey = "trade-1", Symbol = "MES", Instrument = "MES", Account = "SIM", Direction = "Long",
+                    EntryUtc = start, ExitUtc = start.AddMinutes(2), EntryPrice = 100m, ExitPrice = 101m, Quantity = 1, GrossPoints = 1m, GrossPnl = 5m, NetPnl = 5m, PointValue = 5m, TickSize = .25m
+                },
+                new ImportedTradeDraft
+                {
+                    SourceType = TradeFoundryConstants.TradingViewStrategy, SourceKey = "trade-2", Symbol = "MES", Instrument = "MES", Account = "SIM", Direction = "Short",
+                    EntryUtc = start.AddMinutes(3), ExitUtc = start.AddMinutes(5), EntryPrice = 102m, ExitPrice = 101m, Quantity = 1, GrossPoints = 1m, GrossPnl = 5m, NetPnl = 5m, PointValue = 5m, TickSize = .25m
+                }
+            });
+            database.CommitImport(journal.Id, "trades.csv", parsed, "flat_to_flat", string.Empty);
+            var trades = database.GetAllTrades(journal.Id).OrderBy(trade => trade.EntryUtc).ToArray();
+            var service = new TradeReviewService(database);
+
+            var focused = new ReviewModel(service, database)
+            {
+                JournalId = journal.Id,
+                Date = DateOnly.FromDateTime(TimeZoneCatalog.Convert(trades[1].ExitUtc!.Value, journal.TimeZone).DateTime.Date),
+                Focus = trades[1].ReviewKey
+            };
+            Assert.IsType<PageResult>(focused.OnGet());
+            Assert.Equal(trades[1].ReviewKey, focused.ActiveTrade?.Trade.ReviewKey);
+            Assert.NotNull(focused.ActiveTrade?.ImportBatch);
+
+            var invalidFocus = new ReviewModel(service, database)
+            {
+                JournalId = journal.Id,
+                Date = focused.Date,
+                Focus = "missing-review-key"
+            };
+            Assert.IsType<PageResult>(invalidFocus.OnGet());
+            Assert.Equal(trades[0].ReviewKey, invalidFocus.ActiveTrade?.Trade.ReviewKey);
         }
         finally
         {

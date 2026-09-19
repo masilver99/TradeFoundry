@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
 
@@ -9,6 +10,7 @@ namespace TradeFoundry.Services;
 
 public sealed class ImportService
 {
+    private static readonly Regex SierraTimeframePattern = new(@"(?<!\d)(?<minutes>\d+)\s+min\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private readonly TradeFoundryDb _database;
 
     public ImportService(TradeFoundryDb database) => _database = database;
@@ -80,6 +82,7 @@ public sealed class ImportService
             var transactionUtc = TryTransactionDate(transactionText, timeZone, out var transactionValue) ? transactionValue : (DateTimeOffset?)null;
             var symbol = CleanSymbol(Value(row, headers, "symbol", "ticker", "instrument"));
             var orderActionSource = Value(row, headers, "orderactionsource");
+            var sourceTimeframe = ExtractSierraTimeframe(orderActionSource);
             var rawPrice = DecimalOrNull(Value(row, headers, "fillprice", "price"));
             var scale = SierraPriceNormalizer.DetermineScale(rawPrice ?? 0m, symbol, orderActionSource);
             var resolution = configuration.Resolve(TradeFoundryConstants.SierraChart, symbol);
@@ -112,7 +115,7 @@ public sealed class ImportService
                             fill = new FillDraft
                             {
                                 SourceType = result.SourceType, SourceKey = sourceKey, ActivityType = activity, OrderActionSource = orderActionSource, EventUtc = eventUtc, TransactionUtc = transactionUtc, SourceTimeText = eventText,
-                                Symbol = symbol, Instrument = resolution.InstrumentCode, PointValue = resolution.PointValue, TickSize = resolution.TickSize, Account = Value(row, headers, "tradeaccount", "account"),
+                                SourceTimeframe = sourceTimeframe, Symbol = symbol, Instrument = resolution.InstrumentCode, PointValue = resolution.PointValue, TickSize = resolution.TickSize, Account = Value(row, headers, "tradeaccount", "account"),
                                 Side = side, Quantity = quantity, Price = price / scale, Price2 = ScaleNullable(DecimalOrNull(Value(row, headers, "price2")), scale),
                                 FilledQuantity = IntOrNull(Value(row, headers, "filledquantity")), OpenClose = Value(row, headers, "openclose"),
                                 OrderType = Value(row, headers, "ordertype"), OrderStatus = Value(row, headers, "orderstatus"), ParentOrderId = Value(row, headers, "parentinternalorderid", "parentorderid"),
@@ -121,7 +124,7 @@ public sealed class ImportService
                                 ServiceOrderId = Value(row, headers, "serviceorderid"), ExchangeOrderId = Value(row, headers, "exchangeorderid"),
                                 FillExecutionId = serviceId, ClientOrderId = Value(row, headers, "clientorderid"), TimeInForce = Value(row, headers, "timeinforce"),
                                  Username = Value(row, headers, "username"), IsAutomated = BoolOrNull(Value(row, headers, "isautomated", "automated")),
-                                 AccountBalance = DecimalOrNull(Value(row, headers, "accountbalance")), Fees = ResolveFees(resolution, DecimalOrZero(Value(row, headers, "fees", "commission")), quantity), RowNumber = rowNumber
+                                 AccountBalance = DecimalOrNull(Value(row, headers, "accountbalance")), Fees = ResolveFees(resolution, DecimalOrZero(Value(row, headers, "fees", "commission")), quantity), ExchangeFeePerContract = resolution.ExchangeFeePerContract, NfaFeePerContract = resolution.NfaFeePerContract, ClearingFeePerContract = resolution.ClearingFeePerContract, RowNumber = rowNumber
                             };
                         }
                     }
@@ -221,7 +224,7 @@ public sealed class ImportService
                             ExchangeOrderId = Value(row, headers, "exchangeorderid"), FillExecutionId = Value(row, headers, "fillexecutionserviceid", "executionid"),
                             ClientOrderId = Value(row, headers, "clientorderid"), TimeInForce = Value(row, headers, "timeinforce"), Username = Value(row, headers, "username"),
                              IsAutomated = BoolOrNull(Value(row, headers, "isautomated", "automated")), AccountBalance = DecimalOrNull(Value(row, headers, "accountbalance")),
-                             Fees = ResolveFees(resolution, DecimalOrZero(Value(row, headers, "fees", "commission")), quantity)
+                             Fees = ResolveFees(resolution, DecimalOrZero(Value(row, headers, "fees", "commission")), quantity), ExchangeFeePerContract = resolution.ExchangeFeePerContract, NfaFeePerContract = resolution.NfaFeePerContract, ClearingFeePerContract = resolution.ClearingFeePerContract
                          };
                     }
                 }
@@ -277,14 +280,18 @@ public sealed class ImportService
             var initialRiskCurrency = initialRiskPoints.HasValue ? initialRiskPoints.Value * quantity * pointValue : (decimal?)null;
             var grossPnl = reportedPnl ?? grossPoints * pointValue;
             var reportedFees = DecimalOrZero(Value(last, headers, "fees", "commission", "commissionc"));
-            var fees = ResolveFees(resolution, reportedFees, quantity);
+            var feeQuantity = rows
+                .Where(item => IsEntryRow(item.Row, headers) || IsExitRow(item.Row, headers))
+                .Sum(item => IntOrNull(Value(item.Row, headers, "quantity", "tradequantity", "qty", "contracts", "size")) ?? 0);
+            if (feeQuantity <= 0) feeQuantity = quantity * 2;
+            var fees = ResolveTradeFees(resolution, reportedFees, feeQuantity);
             var rMultiple = initialRiskCurrency is > 0m ? grossPnl / initialRiskCurrency.Value : (decimal?)null;
             var exitType = NormalizeExitType(Value(exitRow.Row ?? last, headers, "exittype", "exitreason", "closetype"));
             result.Trades.Add(new ImportedTradeDraft
             {
                 SourceKey = $"trade:{group.Key}", Symbol = symbol, Account = Value(first, headers, "account", "broker") is { Length: > 0 } account ? account : "TradingView",
                 Direction = direction, EntryUtc = entryUtc, ExitUtc = exitUtc, EntryPrice = entryPrice, ExitPrice = exitPrice, Quantity = quantity,
-                GrossPoints = grossPoints, GrossPnl = grossPnl, Fees = fees, NetPnl = resolution.CommissionPerContract.HasValue ? grossPnl - fees : reportedPnl ?? grossPnl - fees,
+                GrossPoints = grossPoints, GrossPnl = grossPnl, ExchangeFees = resolution.HasFeeBreakdown ? (resolution.ExchangeFeePerContract ?? 0m) * feeQuantity : 0m, NfaFees = resolution.HasFeeBreakdown ? (resolution.NfaFeePerContract ?? 0m) * feeQuantity : 0m, ClearingFees = resolution.HasFeeBreakdown ? (resolution.ClearingFeePerContract ?? 0m) * feeQuantity : 0m, Fees = fees, NetPnl = resolution.CommissionPerContract.HasValue || resolution.HasFeeBreakdown ? grossPnl - fees : reportedPnl ?? grossPnl - fees,
                 Instrument = resolution.InstrumentCode, PointValue = pointValue, TickSize = resolution.TickSize,
                 InitialStopPrice = stopPrice, InitialTargetPrice = targetPrice, InitialRiskPoints = initialRiskPoints,
                 InitialRiskCurrency = initialRiskCurrency, RMultiple = rMultiple, ExitType = exitType,
@@ -448,11 +455,29 @@ public sealed class ImportService
         }
     };
 
+    private static string ExtractSierraTimeframe(string value)
+    {
+        foreach (Match match in SierraTimeframePattern.Matches(value))
+        {
+            if (int.TryParse(match.Groups["minutes"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var minutes) && minutes > 0)
+                return BarIntervals.Format(minutes);
+        }
+
+        return string.Empty;
+    }
+
     private static decimal ResolveFees(InstrumentResolution resolution, decimal reportedFees, int quantity)
     {
         return resolution.CommissionPerContract.HasValue
             ? resolution.CommissionPerContract.Value * Math.Max(1, quantity)
             : reportedFees;
+    }
+
+    private static decimal ResolveTradeFees(InstrumentResolution resolution, decimal reportedFees, int quantity)
+    {
+        return resolution.HasFeeBreakdown
+            ? resolution.FeePerContract * Math.Max(1, quantity)
+            : ResolveFees(resolution, reportedFees, quantity);
     }
 
     private static ImportSource DetectSource(string[] headers, string requestedType)

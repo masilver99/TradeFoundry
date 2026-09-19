@@ -1,6 +1,7 @@
 @model TradeFoundry.Core.DailyReviewTrade
 @using System.Globalization
 @using TradeFoundry.Core
+@using TradeFoundry.Services
 @{
     var review = Model.Annotation;
     var trade = Model.Trade;
@@ -9,6 +10,20 @@
     var reviewCount = (int?)ViewData["ReviewCount"] ?? 1;
     var reviewActive = (bool?)ViewData["ReviewActive"] ?? true;
     var reviewId = reviewPage.DomId(trade.ReviewKey);
+    var chartUrl = Url.Page("/Review", "CandleChart", new { journalId = trade.JournalId, reviewKey = trade.ReviewKey }) ?? string.Empty;
+    var chartIntervalId = $"trade-bar-interval-{reviewId}";
+    var sourceApplication = Model.ImportBatch is null
+        ? "Manual / source-defined"
+        : TradeFoundryConstants.SourceApplicationName(Model.ImportBatch.SourceApplication);
+    var hasFeeBreakdown = trade.ExchangeFees != 0m || trade.NfaFees != 0m || trade.ClearingFees != 0m || review.ExchangeFees.HasValue || review.NfaFees.HasValue || review.ClearingFees.HasValue;
+    var feeBreakdownText = hasFeeBreakdown
+        ? $"Exchange {trade.ExchangeFees.ToString("C2")} · NFA {trade.NfaFees.ToString("C2")} · Clearing / commission {trade.ClearingFees.ToString("C2")}"
+        : "No component breakdown recorded";
+    var feeBreakdownNote = review.AllInCommission.HasValue
+        ? " · not used while all-in override is set"
+        : review.ExchangeFees.HasValue || review.NfaFees.HasValue || review.ClearingFees.HasValue
+            ? " · per-trade component override"
+            : " · imported/instrument-derived";
 }
 
 <article class="card tf-card tf-review-trade @(reviewActive ? "is-active" : string.Empty)" id="@reviewId" data-review-editor data-review-key="@trade.ReviewKey" data-review-index="@reviewIndex" aria-hidden="@(!reviewActive)">
@@ -16,7 +31,7 @@
     <div class="tf-review-editor-heading">
         <div class="tf-review-editor-identity">
             <div class="tf-kicker">TRADE @reviewIndex OF @reviewCount · @trade.Status.ToUpperInvariant()</div>
-            <h2 class="tf-review-editor-title"><a asp-page="/Trade" asp-route-journalId="@trade.JournalId" asp-route-id="@trade.Id">@trade.Symbol · @trade.Direction · @trade.Quantity qty</a></h2>
+            <h2 class="tf-review-editor-title">@trade.Direction @trade.Instrument <span class="text-secondary">@trade.Symbol · × @trade.ClosedQuantity / @trade.Quantity</span></h2>
             <p class="text-secondary mb-0">Entry @reviewPage.LocalTime(trade.EntryUtc) · @(trade.ExitUtc.HasValue ? $"Exit {reviewPage.LocalTime(trade.ExitUtc.Value)}" : "Still open") · Source note: @(string.IsNullOrWhiteSpace(trade.Note) ? "none" : trade.Note)</p>
         </div>
         <div class="tf-review-trade-result">
@@ -30,6 +45,7 @@
                 <span class="badge text-bg-warning">Open / not realized</span>
             }
             <small class="text-secondary" data-review-trade-fees>All-in commission: @trade.Fees.ToString("C2", CultureInfo.CurrentCulture)@(review.AllInCommission.HasValue ? " · per-trade override" : " · imported/settings-derived")</small>
+            <small class="text-secondary" data-review-trade-fee-breakdown>@feeBreakdownText@feeBreakdownNote</small>
         </div>
     </div>
 
@@ -45,6 +61,78 @@
         <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-media" aria-controls="@reviewId-panel-media" aria-selected="false" data-review-tab="media">Media &amp; history</button>
     </nav>
     </div>
+
+    <section class="tf-review-readonly" aria-label="Read-only trade detail">
+        <div class="tf-review-readonly-heading">
+            <div>
+                <div class="tf-kicker">READ-ONLY TRADE DETAIL</div>
+                <h3 class="tf-card-title">Imported and derived evidence</h3>
+            </div>
+            <span class="text-secondary">Trade facts are not edited here.</span>
+        </div>
+
+        <div class="tf-stat-strip tf-review-stat-strip">
+            <div><span>Entry</span><strong>@trade.EntryPrice.ToString("0.########")</strong></div>
+            <div><span>Exit</span><strong>@(trade.ExitPrice?.ToString("0.########") ?? "—")</strong></div>
+            <div><span>Avg points</span><strong>@trade.AveragePoints.ToString("0.##")</strong></div>
+            <div><span>Contract-points</span><strong>@trade.GrossPoints.ToString("0.##")</strong></div>
+            <div><span>MAE / MFE</span><strong>@(trade.MaePoints?.ToString("0.##") ?? "—") / @(trade.MfePoints?.ToString("0.##") ?? "—")</strong></div>
+            <div><span>Time in trade</span><strong>@(trade.TimeInTrade?.ToString("hh\\:mm\\:ss") ?? "—")</strong></div>
+        </div>
+        <div class="tf-review-effective-strip" aria-label="Effective trade totals">
+            <div><span>Effective net P&amp;L</span><strong class="@(trade.NetPnl >= 0 ? "text-success" : "text-danger")" data-review-trade-pnl-stat>@trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong></div>
+            <div><span>Effective fees</span><strong data-review-trade-fees-stat>@trade.Fees.ToString("C2", CultureInfo.CurrentCulture)@(review.AllInCommission.HasValue ? " · per-trade override" : " · imported/settings-derived")</strong></div>
+        </div>
+
+        <section class="card tf-card tf-chart-card tf-review-chart-card" data-review-chart-card>
+            <div class="card-header">
+                <div><div class="tf-kicker">CONTEXT</div><h3 class="tf-card-title">Price action around the trade</h3></div>
+                <div class="tf-trade-chart-toolbar">
+                    <span class="text-secondary" data-lightweight-summary>Loading chart…</span>
+                    <div class="tf-trade-chart-actions">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-lightweight-focus disabled>Focus trade</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-lightweight-export disabled>Download PNG</button>
+                    </div>
+                    <form method="get" action="@chartUrl" class="d-flex align-items-center gap-2" data-lightweight-timeframe-form data-review-chart-form>
+                        <label class="tf-chart-toolbar-label" for="@chartIntervalId">Timeframe</label>
+                        <select id="@chartIntervalId" class="form-select form-select-sm" name="interval" data-review-chart-interval disabled>
+                            <option value="">Loading…</option>
+                        </select>
+                    </form>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="tf-lightweight-chart-shell" data-review-chart-shell>
+                    <div class="tf-lightweight-chart" data-review-chart data-review-chart-url="@chartUrl" role="img" aria-label="Trade chart loading"></div>
+                    <div class="chart-empty" data-review-chart-empty hidden role="status"></div>
+                    <div class="tf-lightweight-chart-status" data-lightweight-status role="status" aria-live="polite">Loading chart…</div>
+                </div>
+                <p class="tf-chart-attribution mb-0" data-lightweight-attribution hidden>TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">https://www.tradingview.com/</a></p>
+                <p class="tf-chart-note" data-lightweight-default-note hidden>This trade does not record a source chart timeframe, so the narrowest available bar series was selected by default.</p>
+                <p class="tf-chart-note" data-lightweight-availability-note hidden></p>
+            </div>
+        </section>
+
+        <section class="card tf-card tf-review-evidence-card">
+            <div class="card-header"><div><div class="tf-kicker">PROVENANCE</div><h3 class="tf-card-title">How this trade was made</h3></div></div>
+            <div class="card-body">
+                <dl class="tf-definition-list">
+                    <dt>Instrument</dt><dd>@trade.Instrument</dd>
+                    <dt>Trading app</dt><dd>@sourceApplication</dd>
+                    <dt>Source type</dt><dd>@trade.SourceType</dd>
+                    <dt>Source timeframe</dt><dd>@(string.IsNullOrWhiteSpace(trade.SourceTimeframe) ? "Not recorded" : trade.SourceTimeframe)</dd>
+                    <dt>Grouping</dt><dd>@trade.GroupingPolicy</dd>
+                    <dt>Account</dt><dd>@trade.Account</dd>
+                    <dt>Point value</dt><dd>@trade.PointValue.ToString("C2") per point</dd>
+                    <dt>Tick size</dt><dd>@trade.TickSize.ToString("0.########")</dd>
+                    <dt>Fees</dt><dd data-review-trade-fees-detail>@trade.Fees.ToString("C2")@(review.AllInCommission.HasValue ? " · per-trade override" : " · imported/settings-derived")</dd>
+                    <dt>Fee breakdown</dt><dd data-review-trade-fee-breakdown>@feeBreakdownText@feeBreakdownNote</dd>
+                    <dt>Import batch</dt><dd>@(trade.ImportBatchId?.ToString() ?? "manual / source-defined")</dd>
+                    <dt>Source note</dt><dd>@(string.IsNullOrWhiteSpace(trade.Note) ? "No source note" : trade.Note)</dd>
+                </dl>
+            </div>
+        </section>
+    </section>
 
     <form method="post" asp-page-handler="Save" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="review" class="tf-review-form" data-review-form data-autosave-url="@Url.Page("/Review", "Autosave", new { journalId = trade.JournalId, date = reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) })">
         @Html.AntiForgeryToken()
@@ -96,11 +184,16 @@
 
         <div class="tf-review-tab-panel" id="@reviewId-panel-plan" role="tabpanel" aria-labelledby="@reviewId-tab-plan" data-review-panel="plan">
             <div class="tf-review-form-grid">
-                <div class="tf-review-field">
-                    <label for="commission-@trade.ReviewKey">All-in commission</label>
-                    <input id="commission-@trade.ReviewKey" name="Edit.AllInCommission" type="number" min="0" step="0.01" value="@reviewPage.DecimalInput(review.AllInCommission)" placeholder="Use imported/settings fee" />
-                    <small>Total commission for this trade. Leave blank to use the imported/settings-derived fee.</small>
-                </div>
+                <fieldset class="tf-review-fieldset tf-review-field-wide">
+                    <legend>Fee overrides for this trade</legend>
+                    <div class="tf-review-inline-grid">
+                        <label>Exchange<input name="Edit.ExchangeFees" type="number" min="0" step="0.01" value="@reviewPage.DecimalInput(review.ExchangeFees)" placeholder="Use imported/instrument" /></label>
+                        <label>NFA<input name="Edit.NfaFees" type="number" min="0" step="0.01" value="@reviewPage.DecimalInput(review.NfaFees)" placeholder="Use imported/instrument" /></label>
+                        <label>Clearing / commission<input name="Edit.ClearingFees" type="number" min="0" step="0.01" value="@reviewPage.DecimalInput(review.ClearingFees)" placeholder="Use imported/instrument" /></label>
+                        <label>All-in commission<input id="commission-@trade.ReviewKey" name="Edit.AllInCommission" type="number" min="0" step="0.01" value="@reviewPage.DecimalInput(review.AllInCommission)" placeholder="Use component total" /></label>
+                    </div>
+                    <small>Component values are whole-trade totals. If All-in commission is set, it is the effective fee and the component values are informational only.</small>
+                </fieldset>
                 <fieldset class="tf-review-fieldset tf-review-field-wide">
                     <legend>Planned risk</legend>
                     <div class="tf-review-inline-grid">
@@ -122,32 +215,87 @@
     </form>
 
     <div class="tf-review-tab-panel" id="@reviewId-panel-media" role="tabpanel" aria-labelledby="@reviewId-tab-media" data-review-panel="media">
-        <form method="post" enctype="multipart/form-data" asp-page-handler="Attach" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="media" class="tf-review-attachment-form">
+        <form method="post" enctype="multipart/form-data" asp-page-handler="Attach" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="media" class="tf-review-attachment-form" data-review-attachment-form>
             @Html.AntiForgeryToken()
             <input type="hidden" name="reviewKey" value="@trade.ReviewKey" />
-            <label for="screenshot-@trade.ReviewKey">Screenshot attachment</label>
-            <div class="tf-review-attachment-upload"><input id="screenshot-@trade.ReviewKey" class="form-control" type="file" name="Screenshot" accept="image/png,image/jpeg,image/webp" /><button class="btn btn-outline-primary" type="submit">Attach image</button></div>
-            <small>PNG, JPEG, or WebP up to 10 MB. Files are kept private and served through the authenticated review endpoint.</small>
+            <label for="screenshot-@reviewId">Add an image</label>
+            <div class="tf-review-paste-zone" data-review-paste-zone tabindex="0" role="button" aria-label="Paste an image from the clipboard">
+                <strong>Paste an image from your clipboard</strong>
+                <span>Click here and press Ctrl+V (or ⌘V) to add it automatically, or choose a file below.</span>
+            </div>
+            <div class="tf-review-attachment-upload">
+                <input id="screenshot-@reviewId" class="form-control" type="file" name="Screenshot" accept="image/png,image/jpeg,image/webp" data-review-image-input />
+                <button class="btn btn-outline-primary" type="submit" data-review-attachment-submit>Attach image</button>
+            </div>
+            <div class="tf-review-image-preview" data-review-image-preview hidden>
+                <img src="" alt="Pasted image preview" data-review-image-preview-image />
+                <span class="text-secondary" data-review-image-preview-name role="status"></span>
+            </div>
+            <div class="tf-review-attachment-caption">
+                <label for="caption-@reviewId">Caption <span class="text-secondary">(optional)</span></label>
+                <input id="caption-@reviewId" type="text" name="AttachmentCaption" value="@reviewPage.AttachmentCaption" maxlength="@TradeReviewService.MaxAttachmentCaptionLength" placeholder="What should you notice in this image?" />
+            </div>
+            <small data-review-image-paste-status>PNG, JPEG, or WebP up to 10 MB. Files are kept private and served through the authenticated review endpoint.</small>
         </form>
 
-        @if (Model.Attachments.Count > 0)
-    {
-        <div class="tf-review-attachments">
-            <span class="tf-metric-label">Attachments</span>
+        <div class="tf-review-attachments" data-review-attachments @if (Model.Attachments.Count == 0) { <text>hidden</text> }>
+            <span class="tf-metric-label">Images</span>
+            @{ var attachmentCaptionUrl = Url.Page("/Review", "UpdateAttachmentCaption", new { journalId = trade.JournalId }) ?? string.Empty; }
             @foreach (var attachment in Model.Attachments)
             {
-                <div class="tf-review-attachment">
-                    <a asp-page-handler="Attachment" asp-route-journalId="@trade.JournalId" asp-route-attachmentId="@attachment.Id">@attachment.OriginalFileName</a>
-                    <span class="text-secondary">(@((attachment.Length / 1024d).ToString("N0", CultureInfo.CurrentCulture)) KB)</span>
-                    <form method="post" asp-page-handler="RemoveAttachment" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" class="d-inline">
+                var attachmentUrl = Url.Page("/Review", "Attachment", new { journalId = trade.JournalId, attachmentId = attachment.Id }) ?? string.Empty;
+                var imageAlt = string.IsNullOrWhiteSpace(attachment.Caption) ? attachment.OriginalFileName : attachment.Caption;
+                var captionId = $"attachment-caption-{reviewId}-{attachment.Id:N}";
+                <figure class="tf-review-attachment-card">
+                    <a href="@attachmentUrl" target="_blank" rel="noopener noreferrer">
+                        <img src="@attachmentUrl" alt="@imageAlt" data-review-attachment-image data-caption-fallback="@attachment.OriginalFileName" loading="lazy" decoding="async" />
+                    </a>
+                    <figcaption>
+                        <form method="post" asp-page-handler="UpdateAttachmentCaption" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="media" data-caption-url="@attachmentCaptionUrl" class="tf-review-attachment-inline-caption" data-review-attachment-caption-form>
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="attachmentId" value="@attachment.Id" />
+                            <input type="hidden" name="reviewKey" value="@trade.ReviewKey" />
+                            <input type="hidden" name="date" value="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" />
+                            <label class="visually-hidden" for="@captionId">Caption for @attachment.OriginalFileName</label>
+                            <input id="@captionId" type="text" name="caption" value="@attachment.Caption" maxlength="@TradeReviewService.MaxAttachmentCaptionLength" placeholder="Add a caption…" data-review-attachment-caption aria-describedby="@captionId-status" />
+                            <small id="@captionId-status" data-review-attachment-caption-status role="status" aria-live="polite"></small>
+                        </form>
+                        <span class="tf-review-attachment-meta">@attachment.OriginalFileName · @((attachment.Length / 1024d).ToString("N0", CultureInfo.CurrentCulture)) KB</span>
+                    </figcaption>
+                    <form method="post" asp-page-handler="RemoveAttachment" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" class="d-inline" data-review-attachment-remove-form>
                         @Html.AntiForgeryToken()
                         <input type="hidden" name="attachmentId" value="@attachment.Id" />
                         <button class="btn btn-link btn-sm text-danger p-0" type="submit">Remove</button>
+                        <small data-review-attachment-remove-status role="status" aria-live="polite"></small>
                     </form>
-                </div>
+                </figure>
             }
         </div>
-    }
+        <template data-review-attachment-template>
+            <figure class="tf-review-attachment-card">
+                <a href="" target="_blank" rel="noopener noreferrer" data-review-attachment-link>
+                    <img src="" alt="" data-review-attachment-image loading="lazy" decoding="async" />
+                </a>
+                <figcaption>
+                    <form method="post" asp-page-handler="UpdateAttachmentCaption" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="media" data-caption-url="@attachmentCaptionUrl" class="tf-review-attachment-inline-caption" data-review-attachment-caption-form>
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="attachmentId" value="" />
+                        <input type="hidden" name="reviewKey" value="@trade.ReviewKey" />
+                        <input type="hidden" name="date" value="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" />
+                        <label class="visually-hidden" data-review-attachment-caption-label>Caption</label>
+                        <input type="text" name="caption" value="" maxlength="@TradeReviewService.MaxAttachmentCaptionLength" placeholder="Add a caption…" data-review-attachment-caption />
+                        <small data-review-attachment-caption-status role="status" aria-live="polite"></small>
+                    </form>
+                    <span class="tf-review-attachment-meta" data-review-attachment-meta></span>
+                </figcaption>
+                <form method="post" asp-page-handler="RemoveAttachment" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" class="d-inline" data-review-attachment-remove-form>
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="attachmentId" value="" />
+                    <button class="btn btn-link btn-sm text-danger p-0" type="submit">Remove</button>
+                    <small data-review-attachment-remove-status role="status" aria-live="polite"></small>
+                </form>
+            </figure>
+        </template>
 
         @if (Model.History.Any(entry => !entry.Action.Equals("conflict", StringComparison.OrdinalIgnoreCase)))
     {

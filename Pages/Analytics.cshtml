@@ -159,7 +159,10 @@
                             <th scope="col">Avg / Trade</th>
                             <th scope="col">Win %</th>
                             <th scope="col">Profit Factor</th>
-                            <th scope="col">Fees</th>
+                            <th scope="col">Exchange</th>
+                            <th scope="col">NFA</th>
+                            <th scope="col">Clearing / commission</th>
+                            <th scope="col">Total fees</th>
                             <th scope="col">Avg Hold</th>
                             <th scope="col">Best Trade</th>
                             <th scope="col">Worst Trade</th>
@@ -202,6 +205,9 @@
                                 <td class="@(periodRow.AveragePnlPerTrade.HasValue ? PeriodTone(periodRow.AveragePnlPerTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.AveragePnlPerTrade)</td>
                                 <td>@FormatPeriodPercent(periodRow.WinRate)</td>
                                 <td>@FormatPeriodRatio(periodRow.ProfitFactor)</td>
+                                <td class="negative">@FormatPeriodFees(periodRow.ExchangeFees)</td>
+                                <td class="negative">@FormatPeriodFees(periodRow.NfaFees)</td>
+                                <td class="negative">@FormatPeriodFees(periodRow.ClearingFees)</td>
                                 <td class="negative">@FormatPeriodFees(periodRow.TotalFees)</td>
                                 <td>@FormatPeriodDuration(periodRow.AverageHoldSeconds)</td>
                                 <td class="@(periodRow.BestTrade.HasValue ? PeriodTone(periodRow.BestTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.BestTrade)</td>
@@ -638,13 +644,13 @@
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Distributions and concentration" aria-expanded="false" aria-controls="risk-distributions-description" aria-label="Show explanation for Distributions and concentration"><span aria-hidden="true">i</span></button>
                     </div>
                     <h3>How variable and concentrated the results are</h3>
-                    <p id="risk-distributions-description" class="tf-section-info" hidden>This subsection shows the spread of daily and trade outcomes, winner and loser sizes, R-multiples, and how dependent results are on a small set of winners.</p>
+                    <p id="risk-distributions-description" class="tf-section-info" hidden>This subsection shows the spread of daily and trade outcomes, trade P&amp;L ranges, R-multiples, and how dependent results are on a small set of winners.</p>
                 </div>
             </div>
             <div class="tf-chart-grid">
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">DAILY RISK</div><h4 class="tf-card-title">Daily P&amp;L distribution</h4></div></div><div class="card-body">@Html.Raw(Model.DailyDistributionChart)</div></article>
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">OUTCOMES</div><h4 class="tf-card-title">Trade P&amp;L distribution</h4></div></div><div class="card-body">@Html.Raw(Model.PnlDistributionChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">ROBUSTNESS</div><h4 class="tf-card-title">Winner vs loser sizes</h4></div></div><div class="card-body">@Html.Raw(Model.WinnersLosersChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">OUTCOME RANGES</div><h4 class="tf-card-title">Trade P&amp;L by dollar range</h4></div><span class="text-secondary">losses &larr; $0 &rarr; wins</span></div><div class="card-body">@Html.Raw(Model.TradePnlRangeChart)</div></article>
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">CONCENTRATION</div><h4 class="tf-card-title">Winner profit concentration</h4></div></div><div class="card-body">@Html.Raw(Model.ConcentrationChart)</div></article>
                 <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RISK UNITS</div><h4 class="tf-card-title">R-multiple distribution</h4></div></div><div class="card-body">@Html.Raw(Model.RMultipleChart)</div></article>
             </div>
@@ -1069,11 +1075,12 @@
                         <div class="tf-kicker">POSITION SIZE</div>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Position size" aria-expanded="false" aria-controls="timing-size-description" aria-label="Show explanation for Position size"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3>Expectancy at different sizes</h3>
-                    <p id="timing-size-description" class="tf-section-info" hidden>This subsection tests expectancy and win rate across contract sizes so size-related changes are visible.</p>
+                    <h3>Trade-size distribution and expectancy</h3>
+                    <p id="timing-size-description" class="tf-section-info" hidden>This subsection shows how often each contract size is profitable or losing, then compares expectancy and win rate across sizes. Profitable trades extend right from zero, losses extend left, and breakeven trades are marked at zero.</p>
                 </div>
             </div>
             <div class="tf-chart-grid">
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">POSITION SIZE</div><h4 class="tf-card-title">Trade-size distribution by outcome</h4></div></div><div class="card-body">@Html.Raw(Model.TradeSizeDistributionChart)</div></article>
                 <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">POSITION SIZE</div><h4 class="tf-card-title">Expectancy and win rate by contracts</h4></div></div><div class="card-body">@Html.Raw(Model.PositionSizeChart)</div></article>
             </div>
         </div>

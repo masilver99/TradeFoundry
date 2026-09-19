@@ -9,46 +9,27 @@
     ViewData["ActiveNav"] = "review";
     var selectedDate = Model.Date ?? Model.Day.Date;
     var dateText = selectedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-    var allTrades = Model.Day.CompletedTrades.Concat(Model.Day.OpenTrades).ToArray();
-    var activeTrade = allTrades.FirstOrDefault(item => item.Trade.ReviewKey == Model.Focus) ?? allTrades.FirstOrDefault();
-    var activeReviewKey = activeTrade?.Trade.ReviewKey ?? string.Empty;
+    var allTrades = Model.DayTrades;
+    var activeReviewKey = Model.ActiveTrade?.Trade.ReviewKey ?? string.Empty;
+    ViewData["UsesLightweightCharts"] = allTrades.Length > 0;
     ViewData["ReviewModel"] = Model;
 }
 
-<section class="tf-review-shell" data-focus="@Model.Focus" data-active-key="@activeReviewKey" data-review-section="@Model.Section" data-currency="@Model.Day.Journal.Currency">
+<section class="tf-review-shell" data-focus="@activeReviewKey" data-active-key="@activeReviewKey" data-review-section="@Model.Section" data-currency="@Model.Day.Journal.Currency">
     <div class="tf-review-header">
         <div>
             <div class="tf-kicker">DAYBOOK / @Model.Day.Journal.Name</div>
             <h1 class="tf-page-title mb-2">Daily review</h1>
             <p class="tf-lede mb-0">Keep the day roster in view while you capture the decisions behind imported evidence.</p>
         </div>
-        <a class="btn btn-outline-secondary" asp-page="/Trades" asp-route-journalId="@Model.JournalId">Open ledger</a>
-    </div>
-
-    <div class="tf-review-toolbar card tf-card">
-        <form method="get" class="tf-review-date-form">
-            <input type="hidden" name="journalId" value="@Model.JournalId" />
-            <label class="form-label mb-1" for="review-date">Review date</label>
-            <input id="review-date" class="form-control" type="date" name="date" value="@dateText" />
-            <button class="btn btn-primary" type="submit">Go to date</button>
-        </form>
-        <div class="tf-review-day-nav" aria-label="Trading day navigation">
-            @if (Model.Day.PreviousDate.HasValue)
-            {
-                <a class="btn btn-outline-secondary" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.PreviousDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">← Previous day</a>
-            }
-            else
-            {
-                <span class="btn btn-outline-secondary disabled">← Previous day</span>
-            }
-            @if (Model.Day.NextDate.HasValue)
-            {
-                <a class="btn btn-outline-secondary" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">Next day →</a>
-            }
-            else
-            {
-                <span class="btn btn-outline-secondary disabled">Next day →</span>
-            }
+        <div class="tf-review-header-actions">
+            <form method="get" class="tf-review-date-form">
+                <input type="hidden" name="journalId" value="@Model.JournalId" />
+                <label class="form-label mb-1" for="review-date">Review date</label>
+                <input id="review-date" class="form-control" type="date" name="date" value="@dateText" />
+                <button class="btn btn-primary" type="submit">Go to date</button>
+            </form>
+            <a class="btn btn-outline-secondary" asp-page="/Trades" asp-route-journalId="@Model.JournalId">Open ledger</a>
         </div>
     </div>
 
@@ -69,14 +50,30 @@
             </div>
             <span class="text-secondary">Revision @Model.Day.DailyJournal.Revision</span>
         </div>
-        <form method="post" asp-page-handler="SaveDailyJournal" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" class="tf-daily-journal-form">
+        <form method="post" asp-page-handler="SaveDailyJournal" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Url.Page("/Review", "AutosaveDailyJournal", new { journalId = Model.JournalId, date = dateText })">
             @Html.AntiForgeryToken()
             <input type="hidden" name="expectedRevision" value="@Model.Day.DailyJournal.Revision" />
-            <label class="visually-hidden" for="daily-journal-text">Daily journal</label>
-            <textarea id="daily-journal-text" name="dailyJournalText" rows="5" maxlength="12000" placeholder="What happened today? Capture market context, your state of mind, and the lesson for tomorrow.">@Model.DailyJournalText</textarea>
+            <div class="tf-markdown-editor" data-markdown-editor>
+                <div class="tf-markdown-toolbar" role="toolbar" aria-label="Daily journal formatting">
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="bold" title="Bold"><strong>B</strong></button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="italic" title="Italic"><em>I</em></button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="heading" title="Heading">H</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="link" title="Link">↗</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="unordered-list" title="Bullet list">•</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="ordered-list" title="Numbered list">1.</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="quote" title="Quote">❯</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="code" title="Code">&lt;/&gt;</button>
+                    <span class="tf-markdown-toolbar-spacer"></span>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-tab="write" aria-pressed="true">Write</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-tab="preview" aria-pressed="false">Preview</button>
+                </div>
+                <label class="visually-hidden" for="daily-journal-text">Daily journal</label>
+                <textarea id="daily-journal-text" name="dailyJournalText" rows="7" maxlength="12000" data-markdown-input placeholder="What happened today? Capture market context, your state of mind, and the lesson for tomorrow.">@Model.DailyJournalText</textarea>
+                <div class="tf-markdown-preview tf-markdown-prose" data-markdown-preview hidden></div>
+            </div>
             <div class="tf-daily-journal-actions">
-                <small>Private journal notes for @selectedDate.ToString("MMMM d, yyyy", CultureInfo.CurrentCulture).</small>
-                <button class="btn btn-outline-primary btn-sm" type="submit">Save journal</button>
+                <small>Private journal notes for @selectedDate.ToString("MMMM d, yyyy", CultureInfo.CurrentCulture). Markdown formatting is supported.</small>
+                <span class="tf-review-save-status" role="status" aria-live="polite" data-daily-journal-status>Saved</span>
             </div>
         </form>
     </section>
@@ -93,9 +90,29 @@
     {
         <div class="tf-review-workspace" data-review-workspace>
             <aside class="card tf-card tf-review-roster" aria-label="Trades for selected day">
-                <div class="tf-review-roster-heading">
-                    <div class="tf-kicker">SELECTED DAY</div>
-                    <h2>@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)</h2>
+            <div class="tf-review-roster-heading">
+                <div class="tf-kicker">SELECTED DAY</div>
+                    <div class="tf-review-roster-title-row">
+                        <h2>@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)</h2>
+                        <div class="tf-review-day-nav" aria-label="Trading day navigation">
+                            @if (Model.Day.PreviousDate.HasValue)
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" title="Previous day" aria-label="Previous day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.PreviousDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">←</a>
+                            }
+                            else
+                            {
+                                <span class="btn btn-sm btn-outline-secondary disabled" title="No previous day" aria-label="No previous day" aria-disabled="true">←</span>
+                            }
+                            @if (Model.Day.NextDate.HasValue)
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" title="Next day" aria-label="Next day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">→</a>
+                            }
+                            else
+                            {
+                                <span class="btn btn-sm btn-outline-secondary disabled" title="No next day" aria-label="No next day" aria-disabled="true">→</span>
+                            }
+                        </div>
+                    </div>
                     <div class="tf-review-roster-summary">
                         <span>@Model.Day.CompletedTradeCount completed</span>
                         <span>@Model.Day.OpenTradeCount open</span>
@@ -118,7 +135,7 @@
                             <button type="button" class="tf-review-roster-item @(itemActive ? "is-active" : string.Empty)" data-review-select data-review-key="@item.Trade.ReviewKey" data-review-index="@rosterIndex" aria-controls="@itemId" aria-pressed="@(itemActive ? "true" : "false")">
                                 <span class="tf-review-roster-item-top"><strong>@rosterIndex / @allTrades.Length</strong><span>@item.Trade.Symbol</span></span>
                                 <span class="tf-review-roster-item-main"><span>@item.Trade.Direction · @item.Trade.Quantity qty</span><strong class="@(item.Trade.NetPnl >= 0 ? "text-success" : "text-danger")" data-review-roster-pnl>@item.Trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong></span>
-                                <span class="tf-review-roster-item-meta"><span>@Model.LocalTime(item.Trade.EntryUtc)</span><span data-review-roster-state>@(item.Annotation.HasContent ? "Review added" : "Not started")</span></span>
+                                <span class="tf-review-roster-item-meta"><span>@Model.LocalTime(item.Trade.EntryUtc)</span>@await Html.PartialAsync("_ReviewIndicators", item.Trade)</span>
                             </button>
                         }
                     }
@@ -133,7 +150,7 @@
                             <button type="button" class="tf-review-roster-item @(itemActive ? "is-active" : string.Empty)" data-review-select data-review-key="@item.Trade.ReviewKey" data-review-index="@rosterIndex" aria-controls="@itemId" aria-pressed="@(itemActive ? "true" : "false")">
                                 <span class="tf-review-roster-item-top"><strong>@rosterIndex / @allTrades.Length</strong><span>@item.Trade.Symbol</span></span>
                                 <span class="tf-review-roster-item-main"><span>@item.Trade.Direction · @item.Trade.Quantity qty</span><strong class="text-secondary" data-review-roster-pnl>OPEN</strong></span>
-                                <span class="tf-review-roster-item-meta"><span>@Model.LocalTime(item.Trade.EntryUtc)</span><span data-review-roster-state>@(item.Annotation.HasContent ? "Review added" : "Not started")</span></span>
+                                <span class="tf-review-roster-item-meta"><span>@Model.LocalTime(item.Trade.EntryUtc)</span>@await Html.PartialAsync("_ReviewIndicators", item.Trade)</span>
                             </button>
                         }
                     }

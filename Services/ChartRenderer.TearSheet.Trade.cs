@@ -14,15 +14,24 @@ public static partial class ChartRenderer
         var gross = new decimal[trades.Length];
         var net = new decimal[trades.Length];
         var fees = new decimal[trades.Length];
-        decimal grossRunning = 0m, netRunning = 0m, feesRunning = 0m;
+        var exchangeFees = new decimal[trades.Length];
+        var nfaFees = new decimal[trades.Length];
+        var clearingFees = new decimal[trades.Length];
+        decimal grossRunning = 0m, netRunning = 0m, feesRunning = 0m, exchangeRunning = 0m, nfaRunning = 0m, clearingRunning = 0m;
         for (var index = 0; index < trades.Length; index++)
         {
             grossRunning += trades[index].GrossPnl;
             netRunning += trades[index].NetPnl;
             feesRunning += trades[index].Fees;
+            exchangeRunning += trades[index].ExchangeFees;
+            nfaRunning += trades[index].NfaFees;
+            clearingRunning += trades[index].ClearingFees;
             gross[index] = grossRunning;
             net[index] = netRunning;
             fees[index] = feesRunning;
+            exchangeFees[index] = exchangeRunning;
+            nfaFees[index] = nfaRunning;
+            clearingFees[index] = clearingRunning;
         }
 
         var layout = CartesianLayout();
@@ -34,7 +43,10 @@ public static partial class ChartRenderer
         {
             new { type = "scatter", x = labels, y = gross, mode = "lines", name = "Gross P&L", line = new { color = Blue, width = 2 }, hovertemplate = "%{x}<br>Gross: %{y:,.2f}<extra></extra>" },
             new { type = "scatter", x = labels, y = net, mode = "lines", name = "Net P&L", line = new { color = Green, width = 2 }, fill = "tonexty", fillcolor = "rgba(248,81,73,.14)", hovertemplate = "%{x}<br>Net: %{y:,.2f}<extra></extra>" },
-            new { type = "scatter", x = labels, y = fees, mode = "lines", name = "Fees", line = new { color = Red, width = 1.5, dash = "dot" }, hovertemplate = "%{x}<br>Fees: %{y:,.2f}<extra></extra>" }
+            new { type = "scatter", x = labels, y = fees, mode = "lines", name = "Total fees", line = new { color = Red, width = 1.5, dash = "dot" }, hovertemplate = "%{x}<br>Total fees: %{y:,.2f}<extra></extra>" },
+            new { type = "scatter", x = labels, y = exchangeFees, mode = "lines", name = "Exchange fees", line = new { color = "#d29922", width = 1, dash = "dash" }, hovertemplate = "%{x}<br>Exchange: %{y:,.2f}<extra></extra>" },
+            new { type = "scatter", x = labels, y = nfaFees, mode = "lines", name = "NFA fees", line = new { color = "#a371f7", width = 1, dash = "dash" }, hovertemplate = "%{x}<br>NFA: %{y:,.2f}<extra></extra>" },
+            new { type = "scatter", x = labels, y = clearingFees, mode = "lines", name = "Clearing / commission", line = new { color = "#58a6ff", width = 1, dash = "dash" }, hovertemplate = "%{x}<br>Clearing / commission: %{y:,.2f}<extra></extra>" }
         }, layout);
     }
 
@@ -77,25 +89,98 @@ public static partial class ChartRenderer
             : Histogram(values, "trade gross P&L distribution", Blue);
     }
 
-    public static string TearSheetWinLossDistribution(IEnumerable<Trade> source)
+    public static string TearSheetTradePnlRangeDistribution(IEnumerable<Trade> source)
     {
         var trades = ClosedTrades(source);
-        if (trades.Length == 0) return Empty("Winner and loser distributions appear after the first completed trade.");
-        var winners = trades.Where(x => x.GrossPnl > 0m).Select(x => x.GrossPnl).ToArray();
-        var losers = trades.Where(x => x.GrossPnl < 0m).Select(x => x.GrossPnl).ToArray();
-        if (winners.Length == 0 && losers.Length == 0) return Empty("No winner or loser P&L values are available.");
+        if (trades.Length == 0) return Empty("Trade P&L ranges appear after the first completed trade.");
+
+        var values = trades.Select(x => x.GrossPnl).ToArray();
+        var step = DollarRangeStep(values.Select(Math.Abs).DefaultIfEmpty(0m).Max());
+        var largestBin = values
+            .Where(x => x != 0m)
+            .Select(x => DollarRangeIndex(Math.Abs(x), step))
+            .DefaultIfEmpty(0)
+            .Max();
+        var rangeLimit = (largestBin + 1) * step;
+        var buckets = Enumerable.Range(0, largestBin + 1)
+            .Select(index =>
+            {
+                var lower = index * step;
+                var upper = (index + 1) * step;
+                return new
+                {
+                    Lower = lower,
+                    Upper = upper,
+                    Losses = values.Count(value => value < 0m && DollarRangeIndex(Math.Abs(value), step) == index),
+                    Wins = values.Count(value => value > 0m && DollarRangeIndex(value, step) == index)
+                };
+            })
+            .ToArray();
 
         var layout = CartesianLayout();
         layout["barmode"] = "overlay";
-        layout["bargap"] = .05;
+        layout["bargap"] = .08;
         layout["showlegend"] = true;
-        layout["legend"] = new { x = .76, y = .98 };
-        SetAxis(layout, "xaxis", "gross P&L");
+        layout["legend"] = new { x = .02, y = 1.02, orientation = "h" };
+        layout["shapes"] = new object[] { VerticalMarker(0m, Zero, "solid") };
+        SetAxis(layout, "xaxis", "gross P&L ($)");
+        if (layout["xaxis"] is Dictionary<string, object?> xAxis)
+        {
+            xAxis["tickprefix"] = "$";
+            xAxis["tickformat"] = ",.0f";
+            xAxis["dtick"] = step;
+            xAxis["tick0"] = 0m;
+        }
         SetAxis(layout, "yaxis", "trade count");
+        SetRange(layout, "xaxis", new[] { -rangeLimit, rangeLimit });
+
         var traces = new List<object>();
-        if (winners.Length > 0) traces.Add(HistogramTrace(winners, "Winners", Green));
-        if (losers.Length > 0) traces.Add(HistogramTrace(losers, "Losers", Red));
-        return Plotly("Winner and loser gross P&L distributions", traces, layout);
+        if (values.Any(value => value < 0m))
+        {
+            traces.Add(new
+            {
+                type = "bar",
+                x = buckets.Select(bucket => -(bucket.Lower + bucket.Upper) / 2m).ToArray(),
+                y = buckets.Select(bucket => bucket.Losses).ToArray(),
+                width = step * .86m,
+                name = "Losses",
+                marker = new { color = Red },
+                customdata = buckets.Select(bucket => DollarRangeLabel(-bucket.Upper, -bucket.Lower)).ToArray(),
+                hovertemplate = "%{customdata}<br>%{y} losing trades<extra></extra>"
+            });
+        }
+
+        if (values.Any(value => value > 0m))
+        {
+            traces.Add(new
+            {
+                type = "bar",
+                x = buckets.Select(bucket => (bucket.Lower + bucket.Upper) / 2m).ToArray(),
+                y = buckets.Select(bucket => bucket.Wins).ToArray(),
+                width = step * .86m,
+                name = "Wins",
+                marker = new { color = Green },
+                customdata = buckets.Select(bucket => DollarRangeLabel(bucket.Lower, bucket.Upper)).ToArray(),
+                hovertemplate = "%{customdata}<br>%{y} winning trades<extra></extra>"
+            });
+        }
+
+        var breakeven = values.Count(value => value == 0m);
+        if (breakeven > 0)
+        {
+            traces.Add(new
+            {
+                type = "bar",
+                x = new[] { 0m },
+                y = new[] { breakeven },
+                width = step * .42m,
+                name = "Breakeven",
+                marker = new { color = Gold },
+                hovertemplate = "$0<br>%{y} breakeven trades<extra></extra>"
+            });
+        }
+
+        return Plotly("Trade P&L by dollar range", traces, layout);
     }
 
     public static string TearSheetWaterfall(IEnumerable<Trade> source)
@@ -483,6 +568,87 @@ public static partial class ChartRenderer
         }, layout);
     }
 
+    public static string TearSheetTradeSizeDistribution(IEnumerable<Trade> source)
+    {
+        var groups = ClosedTrades(source)
+            .Where(x => x.Quantity > 0)
+            .GroupBy(x => x.Quantity)
+            .OrderBy(x => x.Key)
+            .Select(group => new
+            {
+                Size = group.Key,
+                Profitable = group.Count(trade => trade.GrossPnl > 0m),
+                Losing = group.Count(trade => trade.GrossPnl < 0m),
+                Breakeven = group.Count(trade => trade.GrossPnl == 0m)
+            })
+            .ToArray();
+        if (groups.Length == 0) return Empty("Trade-size distribution appears after the first completed trade.");
+
+        var labels = groups.Select(x => x.Size.ToString(CultureInfo.InvariantCulture)).ToArray();
+        var largestSide = groups.Max(x => Math.Max(x.Profitable, x.Losing));
+        var axisLimit = Math.Max(1, largestSide) + 1;
+        var layout = CartesianLayout();
+        layout["barmode"] = "relative";
+        layout["bargap"] = .16;
+        layout["showlegend"] = true;
+        layout["legend"] = new { x = .02, y = 1.02, orientation = "h" };
+        layout["shapes"] = new object[] { VerticalMarker(0m, Zero, "solid") };
+        SetAxis(layout, "xaxis", "trade count (losses ← 0 → profitable)");
+        SetAxis(layout, "yaxis", "trade size (contracts)");
+        SetRange(layout, "xaxis", new[] { -axisLimit, axisLimit });
+
+        var traces = new List<object>();
+        if (groups.Any(x => x.Losing > 0))
+        {
+            traces.Add(new
+            {
+                type = "bar",
+                orientation = "h",
+                x = groups.Select(x => -x.Losing).ToArray(),
+                y = labels,
+                name = "Losses",
+                marker = new { color = Red },
+                customdata = groups.Select(x => x.Losing).ToArray(),
+                hovertemplate = "Size %{y} contracts<br>Losses: %{customdata}<extra></extra>"
+            });
+        }
+
+        if (groups.Any(x => x.Profitable > 0))
+        {
+            traces.Add(new
+            {
+                type = "bar",
+                orientation = "h",
+                x = groups.Select(x => x.Profitable).ToArray(),
+                y = labels,
+                name = "Profitable",
+                marker = new { color = Green },
+                customdata = groups.Select(x => x.Profitable).ToArray(),
+                hovertemplate = "Size %{y} contracts<br>Profitable: %{customdata}<extra></extra>"
+            });
+        }
+
+        var breakeven = groups.Where(x => x.Breakeven > 0).ToArray();
+        if (breakeven.Length > 0)
+        {
+            traces.Add(new
+            {
+                type = "scatter",
+                x = breakeven.Select(_ => 0).ToArray(),
+                y = breakeven.Select(x => x.Size.ToString(CultureInfo.InvariantCulture)).ToArray(),
+                mode = "markers+text",
+                name = "Breakeven",
+                text = breakeven.Select(x => x.Breakeven.ToString(CultureInfo.InvariantCulture)).ToArray(),
+                textposition = "middle center",
+                marker = new { color = Gold, size = 8 },
+                customdata = breakeven.Select(x => x.Breakeven).ToArray(),
+                hovertemplate = "Size %{y} contracts<br>Breakeven: %{customdata}<extra></extra>"
+            });
+        }
+
+        return Plotly("Trade-size distribution by outcome", traces, layout);
+    }
+
     public static string TearSheetMonthlyReturnHeatmap(
         IEnumerable<Trade> source,
         IEnumerable<AccountBalanceEvent> balanceSource,
@@ -712,6 +878,27 @@ public static partial class ChartRenderer
         yref = "paper",
         line = new { color, dash, width = 1.2 }
     };
+
+    private static decimal DollarRangeStep(decimal maximumMagnitude)
+    {
+        if (maximumMagnitude <= 0m) return 1m;
+
+        var targetStep = maximumMagnitude / 20m;
+        var magnitude = (decimal)Math.Pow(10d, Math.Floor(Math.Log10((double)targetStep)));
+        var normalized = targetStep / magnitude;
+        var niceMultiplier = normalized <= 1m ? 1m : normalized <= 2m ? 2m : normalized <= 5m ? 5m : 10m;
+        return Math.Max(1m, niceMultiplier * magnitude);
+    }
+
+    private static int DollarRangeIndex(decimal magnitude, decimal step) => Math.Max(0, (int)decimal.Ceiling(magnitude / step) - 1);
+
+    private static string DollarRangeLabel(decimal lower, decimal upper) => $"{DollarLabel(lower)} to {DollarLabel(upper)}";
+
+    private static string DollarLabel(decimal value) => value == 0m
+        ? "$0"
+        : value < 0m
+            ? value.ToString("-$#,##0.##", CultureInfo.InvariantCulture)
+            : value.ToString("$#,##0.##", CultureInfo.InvariantCulture);
 
     private static decimal Quantile(IReadOnlyList<decimal> values, double quantile)
     {

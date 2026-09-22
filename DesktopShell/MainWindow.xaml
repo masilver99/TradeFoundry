@@ -1,0 +1,34 @@
+<Window x:Class="TradeFoundry.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="TradeFoundry"
+        Width="1440"
+        Height="960"
+        MinWidth="960"
+        MinHeight="480"
+        WindowStartupLocation="CenterScreen"
+        Background="#101827"
+        UseLayoutRounding="True"
+        Loaded="Window_Loaded"
+        Closed="Window_Closed">
+    <Grid>
+        <wv2:WebView2 x:Name="Browser" Visibility="Hidden" />
+
+        <Grid x:Name="LoadingPanel" Background="#101827">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock Text="TradeFoundry"
+                           Foreground="#F8FAFC"
+                           FontSize="30"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock x:Name="LoadingMessage"
+                           Text="Starting the local journal..."
+                           Margin="0,12,0,0"
+                           Foreground="#94A3B8"
+                           FontSize="15"
+                           HorizontalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

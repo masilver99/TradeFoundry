@@ -39,7 +39,7 @@ public sealed class Journal
     public string Name { get; init; } = string.Empty;
     public string ExecutionContext { get; init; } = "live";
     public string Labels { get; init; } = string.Empty;
-    public string DescriptionMarkdown { get; init; } = string.Empty;
+    public string DescriptionLexicalStateJson { get; init; } = string.Empty;
     public string TimeZone { get; init; } = "UTC";
     public string Currency { get; init; } = "USD";
     public string GroupingPolicy { get; init; } = "flat_to_flat";

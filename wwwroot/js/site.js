@@ -1,6 +1,7 @@
 document.addEventListener("DOMContentLoaded", () => {
   initializeChartExportOptions();
   initializePlotlyCharts();
+  initializeBrokerComparison();
   initializeEquityToggle();
   initializeLightweightCharts();
   initializeAnalysisNavigation();
@@ -17,7 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeSidebarResize();
   initializeSidebarVisibility();
   initializeImportDropzones();
-  initializeMarkdownEditors();
+  window.TradeFoundryLexical?.initializeLexicalEditors();
 
   const filter = document.querySelector("#trade-filter");
   const table = document.querySelector("#trade-table");
@@ -422,41 +423,9 @@ function initializeReviewAttachmentRemovals() {
   });
 }
 
-function initializeMarkdownEditors() {
-  document.querySelectorAll("[data-markdown-editor]").forEach(editor => {
-    const input = editor.querySelector("[data-markdown-input]");
-    const preview = editor.querySelector("[data-markdown-preview]");
-    if (!input || !preview) return;
-
-    const updatePreview = () => {
-      preview.innerHTML = renderMarkdownPreview(input.value);
-    };
-
-    editor.querySelectorAll("[data-markdown-action]").forEach(button => {
-      button.addEventListener("click", () => {
-        input.focus();
-        applyMarkdownAction(input, button.dataset.markdownAction || "");
-        updatePreview();
-      });
-    });
-
-    editor.querySelectorAll("[data-markdown-tab]").forEach(button => {
-      button.addEventListener("click", () => {
-        const previewMode = button.dataset.markdownTab === "preview";
-        editor.querySelectorAll("[data-markdown-tab]").forEach(tab => tab.setAttribute("aria-pressed", String(tab === button)));
-        input.hidden = previewMode;
-        preview.hidden = !previewMode;
-        if (previewMode) updatePreview();
-      });
-    });
-
-    input.addEventListener("input", updatePreview);
-  });
-}
-
 function initializeDailyJournal() {
   const form = document.querySelector("[data-daily-journal-form]");
-  const input = form?.querySelector("[name=dailyJournalText]");
+  const input = form?.querySelector("[name=dailyJournalStateJson]");
   const status = form?.querySelector("[data-daily-journal-status]");
   if (!form || !input) return;
 
@@ -556,130 +525,6 @@ function initializeDailyJournal() {
       event.returnValue = "";
     }
   });
-}
-
-function applyMarkdownAction(input, action) {
-  const start = input.selectionStart;
-  const end = input.selectionEnd;
-  const selected = input.value.slice(start, end);
-  const fallback = action === "link" ? "link text" : action === "code" ? "code" : "text";
-  const value = selected || fallback;
-  let before = "";
-  let after = "";
-
-  switch (action) {
-    case "bold":
-      before = "**";
-      after = "**";
-      break;
-    case "italic":
-      before = "_";
-      after = "_";
-      break;
-    case "heading":
-      before = "### ";
-      break;
-    case "link":
-      before = "[";
-      after = "](https://)";
-      break;
-    case "unordered-list":
-      before = "- ";
-      break;
-    case "ordered-list":
-      before = "1. ";
-      break;
-    case "quote":
-      before = "> ";
-      break;
-    case "code":
-      before = "`";
-      after = "`";
-      break;
-    default:
-      return;
-  }
-
-  input.setRangeText(`${before}${value}${after}`, start, end, "select");
-  const cursor = start + before.length + value.length + after.length;
-  if (!selected && action === "link") input.setSelectionRange(start + before.length + value.length + 2, cursor - 1);
-  else input.setSelectionRange(cursor, cursor);
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-}
-
-function renderMarkdownPreview(markdown) {
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
-  const output = [];
-  let inCode = false;
-  let codeLanguage = "";
-
-  for (const line of lines) {
-    const fence = line.match(/^\s*```\s*([\w-]*)\s*$/);
-    if (fence) {
-      if (inCode) output.push("</code></pre>");
-      else {
-        codeLanguage = fence[1] || "";
-        output.push(`<pre><code${codeLanguage ? ` class="language-${escapeMarkdownHtml(codeLanguage)}"` : ""}>`);
-      }
-      inCode = !inCode;
-      continue;
-    }
-    if (inCode) {
-      output.push(escapeMarkdownHtml(line) + "\n");
-      continue;
-    }
-
-    const heading = line.match(/^\s*(#{1,6})\s+(.+?)\s*#*\s*$/);
-    if (heading) {
-      output.push(`<h${heading[1].length}>${renderMarkdownInline(heading[2])}</h${heading[1].length}>`);
-      continue;
-    }
-    if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) {
-      output.push("<hr>");
-      continue;
-    }
-    const quote = line.match(/^\s*>\s?(.*)$/);
-    if (quote) {
-      output.push(`<blockquote>${renderMarkdownInline(quote[1])}</blockquote>`);
-      continue;
-    }
-    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
-    if (unordered) {
-      output.push(`<ul><li>${renderMarkdownInline(unordered[1])}</li></ul>`);
-      continue;
-    }
-    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
-    if (ordered) {
-      output.push(`<ol><li>${renderMarkdownInline(ordered[1])}</li></ol>`);
-      continue;
-    }
-    if (!line.trim()) continue;
-    output.push(`<p>${renderMarkdownInline(line)}</p>`);
-  }
-
-  if (inCode) output.push("</code></pre>");
-  return output.join("") || '<p class="text-secondary">Nothing to preview yet.</p>';
-}
-
-function renderMarkdownInline(value) {
-  let result = escapeMarkdownHtml(value);
-  result = result.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:|\/|#)[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-  result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
-  result = result.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  result = result.replace(/__([^_]+)__/g, "<strong>$1</strong>");
-  result = result.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<em>$1</em>");
-  result = result.replace(/(?<!_)_([^_]+)_(?!_)/g, "<em>$1</em>");
-  return result;
-}
-
-function escapeMarkdownHtml(value) {
-  return String(value || "").replace(/[&<>\"']/g, character => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[character]);
 }
 
 function initializeSidebarResize() {
@@ -1574,34 +1419,457 @@ function applyPlotlyPayload(node, payload) {
   }
 }
 
+function initializeBrokerComparison() {
+  document.querySelectorAll("[data-broker-comparison]").forEach(root => {
+    if (root.dataset.brokerComparisonInitialized === "true") return;
+
+    const rowsHost = root.querySelector("[data-broker-rows]");
+    const rowTemplate = root.querySelector("[data-broker-row-template]");
+    const roundTurnsInput = root.querySelector("[data-broker-round-turns]");
+    const contractsInput = root.querySelector("[data-broker-contracts]");
+    const sidesOutput = root.querySelector("[data-broker-sides]");
+    const costChart = root.querySelector("[data-broker-cost-chart]");
+    const volumeChart = root.querySelector("[data-broker-volume-chart]");
+    const emptyChart = root.querySelector("[data-broker-chart-empty]");
+    const emptyVolumeChart = root.querySelector("[data-broker-volume-chart-empty]");
+    if (!rowsHost || !roundTurnsInput || !contractsInput || !costChart || !volumeChart) return;
+
+    root.dataset.brokerComparisonInitialized = "true";
+    const stateKey = root.dataset.storageKey || "";
+    const currency = root.dataset.currency || "USD";
+    const variableFields = ["commission", "exchange", "nfa", "clearing"];
+    const fixedFields = ["platform", "data", "other"];
+    const allFields = ["name", ...variableFields, ...fixedFields];
+    let moneyFormatter;
+    try {
+      moneyFormatter = new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    } catch {
+      moneyFormatter = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    const numberValue = input => {
+      const raw = String(input?.value || "").trim();
+      if (!raw) return null;
+      const value = Number(raw);
+      return Number.isFinite(value) ? Math.max(0, value) : null;
+    };
+    const formatMoney = value => Number.isFinite(value) ? moneyFormatter.format(value) : "—";
+    const formatNumber = value => Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—";
+    const formatSignedMoney = value => {
+      if (!Number.isFinite(value)) return "—";
+      if (value > 0.005) return "+" + formatMoney(value);
+      return formatMoney(value);
+    };
+    const inputFor = (row, field) => row.querySelector(`[data-broker-field="${field}"]`);
+    const setTone = (node, tone) => {
+      if (!node) return;
+      node.classList.toggle("positive", tone === "positive");
+      node.classList.toggle("negative", tone === "negative");
+    };
+
+    function snapshotRow(row) {
+      const values = {};
+      let configured = false;
+      allFields.forEach(field => {
+        const input = inputFor(row, field);
+        const raw = String(input?.value || "").trim();
+        values[field] = raw;
+        if (field !== "name" && raw !== "") configured = true;
+      });
+
+      const sideRate = variableFields.reduce((total, field) => total + (numberValue(inputFor(row, field)) || 0), 0);
+      const fixedMonthly = fixedFields.reduce((total, field) => total + (numberValue(inputFor(row, field)) || 0), 0);
+      return {
+        element: row,
+        name: values.name || "Unnamed broker",
+        baseline: row.dataset.baseline === "true",
+        configured,
+        values,
+        sideRate,
+        fixedMonthly,
+        monthly: sideRate * currentSides() + fixedMonthly
+      };
+    }
+
+    function currentSides() {
+      const roundTurns = numberValue(roundTurnsInput) || 0;
+      const contracts = numberValue(contractsInput) || 0;
+      return roundTurns * contracts * 2;
+    }
+
+    function applySavedRow(row, saved) {
+      if (!saved || typeof saved !== "object") return;
+      allFields.forEach(field => {
+        const input = inputFor(row, field);
+        if (!input || !Object.prototype.hasOwnProperty.call(saved, field)) return;
+        input.value = String(saved[field] ?? "");
+      });
+    }
+
+    function bindRow(row) {
+      row.querySelectorAll("input").forEach(input => input.addEventListener("input", update));
+      row.querySelector("[data-remove-broker]")?.addEventListener("click", () => {
+        row.remove();
+        update();
+      });
+    }
+
+    function addRow(saved) {
+      if (!rowTemplate?.content?.firstElementChild) return null;
+      const row = rowTemplate.content.firstElementChild.cloneNode(true);
+      rowsHost.appendChild(row);
+      applySavedRow(row, saved);
+      bindRow(row);
+      return row;
+    }
+
+    function chartPayload(results) {
+      const configured = results.filter(result => result.configured);
+      if (!configured.length) {
+        return {
+          data: [],
+          layout: { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", font: { color: "#c9d1d9" } },
+          config: { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d"] }
+        };
+      }
+
+      const lowest = Math.min(...configured.map(result => result.monthly));
+      return {
+        data: [{
+          type: "bar",
+          orientation: "h",
+          y: configured.map(result => result.name),
+          x: configured.map(result => result.monthly),
+          customdata: configured.map(result => result.monthly * 12),
+          marker: { color: configured.map(result => result.baseline ? "#d29922" : Math.abs(result.monthly - lowest) < 0.005 ? "#3fb950" : "#58a6ff") },
+          hovertemplate: "%{y}<br>%{x:,.2f} / month<br>%{customdata:,.2f} / year<extra></extra>"
+        }],
+        layout: {
+          height: Math.max(260, configured.length * 54 + 80),
+          margin: { l: 145, r: 24, t: 12, b: 58 },
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "rgba(0,0,0,0)",
+          font: { color: "#c9d1d9", size: 11 },
+          xaxis: { title: `${currency} / month`, gridcolor: "#30363d", zerolinecolor: "#30363d" },
+          yaxis: { automargin: true, categoryorder: "total ascending" }
+        },
+        config: { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d"] }
+      };
+    }
+
+    function volumeChartPayload(results) {
+      const configured = results.filter(result => result.configured);
+      if (!configured.length) {
+        return {
+          data: [],
+          layout: { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", font: { color: "#c9d1d9" } },
+          config: { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d"] }
+        };
+      }
+
+      const currentRoundTurns = numberValue(roundTurnsInput) || 0;
+      const contracts = numberValue(contractsInput) || 0;
+      const maximum = Math.max(10, Math.ceil(Math.max(1, currentRoundTurns) * 2));
+      const step = maximum / 12;
+      const volumes = Array.from({ length: 13 }, (_, index) => Number((step * index).toFixed(2)));
+      const alternativeColors = ["#58a6ff", "#bc8cff", "#39c5cf", "#3fb950", "#f778ba", "#f0883e"];
+      const data = [];
+      let alternativeIndex = 0;
+
+      configured.forEach(result => {
+        const color = result.baseline ? "#d29922" : alternativeColors[alternativeIndex++ % alternativeColors.length];
+        const monthly = volumes.map(volume => result.sideRate * volume * contracts * 2 + result.fixedMonthly);
+        const annual = monthly.map(value => value * 12);
+        const line = { color, width: result.baseline ? 3 : 2 };
+        const marker = { color, size: 5 };
+        data.push({
+          type: "scatter",
+          mode: "lines+markers",
+          name: result.name,
+          legendgroup: result.name,
+          x: volumes,
+          y: monthly,
+          customdata: annual,
+          xaxis: "x",
+          yaxis: "y",
+          line,
+          marker,
+          hovertemplate: "%{fullData.name}<br>%{x:,.2f} round turns / month<br>%{y:,.2f} / month<br>%{customdata:,.2f} / year<extra></extra>"
+        });
+        data.push({
+          type: "scatter",
+          mode: "lines+markers",
+          name: result.name,
+          legendgroup: result.name,
+          showlegend: false,
+          x: volumes,
+          y: annual,
+          customdata: monthly,
+          xaxis: "x2",
+          yaxis: "y2",
+          line,
+          marker,
+          hovertemplate: "%{fullData.name}<br>%{x:,.2f} round turns / month<br>%{y:,.2f} / year<br>%{customdata:,.2f} / month<extra></extra>"
+        });
+      });
+
+      return {
+        data,
+        layout: {
+          height: 560,
+          margin: { l: 78, r: 24, t: 34, b: 104 },
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "rgba(0,0,0,0)",
+          font: { color: "#c9d1d9", size: 11 },
+          hovermode: "closest",
+          legend: { orientation: "h", x: 0, y: -0.2 },
+          xaxis: { domain: [0, 1], anchor: "y", showticklabels: false, gridcolor: "#30363d", zerolinecolor: "#30363d" },
+          xaxis2: { domain: [0, 1], anchor: "y2", matches: "x", title: "Round turns / month", gridcolor: "#30363d", zerolinecolor: "#30363d" },
+          yaxis: { domain: [0.56, 1], title: `${currency} / month`, gridcolor: "#30363d", zerolinecolor: "#30363d" },
+          yaxis2: { domain: [0, 0.42], title: `${currency} / year`, gridcolor: "#30363d", zerolinecolor: "#30363d" },
+          shapes: [{
+            type: "line",
+            xref: "x",
+            yref: "paper",
+            x0: currentRoundTurns,
+            x1: currentRoundTurns,
+            y0: 0,
+            y1: 1,
+            line: { color: "#d29922", width: 1, dash: "dot" }
+          }],
+          annotations: [{
+            x: currentRoundTurns,
+            y: 1.04,
+            xref: "x",
+            yref: "paper",
+            text: `Current: ${currentRoundTurns.toLocaleString(undefined, { maximumFractionDigits: 2 })} round turns / month`,
+            showarrow: false,
+            font: { color: "#d29922", size: 10 }
+          }]
+        },
+        config: { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d"] }
+      };
+    }
+
+    function updateChart(results) {
+      const payload = chartPayload(results);
+      const hasData = payload.data.length > 0;
+      updatePlotlyChart(costChart, emptyChart, payload, hasData);
+      updatePlotlyChart(volumeChart, emptyVolumeChart, volumeChartPayload(results), hasData);
+    }
+
+    function updatePlotlyChart(chartNode, emptyNode, payload, hasData) {
+      chartNode.dataset.plotlyChart = JSON.stringify(payload);
+      chartNode.hidden = !hasData;
+      if (emptyNode) emptyNode.hidden = hasData;
+      if (!hasData) {
+        if (chartNode.dataset.plotlyInitialized === "true" && window.Plotly?.purge) {
+          window.Plotly.purge(chartNode);
+          chartNode.dataset.plotlyInitialized = "false";
+        }
+        return;
+      }
+      if (!window.Plotly) return;
+      if (chartNode.dataset.plotlyInitialized === "true") applyPlotlyPayload(chartNode, payload);
+      else renderPlotlyChart(chartNode);
+    }
+
+    function saveState() {
+      if (!stateKey) return;
+      try {
+        const rows = Array.from(rowsHost.querySelectorAll("[data-broker-row]")).map(row => snapshotRow(row).values);
+        window.localStorage.setItem(stateKey, JSON.stringify({
+          roundTurns: roundTurnsInput.value,
+          contracts: contractsInput.value,
+          rows
+        }));
+      } catch {
+        // Local storage is an enhancement; the calculator remains usable when it is blocked.
+      }
+    }
+
+    function restoreState() {
+      if (!stateKey) return;
+      try {
+        const raw = window.localStorage.getItem(stateKey);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (saved && Object.prototype.hasOwnProperty.call(saved, "roundTurns")) roundTurnsInput.value = String(saved.roundTurns ?? "");
+        if (saved && Object.prototype.hasOwnProperty.call(saved, "contracts")) contractsInput.value = String(saved.contracts ?? "");
+        if (!Array.isArray(saved?.rows)) return;
+
+        const rows = Array.from(rowsHost.querySelectorAll("[data-broker-row]"));
+        saved.rows.forEach((savedRow, index) => {
+          const row = rows[index] || addRow(savedRow);
+          if (row && rows[index]) applySavedRow(row, savedRow);
+        });
+      } catch {
+        // Ignore malformed or unavailable browser storage and use the server defaults.
+      }
+    }
+
+    function update() {
+      const sides = currentSides();
+      if (sidesOutput) sidesOutput.textContent = formatNumber(sides);
+      const caption = root.querySelector("[data-broker-chart-caption]");
+      if (caption) caption.textContent = `${formatNumber(sides)} contract sides / month`;
+      const volumeCaption = root.querySelector("[data-broker-volume-chart-caption]");
+      if (volumeCaption) volumeCaption.textContent = `${formatNumber(numberValue(roundTurnsInput) || 0)} round turns / month now · monthly and yearly projections`;
+
+      const results = Array.from(rowsHost.querySelectorAll("[data-broker-row]")).map(snapshotRow);
+      const configured = results.filter(result => result.configured);
+      const baseline = results.find(result => result.baseline) || results[0];
+      const lowest = configured.length ? configured.reduce((best, result) => result.monthly < best.monthly ? result : best) : null;
+      const baselineConfigured = Boolean(baseline?.configured);
+
+      results.forEach(result => {
+        const row = result.element;
+        const monthlyNode = row.querySelector("[data-row-monthly]");
+        const annualNode = row.querySelector("[data-row-annual]");
+        const variableNode = row.querySelector("[data-row-variable]");
+        const savingsNode = row.querySelector("[data-row-savings]");
+        const savingsNote = row.querySelector("[data-row-savings-note]");
+        const statusNode = row.querySelector("[data-row-status]");
+        row.classList.toggle("is-baseline", result.baseline);
+        row.classList.toggle("is-best", Boolean(result.configured && lowest === result));
+
+        if (!result.configured) {
+          if (monthlyNode) monthlyNode.textContent = "—";
+          if (annualNode) annualNode.textContent = "—";
+          if (variableNode) variableNode.textContent = "";
+          if (savingsNode) savingsNode.textContent = "—";
+          if (savingsNote) savingsNote.textContent = "";
+          if (statusNode) {
+            statusNode.textContent = result.baseline ? "Baseline · add rates" : "Enter rates";
+            setTone(statusNode, "");
+          }
+          return;
+        }
+
+        if (monthlyNode) monthlyNode.textContent = formatMoney(result.monthly);
+        if (annualNode) annualNode.textContent = formatMoney(result.monthly * 12);
+        if (variableNode) variableNode.textContent = `${formatMoney(result.sideRate)} / side`;
+        if (statusNode) {
+          if (result.baseline) statusNode.textContent = "Baseline";
+          else if (!baselineConfigured) statusNode.textContent = "Rate entered";
+          else if (lowest === result) statusNode.textContent = "Lowest cost";
+          else statusNode.textContent = "Compared";
+          setTone(statusNode, lowest === result && !result.baseline ? "positive" : "");
+        }
+
+        if (savingsNode) setTone(savingsNode, "");
+        if (savingsNote) savingsNote.textContent = "";
+        if (!result.baseline && baselineConfigured) {
+          const savings = baseline.monthly - result.monthly;
+          if (savingsNode) {
+            savingsNode.textContent = formatSignedMoney(savings);
+            setTone(savingsNode, savings > 0.005 ? "positive" : savings < -0.005 ? "negative" : "");
+          }
+          if (savingsNote) savingsNote.textContent = savings > 0.005 ? "less than current" : savings < -0.005 ? "more than current" : "same as current";
+        }
+      });
+
+      const bestName = root.querySelector("[data-broker-best-name]");
+      const bestCost = root.querySelector("[data-broker-best-cost]");
+      const bestSavings = root.querySelector("[data-broker-best-savings]");
+      const bestSavingsNote = root.querySelector("[data-broker-best-savings-note]");
+      if (bestName) bestName.textContent = lowest?.name || "—";
+      if (bestCost) bestCost.textContent = lowest ? `${formatMoney(lowest.monthly)} / month · ${formatMoney(lowest.monthly * 12)} / year` : "Enter comparable rates to rank brokers.";
+      if (bestSavings) setTone(bestSavings, "");
+
+      const alternatives = results.filter(result => !result.baseline && result.configured);
+      const bestAlternative = alternatives.length ? alternatives.reduce((best, result) => result.monthly < best.monthly ? result : best) : null;
+      if (bestSavings && baselineConfigured && bestAlternative) {
+        const savings = baseline.monthly - bestAlternative.monthly;
+        if (savings > 0.005) {
+          bestSavings.textContent = formatMoney(savings);
+          setTone(bestSavings, "positive");
+          if (bestSavingsNote) bestSavingsNote.textContent = `${bestAlternative.name} could save that amount each month at this activity level.`;
+        } else {
+          bestSavings.textContent = "No savings";
+          setTone(bestSavings, "negative");
+          if (bestSavingsNote) bestSavingsNote.textContent = "Current setup is already cheaper than the entered alternatives.";
+        }
+      } else {
+        if (bestSavings) bestSavings.textContent = "—";
+        if (bestSavingsNote) bestSavingsNote.textContent = baselineConfigured ? "Add at least one comparable broker rate." : "Current setup rates are required for a savings estimate.";
+      }
+
+      updateChart(results);
+      saveState();
+    }
+
+    roundTurnsInput.addEventListener("input", update);
+    contractsInput.addEventListener("input", update);
+    root.querySelector("[data-add-broker]")?.addEventListener("click", () => {
+      const row = addRow();
+      update();
+      row?.querySelector('[data-broker-field="name"]')?.focus();
+    });
+    root.querySelector("[data-reset-broker-comparison]")?.addEventListener("click", () => {
+      if (stateKey) {
+        try { window.localStorage.removeItem(stateKey); } catch { /* ignore */ }
+      }
+      window.location.reload();
+    });
+
+    Array.from(rowsHost.querySelectorAll("[data-broker-row]")).forEach(bindRow);
+    restoreState();
+    update();
+  });
+}
+
 function initializeEquityToggle() {
   document.querySelectorAll("[data-equity-toggle-form]").forEach(form => {
     if (form.dataset.equityToggleInitialized === "true") return;
 
-    const checkbox = form.querySelector("input[name=daily]");
+    const dailyCheckbox = form.querySelector("input[name=daily]");
+    const hideEmptyDaysCheckbox = form.querySelector("input[name=hideEmptyDays]");
     const card = form.closest(".tf-chart-card");
     const host = card?.querySelector("[data-equity-chart-host]");
-    if (!checkbox || !host) return;
+    if (!dailyCheckbox || !host) return;
 
     form.dataset.equityToggleInitialized = "true";
-    form.dataset.equityCurrentDaily = String(checkbox.checked);
+    form.dataset.equityCurrentDaily = String(dailyCheckbox.checked);
+    form.dataset.equityCurrentHideEmptyDays = String(hideEmptyDaysCheckbox?.checked || false);
+    updateEquityToggleAvailability(form, dailyCheckbox, hideEmptyDaysCheckbox);
     form.addEventListener("submit", event => {
       event.preventDefault();
-      updateEquityChart(form, checkbox, host);
+      updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, host);
     });
   });
 }
 
-async function updateEquityChart(form, checkbox, host) {
+function updateEquityToggleAvailability(form, dailyCheckbox, hideEmptyDaysCheckbox) {
+  if (!hideEmptyDaysCheckbox) return;
+
+  hideEmptyDaysCheckbox.disabled = dailyCheckbox.disabled || !dailyCheckbox.checked;
+  hideEmptyDaysCheckbox.setAttribute(
+    "aria-label",
+    dailyCheckbox.checked
+      ? "Hide days without trades from the Daily equity curve"
+      : "Hide days without trades when showing the Daily equity curve"
+  );
+}
+
+async function updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, host) {
   if (form.dataset.equityToggleLoading === "true") return;
 
   const previousDaily = form.dataset.equityCurrentDaily === "true";
-  const requestedDaily = checkbox.checked;
+  const previousHideEmptyDays = form.dataset.equityCurrentHideEmptyDays === "true";
+  const requestedDaily = dailyCheckbox.checked;
+  const requestedHideEmptyDays = hideEmptyDaysCheckbox?.checked || false;
   const requestId = String((Number(form.dataset.equityToggleRequest || "0") || 0) + 1);
   form.dataset.equityToggleRequest = requestId;
   form.dataset.equityToggleLoading = "true";
   form.setAttribute("aria-busy", "true");
-  checkbox.disabled = true;
+  dailyCheckbox.disabled = true;
+  updateEquityToggleAvailability(form, dailyCheckbox, hideEmptyDaysCheckbox);
 
   try {
     const url = new URL(form.action || window.location.href, window.location.href);
@@ -1611,6 +1879,8 @@ async function updateEquityChart(form, checkbox, host) {
     url.searchParams.set("journalId", journalId);
     if (requestedDaily) url.searchParams.set("daily", "true");
     else url.searchParams.delete("daily");
+    if (requestedHideEmptyDays) url.searchParams.set("hideEmptyDays", "true");
+    else url.searchParams.delete("hideEmptyDays");
 
     const response = await fetch(url, {
       headers: { Accept: "text/html" },
@@ -1646,8 +1916,9 @@ async function updateEquityChart(form, checkbox, host) {
     const card = form.closest(".tf-chart-card");
     const viewLabel = card?.querySelector("[data-equity-view-label]");
     if (viewLabel) viewLabel.textContent = requestedDaily ? "Daily" : "by trade";
-    checkbox.setAttribute("aria-label", requestedDaily ? "Show equity curve by trade" : "Show Daily equity curve");
+    dailyCheckbox.setAttribute("aria-label", requestedDaily ? "Show equity curve by trade" : "Show Daily equity curve");
     form.dataset.equityCurrentDaily = String(requestedDaily);
+    form.dataset.equityCurrentHideEmptyDays = String(requestedHideEmptyDays);
 
     const displayUrl = new URL(window.location.href);
     if (requestedDaily) displayUrl.searchParams.set("daily", "true");
@@ -1656,14 +1927,16 @@ async function updateEquityChart(form, checkbox, host) {
     window.history.replaceState(null, "", `${displayUrl.pathname}${displayUrl.search}${displayUrl.hash}`);
   } catch (error) {
     if (requestId === form.dataset.equityToggleRequest) {
-      checkbox.checked = previousDaily;
+      dailyCheckbox.checked = previousDaily;
+      if (hideEmptyDaysCheckbox) hideEmptyDaysCheckbox.checked = previousHideEmptyDays;
       console.error("TradeFoundry equity chart update failed.", error);
     }
   } finally {
     if (requestId === form.dataset.equityToggleRequest) {
       form.dataset.equityToggleLoading = "false";
       form.removeAttribute("aria-busy");
-      checkbox.disabled = false;
+      dailyCheckbox.disabled = false;
+      updateEquityToggleAvailability(form, dailyCheckbox, hideEmptyDaysCheckbox);
     }
   }
 }

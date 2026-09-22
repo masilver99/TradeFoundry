@@ -28,7 +28,7 @@ public class ReviewModel : PageModel
     [BindProperty(SupportsGet = true)] public bool Saved { get; set; }
     [BindProperty(SupportsGet = true)] public bool JournalSaved { get; set; }
     [BindProperty] public TradeReviewPatch Edit { get; set; } = new();
-    [BindProperty] public string? DailyJournalText { get; set; }
+    [BindProperty] public string? DailyJournalStateJson { get; set; }
     [BindProperty] public IFormFile? Screenshot { get; set; }
     [BindProperty] public string? AttachmentCaption { get; set; }
 
@@ -45,7 +45,7 @@ public class ReviewModel : PageModel
             var date = Date ?? _reviews.GetDefaultDate(JournalId);
             Day = _reviews.GetDay(JournalId, date);
             Date = date;
-            DailyJournalText = Day.DailyJournal.Text;
+            DailyJournalStateJson = Day.DailyJournal.Text;
             Focus = ActiveTrade?.Trade.ReviewKey;
         }
         catch (InvalidOperationException)
@@ -127,16 +127,16 @@ public class ReviewModel : PageModel
         }
     }
 
-    public IActionResult OnPostSaveDailyJournal(string dailyJournalText, int expectedRevision, DateOnly date)
+    public IActionResult OnPostSaveDailyJournal(string dailyJournalStateJson, int expectedRevision, DateOnly date)
     {
         Date = date;
         try
         {
-            var result = _reviews.SaveDailyJournal(JournalId, date, dailyJournalText, expectedRevision);
+            var result = _reviews.SaveDailyJournal(JournalId, date, dailyJournalStateJson, expectedRevision);
             if (result.Conflict)
             {
                 LoadDay();
-                DailyJournalText = result.Entry.Text;
+                DailyJournalStateJson = result.Entry.Text;
                 ErrorMessage = "This daily journal changed in another window. Reload the current values before saving again.";
                 ModelState.AddModelError(string.Empty, ErrorMessage);
                 return Page();
@@ -152,7 +152,7 @@ public class ReviewModel : PageModel
         catch (ArgumentException exception)
         {
             LoadDay();
-            DailyJournalText = dailyJournalText;
+            DailyJournalStateJson = dailyJournalStateJson;
             ErrorMessage = exception.Message;
             ModelState.AddModelError(string.Empty, ErrorMessage);
             return Page();
@@ -160,7 +160,7 @@ public class ReviewModel : PageModel
         catch (InvalidOperationException exception)
         {
             LoadDay();
-            DailyJournalText = dailyJournalText;
+            DailyJournalStateJson = dailyJournalStateJson;
             ErrorMessage = exception.Message;
             ModelState.AddModelError(string.Empty, ErrorMessage);
             return Page();
@@ -273,12 +273,12 @@ public class ReviewModel : PageModel
         }
     }
 
-    public IActionResult OnPostAutosaveDailyJournal(string dailyJournalText, int expectedRevision, DateOnly date)
+    public IActionResult OnPostAutosaveDailyJournal(string dailyJournalStateJson, int expectedRevision, DateOnly date)
     {
         Date = date;
         try
         {
-            var result = _reviews.SaveDailyJournal(JournalId, date, dailyJournalText, expectedRevision, "autosaved");
+            var result = _reviews.SaveDailyJournal(JournalId, date, dailyJournalStateJson, expectedRevision, "autosaved");
             if (result.Conflict)
             {
                 Response.StatusCode = StatusCodes.Status409Conflict;

@@ -16,7 +16,7 @@ namespace TradeFoundry.Data;
 public sealed class TradeFoundryDb
 {
     private const string DerivedFillSource = "Derived fills";
-    private const string JournalColumns = "id, name, execution_context, labels, description_markdown, timezone, currency, grouping_policy, starting_equity, created_utc";
+    private const string JournalColumns = "id, name, execution_context, labels, description_lexical_state_json, timezone, currency, grouping_policy, starting_equity, created_utc";
     private const string ImportColumns = "id, journal_id, file_name, source_application, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message";
     private const string EffectiveExchangeFeesSql = "COALESCE(r.exchange_fees, t.exchange_fees)";
     private const string EffectiveNfaFeesSql = "COALESCE(r.nfa_fees, t.nfa_fees)";
@@ -34,6 +34,7 @@ public sealed class TradeFoundryDb
     private const string AccountBalanceColumns = "id, journal_id, import_batch_id, source_type, source_key, event_utc, transaction_utc, source_time_text, account, balance, note, row_number";
     private const string AccountTransactionColumns = "id, journal_id, transaction_type, effective_utc, amount, note, revision, created_utc, updated_utc, deleted_utc";
     private const string AccountTransactionHistoryColumns = "id, journal_id, transaction_id, revision, action, before_json, after_json, created_utc";
+    private const string BrokerFeeProfileColumns = "id, journal_id, name, instrument, notes, commission_per_contract_side, exchange_per_contract_side, nfa_fee_per_contract_side, clearing_per_contract_side, platform_monthly, data_monthly, other_monthly, revision, created_utc, updated_utc";
     private readonly string _connectionString;
     private readonly string _databasePath;
 
@@ -85,7 +86,7 @@ public sealed class TradeFoundryDb
         var statements = new[]
         {
             "CREATE TABLE IF NOT EXISTS app_users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, created_utc TEXT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS journals (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES app_users(id), name TEXT NOT NULL, execution_context TEXT NOT NULL, labels TEXT NOT NULL DEFAULT '', description_markdown TEXT NOT NULL DEFAULT '', timezone TEXT NOT NULL DEFAULT 'UTC', currency TEXT NOT NULL DEFAULT 'USD', grouping_policy TEXT NOT NULL DEFAULT 'flat_to_flat', starting_equity TEXT NULL, created_utc TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
+            "CREATE TABLE IF NOT EXISTS journals (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES app_users(id), name TEXT NOT NULL, execution_context TEXT NOT NULL, labels TEXT NOT NULL DEFAULT '', description_lexical_state_json TEXT NOT NULL DEFAULT '', timezone TEXT NOT NULL DEFAULT 'UTC', currency TEXT NOT NULL DEFAULT 'USD', grouping_policy TEXT NOT NULL DEFAULT 'flat_to_flat', starting_equity TEXT NULL, created_utc TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
             "CREATE INDEX IF NOT EXISTS ix_journals_owner ON journals(owner_user_id, archived, created_utc)",
             "CREATE TABLE IF NOT EXISTS instruments (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, default_commission TEXT NULL, exchange_fee_per_contract TEXT NULL, nfa_fee_per_contract TEXT NULL, clearing_fee_per_contract TEXT NULL, point_value TEXT NOT NULL, tick_size TEXT NOT NULL DEFAULT '0', created_utc TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS source_instrument_mappings (id TEXT PRIMARY KEY, application_key TEXT NOT NULL, match_regex TEXT NOT NULL, instrument_code TEXT NOT NULL REFERENCES instruments(code), commission_override TEXT NULL, position INTEGER NOT NULL DEFAULT 0, created_utc TEXT NOT NULL, UNIQUE(application_key, match_regex))",
@@ -107,7 +108,7 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_trade_review_history_trade ON trade_review_history(journal_id, review_key, revision DESC)",
             "CREATE TABLE IF NOT EXISTS trade_review_attachments (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, storage_key TEXT NOT NULL, original_file_name TEXT NOT NULL, caption TEXT NOT NULL DEFAULT '', content_type TEXT NOT NULL, length INTEGER NOT NULL, created_utc TEXT NOT NULL, removed_utc TEXT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_trade_review_attachments_trade ON trade_review_attachments(journal_id, review_key, created_utc DESC)",
-            "CREATE TABLE IF NOT EXISTS daily_review_journals (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, journal_text TEXT NOT NULL DEFAULT '', updated_utc TEXT NULL, UNIQUE(journal_id, review_date))",
+            "CREATE TABLE IF NOT EXISTS daily_review_journals (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, editor_state_json TEXT NOT NULL DEFAULT '', updated_utc TEXT NULL, UNIQUE(journal_id, review_date))",
             "CREATE INDEX IF NOT EXISTS ix_daily_review_journals_journal_date ON daily_review_journals(journal_id, review_date)",
             "CREATE TABLE IF NOT EXISTS daily_review_journal_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', reason TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_daily_review_journal_history_date ON daily_review_journal_history(journal_id, review_date, revision DESC)",
@@ -120,6 +121,10 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_account_transactions_journal_time ON account_transactions(journal_id, effective_utc, created_utc, id)",
             "CREATE TABLE IF NOT EXISTS account_transaction_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, transaction_id TEXT NOT NULL REFERENCES account_transactions(id) ON DELETE CASCADE, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', created_utc TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_account_transaction_history_transaction ON account_transaction_history(journal_id, transaction_id, revision DESC)",
+            "CREATE TABLE IF NOT EXISTS broker_fee_profiles (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, name TEXT NOT NULL, instrument TEXT NOT NULL DEFAULT '*', notes TEXT NOT NULL DEFAULT '', commission_per_contract_side TEXT NULL, exchange_per_contract_side TEXT NULL, nfa_fee_per_contract_side TEXT NULL, clearing_per_contract_side TEXT NULL, platform_monthly TEXT NULL, data_monthly TEXT NULL, other_monthly TEXT NULL, revision INTEGER NOT NULL DEFAULT 1, created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL, UNIQUE(journal_id, name, instrument))",
+            "CREATE INDEX IF NOT EXISTS ix_broker_fee_profiles_journal_instrument ON broker_fee_profiles(journal_id, instrument, name)",
+            "CREATE TABLE IF NOT EXISTS broker_fee_profile_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, profile_id TEXT NOT NULL REFERENCES broker_fee_profiles(id) ON DELETE CASCADE, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', created_utc TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS ix_broker_fee_profile_history_profile ON broker_fee_profile_history(journal_id, profile_id, revision DESC)",
             "CREATE TABLE IF NOT EXISTS benchmark_series (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, symbol TEXT NOT NULL, interval TEXT NOT NULL DEFAULT '1d', series_key TEXT NOT NULL UNIQUE, created_utc TEXT NOT NULL, provider TEXT NOT NULL DEFAULT 'Imported CSV', source_url TEXT NOT NULL DEFAULT '', last_fetched_utc TEXT NULL, last_attempted_utc TEXT NULL, requested_start TEXT NULL, requested_end TEXT NULL, last_error TEXT NOT NULL DEFAULT '')",
             "CREATE TABLE IF NOT EXISTS benchmark_points (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, series_id TEXT NOT NULL REFERENCES benchmark_series(id) ON DELETE CASCADE, import_batch_id TEXT NULL REFERENCES import_batches(id) ON DELETE SET NULL, source_type TEXT NOT NULL, source_key TEXT NOT NULL, event_utc TEXT NOT NULL, value TEXT NOT NULL, source_time_text TEXT NOT NULL DEFAULT '', row_number INTEGER NOT NULL, UNIQUE(journal_id, source_type, source_key), UNIQUE(series_id, event_utc))",
             "CREATE INDEX IF NOT EXISTS ix_benchmark_points_series_time ON benchmark_points(series_id, event_utc)",
@@ -146,7 +151,8 @@ public sealed class TradeFoundryDb
         // The application started without migrations, so keep schema upgrades
         // additive and idempotent for existing local SQLite files.
         EnsureColumn(connection, "journals", "starting_equity", "TEXT NULL");
-        EnsureColumn(connection, "journals", "description_markdown", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "journals", "description_lexical_state_json", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "daily_review_journals", "editor_state_json", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "import_batches", "source_application", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "benchmark_series", "provider", "TEXT NOT NULL DEFAULT 'Imported CSV'");
         EnsureColumn(connection, "benchmark_series", "source_url", "TEXT NOT NULL DEFAULT ''");
@@ -448,7 +454,145 @@ public sealed class TradeFoundryDb
         return reader.Read() ? ReadJournal(reader) : null;
     }
 
-    public McpAccessToken CreateMcpAccessToken(string name, string tokenPrefix, string tokenHash, IReadOnlyCollection<Guid> journalIds)
+    public IReadOnlyList<BrokerFeeProfile> GetBrokerFeeProfiles(Guid journalId, string? instrument = null)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var requestedInstrument = string.IsNullOrWhiteSpace(instrument) ? null : NormalizeBrokerFeeProfileInstrument(instrument);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT {BrokerFeeProfileColumns} FROM broker_fee_profiles WHERE journal_id = $journal" +
+            (requestedInstrument is null ? string.Empty : requestedInstrument == BrokerFeeProfileDraft.AllInstruments
+                ? " AND instrument = '*'"
+                : " AND (instrument = '*' OR instrument = $instrument)") +
+            " ORDER BY CASE WHEN instrument = '*' THEN 0 ELSE 1 END, name, id";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        if (requestedInstrument is not null && requestedInstrument != BrokerFeeProfileDraft.AllInstruments)
+            command.Parameters.AddWithValue("$instrument", requestedInstrument);
+        using var reader = command.ExecuteReader();
+        var profiles = new List<BrokerFeeProfile>();
+        while (reader.Read()) profiles.Add(ReadBrokerFeeProfile(reader));
+        return profiles;
+    }
+
+    public BrokerFeeProfile? GetBrokerFeeProfile(Guid journalId, Guid profileId)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT {BrokerFeeProfileColumns} FROM broker_fee_profiles WHERE journal_id = $journal AND id = $id";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$id", profileId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadBrokerFeeProfile(reader) : null;
+    }
+
+    public BrokerFeeProfile CreateBrokerFeeProfile(Guid journalId, BrokerFeeProfileDraft draft)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var normalized = NormalizeBrokerFeeProfileDraft(draft);
+        var now = DateTimeOffset.UtcNow;
+        var profile = new BrokerFeeProfile
+        {
+            Id = Guid.NewGuid(),
+            JournalId = journalId,
+            Name = normalized.Name,
+            Instrument = normalized.Instrument,
+            Notes = normalized.Notes,
+            CommissionPerContractSide = normalized.CommissionPerContractSide,
+            ExchangePerContractSide = normalized.ExchangePerContractSide,
+            NfaPerContractSide = normalized.NfaPerContractSide,
+            ClearingPerContractSide = normalized.ClearingPerContractSide,
+            PlatformMonthly = normalized.PlatformMonthly,
+            DataMonthly = normalized.DataMonthly,
+            OtherMonthly = normalized.OtherMonthly,
+            Revision = 1,
+            CreatedUtc = now,
+            UpdatedUtc = now
+        };
+
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        EnsureBrokerFeeProfileNameAvailable(connection, transaction, journalId, profile.Name, profile.Instrument, null);
+        InsertBrokerFeeProfile(connection, transaction, profile);
+        InsertBrokerFeeProfileHistory(connection, transaction, profile, 1, "created", "{}", JsonSerializer.Serialize(profile), now);
+        transaction.Commit();
+        return profile;
+    }
+
+    public BrokerFeeProfileMutationResult UpdateBrokerFeeProfile(Guid journalId, Guid profileId, int expectedRevision, BrokerFeeProfileDraft draft)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var normalized = NormalizeBrokerFeeProfileDraft(draft);
+        if (expectedRevision < 1) throw new ArgumentOutOfRangeException(nameof(expectedRevision), "The expected revision must be positive.");
+
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var current = ReadBrokerFeeProfile(connection, transaction, journalId, profileId);
+        if (current is null)
+        {
+            transaction.Rollback();
+            return new BrokerFeeProfileMutationResult { NotFound = true };
+        }
+        if (current.Revision != expectedRevision)
+        {
+            transaction.Rollback();
+            return new BrokerFeeProfileMutationResult { Conflict = true, Profile = current };
+        }
+
+        EnsureBrokerFeeProfileNameAvailable(connection, transaction, journalId, normalized.Name, normalized.Instrument, profileId);
+        var now = DateTimeOffset.UtcNow;
+        var updated = new BrokerFeeProfile
+        {
+            Id = current.Id,
+            JournalId = current.JournalId,
+            Name = normalized.Name,
+            Instrument = normalized.Instrument,
+            Notes = normalized.Notes,
+            CommissionPerContractSide = normalized.CommissionPerContractSide,
+            ExchangePerContractSide = normalized.ExchangePerContractSide,
+            NfaPerContractSide = normalized.NfaPerContractSide,
+            ClearingPerContractSide = normalized.ClearingPerContractSide,
+            PlatformMonthly = normalized.PlatformMonthly,
+            DataMonthly = normalized.DataMonthly,
+            OtherMonthly = normalized.OtherMonthly,
+            Revision = current.Revision + 1,
+            CreatedUtc = current.CreatedUtc,
+            UpdatedUtc = now
+        };
+
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE broker_fee_profiles SET name = $name, instrument = $instrument, notes = $notes, commission_per_contract_side = $commission, exchange_per_contract_side = $exchange, nfa_fee_per_contract_side = $nfa, clearing_per_contract_side = $clearing, platform_monthly = $platform, data_monthly = $data, other_monthly = $other, revision = $revision, updated_utc = $updated WHERE id = $id AND journal_id = $journal AND revision = $expected";
+            command.Parameters.AddWithValue("$name", updated.Name);
+            command.Parameters.AddWithValue("$instrument", updated.Instrument);
+            command.Parameters.AddWithValue("$notes", updated.Notes);
+            AddNullable(command, "$commission", updated.CommissionPerContractSide);
+            AddNullable(command, "$exchange", updated.ExchangePerContractSide);
+            AddNullable(command, "$nfa", updated.NfaPerContractSide);
+            AddNullable(command, "$clearing", updated.ClearingPerContractSide);
+            AddNullable(command, "$platform", updated.PlatformMonthly);
+            AddNullable(command, "$data", updated.DataMonthly);
+            AddNullable(command, "$other", updated.OtherMonthly);
+            command.Parameters.AddWithValue("$revision", updated.Revision);
+            command.Parameters.AddWithValue("$updated", updated.UpdatedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$id", profileId.ToString("D"));
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            command.Parameters.AddWithValue("$expected", expectedRevision);
+            if (command.ExecuteNonQuery() != 1)
+            {
+                var latest = ReadBrokerFeeProfile(connection, transaction, journalId, profileId);
+                transaction.Rollback();
+                return new BrokerFeeProfileMutationResult { Conflict = true, Profile = latest };
+            }
+        }
+
+        InsertBrokerFeeProfileHistory(connection, transaction, updated, updated.Revision, "updated", JsonSerializer.Serialize(current), JsonSerializer.Serialize(updated), now);
+        transaction.Commit();
+        return new BrokerFeeProfileMutationResult { Saved = true, Profile = updated };
+    }
+
+    public McpAccessToken CreateMcpAccessToken(string name, string tokenPrefix, string tokenHash, IReadOnlyCollection<Guid> journalIds, bool allowFeeProfileWrites = false)
     {
         var cleanName = string.IsNullOrWhiteSpace(name) ? "Local AI client" : name.Trim();
         if (cleanName.Length > 100) cleanName = cleanName[..100];
@@ -473,12 +617,13 @@ public sealed class TradeFoundryDb
         using (var insert = connection.CreateCommand())
         {
             insert.Transaction = transaction;
-            insert.CommandText = "INSERT INTO mcp_access_tokens (id, owner_user_id, name, token_prefix, token_hash, scopes, created_utc) VALUES ($id, $owner, $name, $prefix, $hash, 'read', $created)";
+            insert.CommandText = "INSERT INTO mcp_access_tokens (id, owner_user_id, name, token_prefix, token_hash, scopes, created_utc) VALUES ($id, $owner, $name, $prefix, $hash, $scopes, $created)";
             insert.Parameters.AddWithValue("$id", id.ToString("D"));
             insert.Parameters.AddWithValue("$owner", TradeFoundryConstants.OwnerUserId);
             insert.Parameters.AddWithValue("$name", cleanName);
             insert.Parameters.AddWithValue("$prefix", tokenPrefix);
             insert.Parameters.AddWithValue("$hash", tokenHash);
+            insert.Parameters.AddWithValue("$scopes", allowFeeProfileWrites ? "read write" : "read");
             insert.Parameters.AddWithValue("$created", created.ToString("O", CultureInfo.InvariantCulture));
             insert.ExecuteNonQuery();
         }
@@ -492,7 +637,7 @@ public sealed class TradeFoundryDb
             grant.ExecuteNonQuery();
         }
         transaction.Commit();
-        return new McpAccessToken { Id = id, Name = cleanName, TokenPrefix = tokenPrefix, Scopes = "read", CreatedUtc = created, JournalIds = allowed };
+        return new McpAccessToken { Id = id, Name = cleanName, TokenPrefix = tokenPrefix, Scopes = allowFeeProfileWrites ? "read write" : "read", CreatedUtc = created, JournalIds = allowed };
     }
 
     public IReadOnlyList<McpAccessToken> GetMcpAccessTokens()
@@ -548,7 +693,7 @@ public sealed class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT j.id, j.name, j.execution_context, j.labels, j.description_markdown, j.timezone, j.currency, j.grouping_policy, j.starting_equity, j.created_utc FROM journals j JOIN mcp_token_journals g ON g.journal_id = j.id JOIN mcp_access_tokens t ON t.id = g.token_id WHERE t.id = $token AND t.revoked_utc IS NULL AND j.archived = 0 ORDER BY j.created_utc";
+        command.CommandText = "SELECT j.id, j.name, j.execution_context, j.labels, j.description_lexical_state_json, j.timezone, j.currency, j.grouping_policy, j.starting_equity, j.created_utc FROM journals j JOIN mcp_token_journals g ON g.journal_id = j.id JOIN mcp_access_tokens t ON t.id = g.token_id WHERE t.id = $token AND t.revoked_utc IS NULL AND j.archived = 0 ORDER BY j.created_utc";
         command.Parameters.AddWithValue("$token", tokenId.ToString("D"));
         var journals = new List<Journal>();
         using var reader = command.ExecuteReader();
@@ -556,7 +701,7 @@ public sealed class TradeFoundryDb
         return journals;
     }
 
-    public Journal CreateJournal(string name, string executionContext, string labels, string timeZone, string currency, string groupingPolicy, decimal? startingEquity = null, string descriptionMarkdown = "")
+    public Journal CreateJournal(string name, string executionContext, string labels, string timeZone, string currency, string groupingPolicy, decimal? startingEquity = null, string descriptionLexicalStateJson = "")
     {
         var journal = new Journal
         {
@@ -564,7 +709,7 @@ public sealed class TradeFoundryDb
             Name = string.IsNullOrWhiteSpace(name) ? "My futures journal" : name.Trim(),
             ExecutionContext = string.IsNullOrWhiteSpace(executionContext) ? "live" : executionContext.Trim().ToLowerInvariant(),
             Labels = labels?.Trim() ?? string.Empty,
-            DescriptionMarkdown = descriptionMarkdown?.Trim() ?? string.Empty,
+            DescriptionLexicalStateJson = descriptionLexicalStateJson?.Trim() ?? string.Empty,
             TimeZone = string.IsNullOrWhiteSpace(timeZone) ? "UTC" : timeZone.Trim(),
             Currency = string.IsNullOrWhiteSpace(currency) ? "USD" : currency.Trim().ToUpperInvariant(),
             GroupingPolicy = string.IsNullOrWhiteSpace(groupingPolicy) ? "flat_to_flat" : groupingPolicy.Trim(),
@@ -573,13 +718,13 @@ public sealed class TradeFoundryDb
         };
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO journals (id, owner_user_id, name, execution_context, labels, description_markdown, timezone, currency, grouping_policy, starting_equity, created_utc) VALUES ($id, $owner, $name, $context, $labels, $description, $timezone, $currency, $grouping, $startingEquity, $created)";
+        command.CommandText = "INSERT INTO journals (id, owner_user_id, name, execution_context, labels, description_lexical_state_json, timezone, currency, grouping_policy, starting_equity, created_utc) VALUES ($id, $owner, $name, $context, $labels, $description, $timezone, $currency, $grouping, $startingEquity, $created)";
         command.Parameters.AddWithValue("$id", journal.Id.ToString("D"));
         command.Parameters.AddWithValue("$owner", TradeFoundryConstants.OwnerUserId);
         command.Parameters.AddWithValue("$name", journal.Name);
         command.Parameters.AddWithValue("$context", journal.ExecutionContext);
         command.Parameters.AddWithValue("$labels", journal.Labels);
-        command.Parameters.AddWithValue("$description", journal.DescriptionMarkdown);
+        command.Parameters.AddWithValue("$description", journal.DescriptionLexicalStateJson);
         command.Parameters.AddWithValue("$timezone", journal.TimeZone);
         command.Parameters.AddWithValue("$currency", journal.Currency);
         command.Parameters.AddWithValue("$grouping", journal.GroupingPolicy);
@@ -599,17 +744,17 @@ public sealed class TradeFoundryDb
         command.ExecuteNonQuery();
     }
 
-    public bool UpdateJournal(Guid journalId, string name, string executionContext, string labels, string timeZone, string currency, string groupingPolicy, decimal? startingEquity = null, string descriptionMarkdown = "")
+    public bool UpdateJournal(Guid journalId, string name, string executionContext, string labels, string timeZone, string currency, string groupingPolicy, decimal? startingEquity = null, string descriptionLexicalStateJson = "")
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE journals SET name = $name, execution_context = $context, labels = $labels, description_markdown = $description, timezone = $timezone, currency = $currency, grouping_policy = $grouping, starting_equity = $startingEquity WHERE id = $id AND owner_user_id = $owner AND archived = 0";
+        command.CommandText = "UPDATE journals SET name = $name, execution_context = $context, labels = $labels, description_lexical_state_json = $description, timezone = $timezone, currency = $currency, grouping_policy = $grouping, starting_equity = $startingEquity WHERE id = $id AND owner_user_id = $owner AND archived = 0";
         command.Parameters.AddWithValue("$id", journalId.ToString("D"));
         command.Parameters.AddWithValue("$owner", TradeFoundryConstants.OwnerUserId);
         command.Parameters.AddWithValue("$name", string.IsNullOrWhiteSpace(name) ? "My futures journal" : name.Trim());
         command.Parameters.AddWithValue("$context", string.IsNullOrWhiteSpace(executionContext) ? "live" : executionContext.Trim().ToLowerInvariant());
         command.Parameters.AddWithValue("$labels", labels?.Trim() ?? string.Empty);
-        command.Parameters.AddWithValue("$description", descriptionMarkdown?.Trim() ?? string.Empty);
+        command.Parameters.AddWithValue("$description", descriptionLexicalStateJson?.Trim() ?? string.Empty);
         command.Parameters.AddWithValue("$timezone", string.IsNullOrWhiteSpace(timeZone) ? "UTC" : timeZone.Trim());
         command.Parameters.AddWithValue("$currency", string.IsNullOrWhiteSpace(currency) ? "USD" : currency.Trim().ToUpperInvariant());
         command.Parameters.AddWithValue("$grouping", string.IsNullOrWhiteSpace(groupingPolicy) ? "flat_to_flat" : groupingPolicy.Trim());
@@ -1124,7 +1269,7 @@ public sealed class TradeFoundryDb
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, journal_id, review_date, revision, journal_text, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
+        command.CommandText = "SELECT id, journal_id, review_date, revision, editor_state_json, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         using var reader = command.ExecuteReader();
@@ -1138,7 +1283,9 @@ public sealed class TradeFoundryDb
         if (expectedRevision < 0) throw new ArgumentOutOfRangeException(nameof(expectedRevision));
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
 
-        var normalizedText = TrimTo(text, 12000);
+        var normalizedText = text?.Trim() ?? string.Empty;
+        if (normalizedText.Length > 64000)
+            throw new ArgumentException("Daily journal content is too long.", nameof(text));
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
         var current = ReadDailyJournalOrDefault(connection, transaction, journalId, date);
@@ -1161,7 +1308,7 @@ public sealed class TradeFoundryDb
         using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
-            command.CommandText = "INSERT INTO daily_review_journals (id, journal_id, review_date, revision, journal_text, updated_utc) VALUES ($id, $journal, $date, $revision, $text, $updated) ON CONFLICT(journal_id, review_date) DO UPDATE SET revision = excluded.revision, journal_text = excluded.journal_text, updated_utc = excluded.updated_utc";
+            command.CommandText = "INSERT INTO daily_review_journals (id, journal_id, review_date, revision, editor_state_json, updated_utc) VALUES ($id, $journal, $date, $revision, $text, $updated) ON CONFLICT(journal_id, review_date) DO UPDATE SET revision = excluded.revision, editor_state_json = excluded.editor_state_json, updated_utc = excluded.updated_utc";
             command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
@@ -2715,6 +2862,134 @@ public sealed class TradeFoundryDb
         CreatedUtc = ParseDate(reader.GetString(7))
     };
 
+    private static BrokerFeeProfile ReadBrokerFeeProfile(SqliteDataReader reader) => new()
+    {
+        Id = Guid.Parse(reader.GetString(0)),
+        JournalId = Guid.Parse(reader.GetString(1)),
+        Name = reader.GetString(2),
+        Instrument = reader.GetString(3),
+        Notes = reader.GetString(4),
+        CommissionPerContractSide = NullableDecimal(reader, 5),
+        ExchangePerContractSide = NullableDecimal(reader, 6),
+        NfaPerContractSide = NullableDecimal(reader, 7),
+        ClearingPerContractSide = NullableDecimal(reader, 8),
+        PlatformMonthly = NullableDecimal(reader, 9),
+        DataMonthly = NullableDecimal(reader, 10),
+        OtherMonthly = NullableDecimal(reader, 11),
+        Revision = reader.GetInt32(12),
+        CreatedUtc = ParseDate(reader.GetString(13)),
+        UpdatedUtc = ParseDate(reader.GetString(14))
+    };
+
+    private static BrokerFeeProfile? ReadBrokerFeeProfile(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, Guid profileId)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT {BrokerFeeProfileColumns} FROM broker_fee_profiles WHERE journal_id = $journal AND id = $id";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$id", profileId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadBrokerFeeProfile(reader) : null;
+    }
+
+    private static void InsertBrokerFeeProfile(SqliteConnection connection, SqliteTransaction transaction, BrokerFeeProfile profile)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "INSERT INTO broker_fee_profiles (id, journal_id, name, instrument, notes, commission_per_contract_side, exchange_per_contract_side, nfa_fee_per_contract_side, clearing_per_contract_side, platform_monthly, data_monthly, other_monthly, revision, created_utc, updated_utc) VALUES ($id, $journal, $name, $instrument, $notes, $commission, $exchange, $nfa, $clearing, $platform, $data, $other, $revision, $created, $updated)";
+        command.Parameters.AddWithValue("$id", profile.Id.ToString("D"));
+        command.Parameters.AddWithValue("$journal", profile.JournalId.ToString("D"));
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$instrument", profile.Instrument);
+        command.Parameters.AddWithValue("$notes", profile.Notes);
+        AddNullable(command, "$commission", profile.CommissionPerContractSide);
+        AddNullable(command, "$exchange", profile.ExchangePerContractSide);
+        AddNullable(command, "$nfa", profile.NfaPerContractSide);
+        AddNullable(command, "$clearing", profile.ClearingPerContractSide);
+        AddNullable(command, "$platform", profile.PlatformMonthly);
+        AddNullable(command, "$data", profile.DataMonthly);
+        AddNullable(command, "$other", profile.OtherMonthly);
+        command.Parameters.AddWithValue("$revision", profile.Revision);
+        command.Parameters.AddWithValue("$created", profile.CreatedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$updated", profile.UpdatedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    private static void InsertBrokerFeeProfileHistory(SqliteConnection connection, SqliteTransaction transaction, BrokerFeeProfile profile, int revision, string action, string beforeJson, string afterJson, DateTimeOffset createdUtc)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "INSERT INTO broker_fee_profile_history (id, journal_id, profile_id, revision, action, before_json, after_json, created_utc) VALUES ($id, $journal, $profile, $revision, $action, $before, $after, $created)";
+        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$journal", profile.JournalId.ToString("D"));
+        command.Parameters.AddWithValue("$profile", profile.Id.ToString("D"));
+        command.Parameters.AddWithValue("$revision", revision);
+        command.Parameters.AddWithValue("$action", action);
+        command.Parameters.AddWithValue("$before", string.IsNullOrWhiteSpace(beforeJson) ? "{}" : beforeJson);
+        command.Parameters.AddWithValue("$after", string.IsNullOrWhiteSpace(afterJson) ? "{}" : afterJson);
+        command.Parameters.AddWithValue("$created", createdUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    private static void EnsureBrokerFeeProfileNameAvailable(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, string name, string instrument, Guid? excludedProfileId)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS (SELECT 1 FROM broker_fee_profiles WHERE journal_id = $journal AND lower(name) = lower($name) AND instrument = $instrument AND ($excluded IS NULL OR id <> $excluded))";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$name", name);
+        command.Parameters.AddWithValue("$instrument", instrument);
+        command.Parameters.AddWithValue("$excluded", excludedProfileId?.ToString("D") ?? (object)DBNull.Value);
+        if (Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) == 1)
+            throw new InvalidOperationException("A broker fee profile with this name already exists for the instrument.");
+    }
+
+    private static BrokerFeeProfileDraft NormalizeBrokerFeeProfileDraft(BrokerFeeProfileDraft draft)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        var name = TrimTo(draft.Name, 100);
+        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("A broker fee profile name is required.", nameof(draft));
+        var rate = draft.ToRate();
+        var values = new[]
+        {
+            rate.CommissionPerContractSide,
+            rate.ExchangePerContractSide,
+            rate.NfaPerContractSide,
+            rate.ClearingPerContractSide,
+            rate.PlatformMonthly,
+            rate.DataMonthly,
+            rate.OtherMonthly
+        };
+        if (values.Any(value => value.HasValue && value.Value < 0m))
+            throw new ArgumentException("Broker fee values cannot be negative.", nameof(draft));
+        if (!rate.HasInput)
+            throw new ArgumentException("Enter at least one broker fee value.", nameof(draft));
+
+        return new BrokerFeeProfileDraft
+        {
+            Name = name,
+            Instrument = NormalizeBrokerFeeProfileInstrument(draft.Instrument),
+            Notes = TrimTo(draft.Notes, 500),
+            CommissionPerContractSide = draft.CommissionPerContractSide,
+            ExchangePerContractSide = draft.ExchangePerContractSide,
+            NfaPerContractSide = draft.NfaPerContractSide,
+            ClearingPerContractSide = draft.ClearingPerContractSide,
+            PlatformMonthly = draft.PlatformMonthly,
+            DataMonthly = draft.DataMonthly,
+            OtherMonthly = draft.OtherMonthly
+        };
+    }
+
+    private static string NormalizeBrokerFeeProfileInstrument(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Trim() == BrokerFeeProfileDraft.AllInstruments)
+            return BrokerFeeProfileDraft.AllInstruments;
+        var instrument = InstrumentConfiguration.NormalizeCode(InstrumentCatalog.ExtractRoot(value));
+        if (string.IsNullOrWhiteSpace(instrument)) throw new ArgumentException("The broker fee profile instrument is invalid.", nameof(value));
+        if (instrument.Length > 32) throw new ArgumentException("The broker fee profile instrument is too long.", nameof(value));
+        return instrument;
+    }
+
     private static void InsertAccountTransaction(SqliteConnection connection, SqliteTransaction transaction, AccountTransaction entry)
     {
         using var command = connection.CreateCommand();
@@ -3049,7 +3324,7 @@ public sealed class TradeFoundryDb
 
     private static Journal ReadJournal(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), Name = reader.GetString(1), ExecutionContext = reader.GetString(2), Labels = reader.GetString(3), DescriptionMarkdown = reader.GetString(4), TimeZone = reader.GetString(5), Currency = reader.GetString(6), GroupingPolicy = reader.GetString(7), StartingEquity = NullableDecimal(reader, 8), CreatedUtc = ParseDate(reader.GetString(9))
+        Id = Guid.Parse(reader.GetString(0)), Name = reader.GetString(1), ExecutionContext = reader.GetString(2), Labels = reader.GetString(3), DescriptionLexicalStateJson = reader.GetString(4), TimeZone = reader.GetString(5), Currency = reader.GetString(6), GroupingPolicy = reader.GetString(7), StartingEquity = NullableDecimal(reader, 8), CreatedUtc = ParseDate(reader.GetString(9))
     };
 
     private static string InferSourceApplication(string sourceApplication, string sourceType)
@@ -3147,7 +3422,7 @@ public sealed class TradeFoundryDb
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT id, journal_id, review_date, revision, journal_text, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
+        command.CommandText = "SELECT id, journal_id, review_date, revision, editor_state_json, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         using var reader = command.ExecuteReader();

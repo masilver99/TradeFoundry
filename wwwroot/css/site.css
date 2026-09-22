@@ -155,10 +155,11 @@ button, input, select, textarea { font: inherit; }
 
 .tf-chart-card { min-height: 0; }
 .tf-chart-card .card-body { min-height: 280px; }
-.tf-equity-view-toggle { display: flex; align-items: center; margin: 0; }
+.tf-equity-view-toggle { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 0; }
 .tf-equity-view-toggle .form-check { display: flex; align-items: center; gap: 6px; min-height: 0; padding-left: 0; }
 .tf-equity-view-toggle .form-check-input { flex: 0 0 auto; margin: 0; }
 .tf-equity-view-toggle .form-check-label { color: var(--tf-muted); cursor: pointer; font-size: 11px; text-transform: uppercase; white-space: nowrap; }
+.tf-equity-view-toggle .form-check-input:disabled + .form-check-label { cursor: not-allowed; opacity: .6; }
 .tf-equity-view-toggle .form-check-input:checked { border-color: var(--tf-blue); background-color: var(--tf-blue); }
 .tf-plotly-chart { display: block; width: 100%; min-height: 280px; }
 .tf-plotly-chart .plot-container,
@@ -616,23 +617,26 @@ button, input, select, textarea { font: inherit; }
 .tf-settings-card .tf-card-title { margin-bottom: 9px; }
 .tf-settings-card p { flex: 1; margin-bottom: 16px; font-size: 12px; line-height: 1.6; }
 .tf-settings-card-link { color: var(--tf-blue); font-size: 11px; font-weight: 600; }
-.tf-markdown-editor { overflow: hidden; border: 1px solid var(--tf-line); border-radius: 5px; background: var(--tf-bg); }
-.tf-markdown-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 5px; border-bottom: 1px solid var(--tf-line); background: var(--tf-surface); }
-.tf-markdown-toolbar .btn { min-width: 30px; padding: 3px 7px; font-size: 11px; }
-.tf-markdown-toolbar-spacer { flex: 1; }
-.tf-markdown-input { min-height: 260px; border: 0; border-radius: 0; background: transparent; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; line-height: 1.65; resize: vertical; }
-.tf-markdown-input:focus { box-shadow: none; }
-.tf-markdown-preview { min-height: 260px; padding: 12px 14px; font-size: 13px; line-height: 1.65; }
-.tf-markdown-prose > :first-child { margin-top: 0; }
-.tf-markdown-prose > :last-child { margin-bottom: 0; }
-.tf-markdown-prose h1, .tf-markdown-prose h2, .tf-markdown-prose h3, .tf-markdown-prose h4, .tf-markdown-prose h5, .tf-markdown-prose h6 { margin: 1rem 0 .45rem; color: var(--tf-ink); font-size: 1em; font-weight: 600; }
-.tf-markdown-prose p { margin: 0 0 .65rem; }
-.tf-markdown-prose ul, .tf-markdown-prose ol { margin: 0 0 .65rem; padding-left: 1.4rem; }
-.tf-markdown-prose blockquote { margin: 0 0 .65rem; padding-left: 12px; border-left: 2px solid var(--tf-blue); color: var(--tf-muted); }
-.tf-markdown-prose pre { overflow-x: auto; margin: 0 0 .65rem; padding: 10px; border: 1px solid var(--tf-line); border-radius: 4px; background: var(--tf-surface); }
-.tf-markdown-prose code { padding: 1px 4px; border-radius: 3px; background: rgba(255,255,255,.06); font-size: .9em; }
-.tf-markdown-prose pre code { padding: 0; background: transparent; }
-.tf-markdown-prose a { color: var(--tf-blue); }
+.tf-lexical-editor { overflow: hidden; border: 1px solid var(--tf-line); border-radius: 5px; background: var(--tf-bg); }
+.tf-lexical-editor:focus-within { border-color: var(--tf-blue); box-shadow: 0 0 0 2px rgba(var(--tf-blue-rgb), .14); }
+.tf-lexical-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 5px; border-bottom: 1px solid var(--tf-line); background: var(--tf-surface); }
+.tf-lexical-toolbar .btn { min-width: 30px; padding: 3px 7px; font-size: 11px; }
+.tf-lexical-toolbar-spacer { flex: 1; }
+.tf-lexical-root { position: relative; min-height: 260px; padding: 12px 14px; outline: 0; color: var(--tf-ink); font-size: 13px; line-height: 1.65; }
+.tf-lexical-root:empty::before, .tf-lexical-root:has(> p:only-child > br:only-child)::before { position: absolute; color: var(--tf-muted); content: attr(data-placeholder); pointer-events: none; }
+.tf-lexical-root:focus-visible { outline: 0; }
+.tf-lexical-root > :first-child { margin-top: 0; }
+.tf-lexical-root > :last-child { margin-bottom: 0; }
+.tf-lexical-root p { margin: 0 0 .65rem; }
+.tf-lexical-root h1, .tf-lexical-root h2, .tf-lexical-root h3, .tf-lexical-root h4, .tf-lexical-root h5, .tf-lexical-root h6 { margin: 1rem 0 .45rem; color: var(--tf-ink); font-size: 1em; font-weight: 600; }
+.tf-lexical-root ul, .tf-lexical-root ol { margin: 0 0 .65rem; padding-left: 1.4rem; }
+.tf-lexical-root blockquote { margin: 0 0 .65rem; padding-left: 12px; border-left: 2px solid var(--tf-blue); color: var(--tf-muted); }
+.tf-lexical-root pre { overflow-x: auto; margin: 0 0 .65rem; padding: 10px; border: 1px solid var(--tf-line); border-radius: 4px; background: var(--tf-surface); }
+.tf-lexical-root code { padding: 1px 4px; border-radius: 3px; background: rgba(255,255,255,.06); font-size: .9em; }
+.tf-lexical-root pre code { padding: 0; background: transparent; }
+.tf-lexical-root a { color: var(--tf-blue); }
+.tf-lexical-limit-status { display: block; min-height: 0; padding: 0 12px; color: var(--tf-red); font-size: 11px; }
+.tf-lexical-limit-status:not(:empty) { padding-bottom: 8px; }
 
 @media (min-width: 992px) {
   .tf-app .tf-sidebar { position: fixed; top: 0; bottom: 0; left: 0; z-index: 1030; width: var(--tf-sidebar-width); min-width: 180px; max-width: min(360px, 40vw); }
@@ -864,6 +868,62 @@ button, input, select, textarea { font: inherit; }
 .tf-daily-journal-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .tf-daily-journal-actions small { color: var(--tf-muted); font-size: 10px; }
 
+.tf-broker-comparison { display: grid; gap: 18px; }
+.tf-broker-comparison-intro { margin-bottom: 0; }
+.tf-broker-comparison-intro h1 { margin-bottom: 8px; }
+.tf-broker-comparison-badge { display: grid; min-width: 190px; gap: 3px; align-self: flex-start; padding: 11px 13px; border-left: 3px solid var(--tf-gold); background: var(--tf-surface); }
+.tf-broker-comparison-badge span, .tf-broker-comparison-badge small { color: var(--tf-muted); font-size: 10px; }
+.tf-broker-comparison-badge strong { color: var(--tf-ink); font-size: 13px; }
+.tf-broker-comparison-note { margin: 0; font-size: 11px; line-height: 1.45; }
+.tf-card-header-split { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.tf-broker-assumptions { margin-bottom: 0; }
+.tf-broker-assumption-grid { display: grid; grid-template-columns: minmax(190px, 1.1fr) repeat(2, minmax(160px, .8fr)) minmax(180px, 1fr); gap: 14px; align-items: end; }
+.tf-broker-assumption-field { display: grid; gap: 5px; margin: 0; }
+.tf-broker-assumption-field label, .tf-broker-assumption-readout span { color: var(--tf-muted); font-size: 11px; font-weight: 600; }
+.tf-broker-assumption-field small, .tf-broker-assumption-readout small { color: var(--tf-muted); font-size: 10px; line-height: 1.35; }
+.tf-broker-assumption-readout { display: grid; min-height: 64px; align-content: center; gap: 2px; padding: 9px 11px; border-left: 3px solid var(--tf-blue); background: var(--tf-bg); }
+.tf-broker-assumption-readout strong { color: var(--tf-ink); font-size: 18px; font-weight: 600; }
+.tf-broker-section { min-width: 0; }
+.tf-broker-table-wrap { overflow-x: auto; border: 1px solid var(--tf-line); border-radius: 6px; background: var(--tf-surface); -webkit-overflow-scrolling: touch; }
+.tf-broker-table { min-width: 1310px; margin: 0; }
+.tf-broker-table thead th { padding: 8px 8px; text-align: right; vertical-align: bottom; }
+.tf-broker-table thead th:first-child { min-width: 155px; text-align: left; }
+.tf-broker-table thead th span { color: var(--tf-muted); font-size: 9px; font-weight: 400; }
+.tf-broker-table tbody th, .tf-broker-table tbody td { padding: 7px 6px; border-bottom-color: rgba(255,255,255,.05); vertical-align: middle; text-align: right; }
+.tf-broker-table tbody tr:last-child th, .tf-broker-table tbody tr:last-child td { border-bottom: 0; }
+.tf-broker-table tbody tr.is-best { background: rgba(63,185,80,.06); }
+.tf-broker-table tbody tr.is-baseline { background: rgba(var(--tf-gold-rgb), .05); }
+.tf-broker-table tbody tr.is-best.is-baseline { background: rgba(var(--tf-gold-rgb), .1); }
+.tf-broker-table .form-control { min-width: 82px; padding: 5px 6px; text-align: right; }
+.tf-broker-table .tf-broker-name-cell { min-width: 155px; text-align: left; }
+.tf-broker-table .tf-broker-name-cell .form-control { min-width: 145px; text-align: left; }
+.tf-broker-name-cell small, .tf-broker-result small { display: block; min-height: 14px; margin-top: 2px; color: var(--tf-muted); font-size: 9px; font-weight: 400; white-space: nowrap; }
+.tf-broker-name-cell small { color: var(--tf-muted); text-transform: uppercase; }
+.tf-broker-name-cell small.positive { color: var(--tf-green) !important; }
+.tf-broker-result { min-width: 92px; }
+.tf-broker-result strong { color: var(--tf-ink); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tf-broker-result strong.positive { color: var(--tf-green) !important; }
+.tf-broker-result strong.negative { color: var(--tf-red) !important; }
+.tf-broker-actions { min-width: 70px; }
+.tf-broker-actions .btn { padding: 4px 6px; font-size: 10px; }
+.tf-broker-results-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(260px, .75fr); gap: 16px; align-items: stretch; }
+.tf-broker-results-grid .tf-card { margin-bottom: 0; }
+.tf-broker-chart-card .card-body { min-height: 295px; }
+.tf-broker-chart-card .tf-plotly-chart { min-height: 270px; }
+.tf-broker-chart-card .chart-empty { min-height: 245px; }
+.tf-broker-volume-chart-card { margin-bottom: 0; }
+.tf-broker-volume-chart-card .card-body { min-height: 585px; }
+.tf-broker-volume-chart-card .tf-plotly-chart { min-height: 560px; }
+.tf-broker-volume-chart-card .chart-empty { min-height: 530px; }
+.tf-broker-verdict-card .card-body { display: grid; align-content: start; gap: 14px; }
+.tf-broker-verdict { display: grid; gap: 3px; padding-bottom: 13px; border-bottom: 1px solid var(--tf-line); }
+.tf-broker-verdict:last-of-type { border-bottom: 0; padding-bottom: 0; }
+.tf-broker-verdict span { color: var(--tf-muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.tf-broker-verdict strong { color: var(--tf-ink); font-size: 18px; font-weight: 600; }
+.tf-broker-verdict strong.positive { color: var(--tf-green) !important; }
+.tf-broker-verdict strong.negative { color: var(--tf-red) !important; }
+.tf-broker-verdict small { color: var(--tf-muted); font-size: 11px; line-height: 1.4; }
+
 @media (max-width: 767.98px) {
   .tf-review-header, .tf-section-heading { align-items: flex-start; flex-direction: column; }
   .tf-review-header-actions, .tf-review-date-form { width: 100%; }
@@ -912,4 +972,11 @@ button, input, select, textarea { font: inherit; }
   .tf-review-image-preview img { width: 100%; max-height: 180px; }
   .tf-daily-journal-heading, .tf-daily-journal-actions { align-items: flex-start; flex-direction: column; }
   .tf-daily-journal-actions .btn { width: 100%; }
+  .tf-broker-comparison-intro { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .tf-broker-comparison-badge { width: 100%; min-width: 0; }
+  .tf-card-header-split { align-items: flex-start; flex-direction: column; }
+  .tf-broker-assumption-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .tf-broker-assumption-readout { min-height: 0; }
+  .tf-broker-section .tf-chart-section-heading { align-items: flex-start; }
+  .tf-broker-results-grid { grid-template-columns: minmax(0, 1fr); }
 }

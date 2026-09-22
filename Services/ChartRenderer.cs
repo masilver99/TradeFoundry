@@ -28,12 +28,13 @@ public static partial class ChartRenderer
         return Line(x, y, "cumulative net P&L", Blue, "exit date");
     }
 
-    public static string Equity(IEnumerable<DailyPnl> source)
+    public static string Equity(IEnumerable<DailyPnl> source, bool hideEmptyDays = false)
     {
         var days = source
             .GroupBy(x => x.Date)
             .OrderBy(x => x.Key)
-            .Select(x => (Date: x.Key, NetPnl: x.Sum(day => day.NetPnl)))
+            .Select(x => (Date: x.Key, NetPnl: x.Sum(day => day.NetPnl), TradeCount: x.Sum(day => day.TradeCount)))
+            .Where(x => !hideEmptyDays || x.TradeCount > 0)
             .ToArray();
         if (days.Length == 0) return Empty("Import a completed trade to see the equity curve.");
 
@@ -47,7 +48,7 @@ public static partial class ChartRenderer
             .Concat(days.Select(day => day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)))
             .ToArray();
         var y = new[] { 0m }.Concat(values).ToArray();
-        return Line(x, y, "daily cumulative net P&L", Blue, "exit date");
+        return Line(x, y, "daily cumulative net P&L", Blue, "exit date", category: hideEmptyDays);
     }
 
     public static string Equity(IEnumerable<Trade> source)
@@ -826,7 +827,7 @@ public static partial class ChartRenderer
 
     private static decimal Percent(int numerator, int denominator) => denominator == 0 ? 0m : (decimal)numerator / denominator * 100m;
 
-    private static object LineTrace(IReadOnlyList<string> x, IReadOnlyList<decimal> y, string name, string color) => new
+    private static object LineTrace(IReadOnlyList<string> x, IReadOnlyList<decimal> y, string name, string color, bool dateAxis = true) => new
     {
         type = "scatter",
         x,
@@ -835,15 +836,15 @@ public static partial class ChartRenderer
         name,
         line = new { color, width = 1.5 },
         marker = new { color, size = 5 },
-        hovertemplate = "%{x|%b %-d, %Y}<br>%{y:,.2f}<extra></extra>"
+        hovertemplate = dateAxis ? "%{x|%b %-d, %Y}<br>%{y:,.2f}<extra></extra>" : "%{x}<br>%{y:,.2f}<extra></extra>"
     };
 
-    private static string Line(IReadOnlyList<string> x, IReadOnlyList<decimal> y, string label, string color, string xLabel)
+    private static string Line(IReadOnlyList<string> x, IReadOnlyList<decimal> y, string label, string color, string xLabel, bool category = false)
     {
         var layout = CartesianLayout();
-        SetAxis(layout, "xaxis", xLabel, date: true);
+        SetAxis(layout, "xaxis", xLabel, date: !category, category: category);
         SetAxis(layout, "yaxis", "net P&L");
-        return Plotly(label, new object[] { LineTrace(x, y, label, color) }, layout);
+        return Plotly(label, new object[] { LineTrace(x, y, label, color, dateAxis: !category) }, layout);
     }
 
     private static Dictionary<string, object?> CartesianLayout(string? hovermode = null)

@@ -1,6 +1,7 @@
 bin/
 obj/
 .codex-build/
+artifacts/
 .playwright-cli/
 node_modules/
 .vs/

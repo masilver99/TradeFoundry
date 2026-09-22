@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>TradeFoundry.Desktop</RootNamespace>
+    <AssemblyName>TradeFoundry.Desktop</AssemblyName>
+    <UseWPF>true</UseWPF>
+    <UseAppHost>true</UseAppHost>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
+    <Compile Include="..\Core\DesktopRuntime.cs" Link="Core\DesktopRuntime.cs" />
+  </ItemGroup>
+
+</Project>

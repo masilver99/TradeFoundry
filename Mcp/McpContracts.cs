@@ -28,6 +28,81 @@ public sealed class TradeFilterInput
     public string? Search { get; init; }
 }
 
+public sealed class BrokerFeeProfileInput
+{
+    [Description("User-managed broker or plan name, such as AMP Futures or a negotiated plan.")]
+    public string Name { get; init; } = string.Empty;
+
+    [Description("Instrument root such as MES, or * for a profile that applies to all instruments.")]
+    public string Instrument { get; init; } = "*";
+
+    [Description("Optional note about the source, plan, or assumptions.")]
+    public string? Notes { get; init; }
+
+    [Description("Commission in the journal currency per contract side. Divide round-turn quotes by two.")]
+    public decimal? CommissionPerContractSide { get; init; }
+
+    [Description("Exchange fee in the journal currency per contract side.")]
+    public decimal? ExchangePerContractSide { get; init; }
+
+    [Description("NFA fee in the journal currency per contract side.")]
+    public decimal? NfaPerContractSide { get; init; }
+
+    [Description("Clearing fee in the journal currency per contract side.")]
+    public decimal? ClearingPerContractSide { get; init; }
+
+    [Description("Optional monthly platform charge in the journal currency.")]
+    public decimal? PlatformMonthly { get; init; }
+
+    [Description("Optional monthly market-data charge in the journal currency.")]
+    public decimal? DataMonthly { get; init; }
+
+    [Description("Optional other monthly charge in the journal currency.")]
+    public decimal? OtherMonthly { get; init; }
+}
+
+public sealed class McpBrokerFeeProfileItem
+{
+    public string ProfileId { get; init; } = string.Empty;
+    public string JournalId { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public string Instrument { get; init; } = "*";
+    public string Notes { get; init; } = string.Empty;
+    public decimal? CommissionPerContractSide { get; init; }
+    public decimal? ExchangePerContractSide { get; init; }
+    public decimal? NfaPerContractSide { get; init; }
+    public decimal? ClearingPerContractSide { get; init; }
+    public decimal? PlatformMonthly { get; init; }
+    public decimal? DataMonthly { get; init; }
+    public decimal? OtherMonthly { get; init; }
+    public int Revision { get; init; }
+    public string CreatedUtc { get; init; } = string.Empty;
+    public string UpdatedUtc { get; init; } = string.Empty;
+}
+
+public sealed class McpBrokerFeeProfileListResponse
+{
+    public string SchemaVersion { get; init; } = "1";
+    public string DataBoundary { get; init; } = McpResponseDefaults.DataBoundary;
+    public string JournalId { get; init; } = string.Empty;
+    public string Currency { get; init; } = "USD";
+    public string? Instrument { get; init; }
+    public string AppPath { get; init; } = string.Empty;
+    public IReadOnlyList<McpBrokerFeeProfileItem> Profiles { get; init; } = Array.Empty<McpBrokerFeeProfileItem>();
+}
+
+public sealed class McpBrokerFeeProfileMutationResponse
+{
+    public string SchemaVersion { get; init; } = "1";
+    public string DataBoundary { get; init; } = McpResponseDefaults.DataBoundary;
+    public string JournalId { get; init; } = string.Empty;
+    public bool Saved { get; init; }
+    public bool Conflict { get; init; }
+    public bool NotFound { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public McpBrokerFeeProfileItem? Profile { get; init; }
+}
+
 public sealed record AppliedTradeFilters(
     string? StartDate,
     string? EndDate,
@@ -295,7 +370,7 @@ public sealed class McpDataQualityResponse
 
 internal static class McpResponseDefaults
 {
-    public const string DataBoundary = "Historical journal evidence only. Win/loss, profit factor, and expectancy use gross P&L; net P&L includes fees. No live market data, signals, order placement, or record mutation.";
+    public const string DataBoundary = "Historical journal evidence only. Win/loss, profit factor, and expectancy use gross P&L; net P&L includes fees. No live market data, signals, or order placement. Broker fee profile tools may mutate only explicit user-managed fee profiles; imported journal evidence remains immutable.";
     public static readonly AppliedTradeFilters EmptyFilters = new(null, null, "exit", null, null, null, null, "all", null, null, null, null, null);
     public static readonly McpPerformanceMetrics EmptyMetrics = new(0, 0, 0, 0, 0, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, null, null, null, null, 0m, null, null, null, null);
 }

@@ -28,6 +28,7 @@ public class AccessModel : PageModel
     [BindProperty] public string ConfirmNewPassword { get; set; } = string.Empty;
     [BindProperty] public string McpTokenName { get; set; } = "Local AI client";
     [BindProperty] public List<Guid> McpJournalIds { get; set; } = new();
+    [BindProperty] public bool McpAllowFeeProfileWrites { get; set; }
 
     public Journal? Journal { get; private set; }
     public IReadOnlyList<Journal> Journals { get; private set; } = Array.Empty<Journal>();
@@ -80,7 +81,7 @@ public class AccessModel : PageModel
         if (_database.GetJournal(JournalId) is null) return NotFound();
         try
         {
-            var created = _mcpTokens.Create(McpTokenName, McpJournalIds);
+            var created = _mcpTokens.Create(McpTokenName, McpJournalIds, McpAllowFeeProfileWrites);
             NewMcpToken = created.Secret;
             FlashMessage = "MCP access token created. Copy it now; TradeFoundry will not show it again.";
             FlashKind = "success";

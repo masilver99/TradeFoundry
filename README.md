@@ -25,10 +25,13 @@ This is pre-alpha software and breaking changes are a constant refrain.
   - Quarterly view to assist with taxes (US only)
   - Tons of performance metrics
   - Numerous charts
+- Broker cost comparison
+  - Compare editable per-side commission and fee schedules against journal activity
+  - See projected monthly and annual cost, savings, and a side-by-side chart
 - Daybook
   - This contains all your trades and allows you to edit or make changes
   - This is still in very heavy development and will probably change a fair amount
-- Optional MCP Server to allow readonly access to your trades by AI
+- Optional MCP Server for journal-scoped historical analysis and broker fee profile management
 
 ## Run locally
 
@@ -41,6 +44,28 @@ dotnet run --urls http://127.0.0.1:5080
 
 Open `http://127.0.0.1:5080`. On first run, create the local owner account, create a journal, and upload an export. The SQLite database is created at `.tradefoundry-data/journal.db` (or the path in `Storage:DataDirectory`).
 
+## Windows desktop package
+
+The installed Windows build is a self-contained `win-x64` package with a native WPF/WebView2 shell. It keeps the existing Razor UI but displays it in a single TradeFoundry window without browser tabs or an address bar. The local server remains loopback-only at `http://127.0.0.1:5080`. The installed build uses a per-user configuration file at `%LOCALAPPDATA%\TradeFoundry\appsettings.user.json`; the installer writes the selected journal data directory there. Database files and review attachments remain outside the application install directory.
+
+The Microsoft Edge WebView2 Runtime must be available on the Windows machine. Windows 10 and 11 systems normally already have it through Microsoft Edge; the shell shows a clear startup error if it is missing.
+
+To create the publish payload:
+
+~~~powershell
+pwsh -File scripts\publish-windows.ps1
+~~~
+
+Install Inno Setup 7 and pass `-CompileInstaller` to compile the installer in the same run:
+
+~~~powershell
+pwsh -File scripts\publish-windows.ps1 -CompileInstaller
+~~~
+
+The script searches both standard Program Files locations. For a custom installation, pass the compiler path explicitly with `-InnoSetupPath C:\path\to\ISCC.exe`.
+
+The installer is per-user and does not remove the selected data directory during uninstall. Re-running it reuses the previously selected data directory.
+
 ## Run with Docker
 
 ```bash
@@ -51,17 +76,17 @@ The host `data/` directory is mounted into the container. Back up the database w
 
 ## Local MCP server
 
-TradeFoundry includes an optional, read-only MCP server for desktop AI clients. It is disabled by default and listens on a separate loopback-only endpoint, so the normal browser listener does not expose MCP routes. This first release is for native local runs only; Docker, LAN, and internet-reachable MCP use are unsupported.
+TradeFoundry includes an optional, scoped MCP server for desktop AI clients. It is disabled by default and listens on a separate loopback-only endpoint, so the normal browser listener does not expose MCP routes. This first release is for native local runs only; Docker, LAN, and internet-reachable MCP use are unsupported.
 
 To enable it, set `Mcp:Enabled` to `true` in local configuration (or set the `Mcp__Enabled=true` environment variable) and restart TradeFoundry. The default Streamable HTTP endpoint is `http://127.0.0.1:5081/mcp`. The host and port can be changed with `Mcp:Url`, but the address must remain a numeric loopback address.
 
-Open Settings, create an MCP access token, and select the journals that client may read. The full `tfmcp_...` secret is displayed once; TradeFoundry stores only its SHA-256 hash and a short identifying prefix. Configure the AI client to use Streamable HTTP at the MCP endpoint with `Authorization: Bearer <token>`. Tokens can be revoked from Settings at any time and cannot use the browser session cookie.
+Open Settings, create an MCP access token, and select the journals that client may read. Tokens are read-only by default; you can explicitly grant a token the separate write scope for creating and editing user-managed broker fee profiles used by the comparison page. The full `tfmcp_...` secret is displayed once; TradeFoundry stores only its SHA-256 hash and a short identifying prefix. Configure the AI client to use Streamable HTTP at the MCP endpoint with `Authorization: Bearer <token>`. Tokens can be revoked from Settings at any time and cannot use the browser session cookie.
 
-The server publishes these deterministic tools: `list_journals`, `get_journal_overview`, `search_trades`, `get_trade_detail`, `get_trade_price_context`, `get_trading_day`, `analyze_trades`, and `get_data_quality`. It also publishes `review_trade`, `review_day`, and `review_period` prompt templates. Trades are addressed by stable `review_key` values rather than rebuildable database IDs.
+The server publishes these deterministic tools: `list_journals`, `get_journal_overview`, `search_trades`, `get_trade_detail`, `get_trade_price_context`, `get_trading_day`, `analyze_trades`, `get_data_quality`, `list_broker_fee_profiles`, `create_broker_fee_profile`, and `update_broker_fee_profile`. The last two require the explicit write scope. It also publishes `review_trade`, `review_day`, and `review_period` prompt templates. Trades are addressed by stable `review_key` values rather than rebuildable database IDs.
 
-MCP responses contain normalized historical evidence, calculations, explicit data gaps, and relative paths back to TradeFoundry. The server does not expose raw import records, credentials, usernames, or internal order IDs; it does not refresh benchmark data, import files, repair data, call an LLM, provide live signals, place orders, or mutate journal evidence. Source notes are bounded and labeled as untrusted data. Rate and analysis-concurrency limits are configurable under `Mcp`.
+MCP responses contain normalized historical evidence, calculations, explicit data gaps, and relative paths back to TradeFoundry. The server does not expose raw import records, credentials, usernames, or internal order IDs; it does not refresh benchmark data, import files, repair data, call an LLM, provide live signals, place orders, or mutate imported journal evidence. Write-scoped fee profile changes are revisioned and audited separately from imported evidence. Source notes are bounded and labeled as untrusted data. Rate and analysis-concurrency limits are configurable under `Mcp`.
 
-Any future MCP editing capability belongs in a separate design and may target only review annotations such as setups, tags, thesis, plan adherence, process ratings, mistakes, lessons, and day plans/reviews. Imported evidence and deterministic trade results remain immutable; future writes must add version checks, idempotency, immutable audit history, and explicit owner confirmation.
+MCP fee profile writes are intentionally limited to explicit user-managed broker comparison inputs. Imported evidence and deterministic trade results remain immutable; profile updates use revision checks, immutable audit history, journal scoping, and an owner-issued write scope.
 
 ## Imports
 

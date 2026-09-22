@@ -10,8 +10,14 @@ public static class McpAuthentication
 {
     public const string Scheme = "TradeFoundryMcpBearer";
     public const string Policy = "McpRead";
+    public const string WritePolicy = "McpWrite";
     public const string JournalClaim = "tradefoundry:journal";
     public const string ScopeClaim = "scope";
+
+    public static bool HasScope(ClaimsPrincipal user, string scope) => user
+        .FindAll(ScopeClaim)
+        .SelectMany(claim => claim.Value.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        .Any(value => value.Equals(scope, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class McpTokenAuthenticationHandler(

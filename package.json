@@ -3,9 +3,23 @@
   "private": true,
   "version": "1.0.0",
   "description": "Pinned local frontend assets for TradeFoundry",
+  "scripts": {
+    "build:lexical": "esbuild scripts/lexical-editor.js --bundle --format=iife --global-name=TradeFoundryLexical --platform=browser --target=es2020 --minify --outfile=wwwroot/js/lexical-editor.bundle.js"
+  },
   "dependencies": {
+    "@lexical/code": "0.51.0",
+    "@lexical/history": "0.51.0",
+    "@lexical/link": "0.51.0",
+    "@lexical/list": "0.51.0",
+    "@lexical/markdown": "0.51.0",
+    "@lexical/rich-text": "0.51.0",
+    "@lexical/selection": "0.51.0",
     "@tabler/core": "1.4.0",
+    "lexical": "0.51.0",
     "lightweight-charts": "5.2.0",
     "plotly.js-dist-min": "2.27.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

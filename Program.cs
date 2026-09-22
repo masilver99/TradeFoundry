@@ -4,7 +4,45 @@ using TradeFoundry.Data;
 using TradeFoundry.Mcp;
 using TradeFoundry.Services;
 
-var builder = WebApplication.CreateBuilder(args);
+var desktopMode = DesktopRuntime.IsDesktopMode(args);
+var embeddedMode = DesktopRuntime.IsEmbeddedMode(args);
+var applicationArgs = DesktopRuntime.RemoveLaunchSwitches(args);
+Mutex? desktopMutex = null;
+
+if (desktopMode)
+{
+    desktopMutex = new Mutex(initiallyOwned: true, DesktopRuntime.MutexName, out var createdNew);
+    if (!createdNew)
+    {
+        if (!embeddedMode)
+        {
+            DesktopRuntime.TryOpenBrowser(DesktopRuntime.DefaultUrl);
+        }
+
+        desktopMutex.Dispose();
+        return;
+    }
+}
+
+var builder = desktopMode
+    ? WebApplication.CreateBuilder(new WebApplicationOptions
+    {
+        Args = applicationArgs,
+        ContentRootPath = AppContext.BaseDirectory
+    })
+    : WebApplication.CreateBuilder(applicationArgs);
+
+if (desktopMode)
+{
+    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["Storage:DataDirectory"] = DesktopRuntime.DefaultDataDirectory
+    });
+    builder.Configuration.AddJsonFile(DesktopRuntime.UserConfigurationPath, optional: true, reloadOnChange: false);
+    builder.Configuration.AddEnvironmentVariables();
+    builder.Configuration.AddCommandLine(applicationArgs);
+    builder.WebHost.UseUrls(DesktopRuntime.DefaultUrl);
+}
 
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
 builder.Services.Configure<BenchmarkOptions>(builder.Configuration.GetSection("Benchmark"));
@@ -56,4 +94,16 @@ app.UseAuthorization();
 
 app.MapRazorPages();
 
-app.Run();
+if (desktopMode && !embeddedMode)
+{
+    app.Lifetime.ApplicationStarted.Register(() => DesktopRuntime.TryOpenBrowser(DesktopRuntime.DefaultUrl));
+}
+
+try
+{
+    app.Run();
+}
+finally
+{
+    desktopMutex?.Dispose();
+}

@@ -148,7 +148,7 @@ public sealed class McpIntegrationTests
     }
 
     [Fact]
-    public async Task LoopbackServerRequiresBearerTokenAndPublishesOnlyReadTools()
+    public async Task LoopbackServerRequiresBearerTokenAndProtectsFeeProfileWrites()
     {
         var directory = NewDirectory();
         var loggerFactory = LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.Warning).AddConsole());
@@ -165,6 +165,9 @@ public sealed class McpIntegrationTests
             var settings = Options.Create(new McpOptions { Enabled = true, Url = $"http://127.0.0.1:{port}", RequestsPerMinute = 60 });
             var tokenService = new McpTokenService(database);
             var created = tokenService.Create("Integration test", [journal.Id]);
+            var writer = tokenService.Create("Fee profile writer", [journal.Id], allowFeeProfileWrites: true);
+            Assert.Equal("read", created.Token.Scopes);
+            Assert.Equal("read write", writer.Token.Scopes);
             var evidenceCountsBefore = EvidenceCounts(database);
             var analysis = new JournalAnalysisService(database, settings);
             server = new McpHostedService(settings, database, analysis, tokenService, loggerFactory);
@@ -194,13 +197,22 @@ public sealed class McpIntegrationTests
                 AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {created.Secret}" }
             }, loggerFactory);
             await using var client = await McpClient.CreateAsync(transport, loggerFactory: loggerFactory);
+            var writerTransport = new HttpClientTransport(new HttpClientTransportOptions
+            {
+                Endpoint = new Uri($"http://127.0.0.1:{port}/mcp"),
+                AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {writer.Secret}" }
+            }, loggerFactory);
+            await using var writerClient = await McpClient.CreateAsync(writerTransport, loggerFactory: loggerFactory);
             var tools = await client.ListToolsAsync(cancellationToken: CancellationToken.None);
-            Assert.Equal(8, tools.Count);
+            Assert.Equal(9, tools.Count);
             Assert.All(tools, tool =>
             {
                 Assert.True(tool.ProtocolTool.Annotations?.ReadOnlyHint);
                 Assert.False(tool.ProtocolTool.Annotations?.OpenWorldHint);
             });
+            var writerTools = await writerClient.ListToolsAsync(cancellationToken: CancellationToken.None);
+            Assert.Equal(11, writerTools.Count);
+            Assert.All(writerTools.Where(tool => tool.Name is "create_broker_fee_profile" or "update_broker_fee_profile"), tool => Assert.False(tool.ProtocolTool.Annotations?.ReadOnlyHint));
             Assert.Contains("\"review_key\"", tools.Single(tool => tool.Name == "get_trade_detail").ProtocolTool.InputSchema.GetRawText(), StringComparison.Ordinal);
 
             var prompts = await client.ListPromptsAsync(cancellationToken: CancellationToken.None);
@@ -214,6 +226,34 @@ public sealed class McpIntegrationTests
 
             var journalList = await AssertToolSucceeds(client, "list_journals", new Dictionary<string, object?>());
             Assert.DoesNotContain(otherJournal.Id.ToString("D"), journalList.GetRawText(), StringComparison.OrdinalIgnoreCase);
+            var emptyProfiles = await AssertToolSucceeds(client, "list_broker_fee_profiles", Arguments(("journal_id", journal.Id), ("instrument", "MES")));
+            Assert.Empty(emptyProfiles.GetProperty("profiles").EnumerateArray());
+            var profileInput = new Dictionary<string, object?>
+            {
+                ["name"] = "AMP Futures",
+                ["instrument"] = "MES",
+                ["notes"] = "Integration profile",
+                ["commission_per_contract_side"] = 0.42m,
+                ["exchange_per_contract_side"] = 0.18m,
+                ["nfa_per_contract_side"] = 0.02m,
+                ["clearing_per_contract_side"] = 0.15m,
+                ["platform_monthly"] = 10m
+            };
+            var createArguments = Arguments(("journal_id", journal.Id), ("input", profileInput));
+            await AssertToolDenied(client, "create_broker_fee_profile", createArguments);
+            var createdProfile = await AssertToolSucceeds(writerClient, "create_broker_fee_profile", createArguments);
+            Assert.True(createdProfile.GetProperty("saved").GetBoolean());
+            Assert.Equal(1, createdProfile.GetProperty("profile").GetProperty("revision").GetInt32());
+            var profileId = Guid.Parse(createdProfile.GetProperty("profile").GetProperty("profile_id").GetString()!);
+            var listedProfiles = await AssertToolSucceeds(client, "list_broker_fee_profiles", Arguments(("journal_id", journal.Id), ("instrument", "MES")));
+            Assert.Equal(profileId.ToString("D"), listedProfiles.GetProperty("profiles").EnumerateArray().Single().GetProperty("profile_id").GetString());
+            var updatedInput = new Dictionary<string, object?>(profileInput) { ["platform_monthly"] = 12m };
+            var updatedProfile = await AssertToolSucceeds(writerClient, "update_broker_fee_profile", Arguments(("journal_id", journal.Id), ("profile_id", profileId), ("expected_revision", 1), ("input", updatedInput)));
+            Assert.True(updatedProfile.GetProperty("saved").GetBoolean());
+            Assert.Equal(2, updatedProfile.GetProperty("profile").GetProperty("revision").GetInt32());
+            var conflict = await AssertToolSucceeds(writerClient, "update_broker_fee_profile", Arguments(("journal_id", journal.Id), ("profile_id", profileId), ("expected_revision", 1), ("input", profileInput)));
+            Assert.True(conflict.GetProperty("conflict").GetBoolean());
+            Assert.Equal(2, conflict.GetProperty("profile").GetProperty("revision").GetInt32());
             var overview = await AssertToolSucceeds(client, "get_journal_overview", Arguments(("journal_id", journal.Id)));
             Assert.Equal(6.25m, overview.GetProperty("metrics").GetProperty("expectancy").GetDecimal());
             Assert.Equal(System.Text.Json.JsonValueKind.Null, overview.GetProperty("metrics").GetProperty("profit_factor").ValueKind);
@@ -301,6 +341,9 @@ public sealed class McpIntegrationTests
 
     private static async Task AssertToolFails(McpClient client, string name, IReadOnlyDictionary<string, object?> arguments) =>
         Assert.True((await client.CallToolAsync(name, arguments, cancellationToken: CancellationToken.None)).IsError ?? false);
+
+    private static async Task AssertToolDenied(McpClient client, string name, IReadOnlyDictionary<string, object?> arguments) =>
+        await Assert.ThrowsAsync<ModelContextProtocol.McpProtocolException>(async () => await client.CallToolAsync(name, arguments, cancellationToken: CancellationToken.None));
 
     private static async Task<string> ToolError(McpClient client, string name, IReadOnlyDictionary<string, object?> arguments)
     {

@@ -12,6 +12,7 @@
     var pageKicker = ViewData["PageKicker"]?.ToString() ?? "TRADEFOUNDRY / WORKSPACE";
     var usesPlotly = ViewData["UsesPlotly"] as bool? == true;
     var usesLightweightCharts = ViewData["UsesLightweightCharts"] as bool? == true;
+    var usesLexical = ViewData["UsesLexical"] as bool? == true;
     var exportOwnerName = authenticated ? User.Identity?.Name ?? "Owner" : string.Empty;
     var exportJournalName = activeJournal?.Name ?? string.Empty;
     string JournalPath(string page) => activeJournal is null ? "/" : $"/journal/{activeJournal.Id:D}/{page}";
@@ -79,6 +80,7 @@
                         <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="trade-quality" href="@AnalysisPath("trade-quality")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.5 5.1 5.5.8-4 4 1 5.5-5-2.6-5 2.6 1-5.5-4-4 5.5-.8L12 3z"/></svg><span class="nav-link-title">Trade Quality</span></a></li>
                         <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="timing-sizing" href="@AnalysisPath("timing-sizing")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><span class="nav-link-title">Timing &amp; Sizing</span></a></li>
                         <li class="nav-item"><a class="nav-link tf-analysis-nav-link" data-analysis-sidebar-link="execution" href="@AnalysisPath("execution")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg><span class="nav-link-title">Execution</span></a></li>
+                        <li class="nav-item"><a class="nav-link @(activeNav == "broker-comparison" ? "active" : string.Empty)" href="@JournalPath("broker-comparison")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M6 16V9M12 16V5M18 16v-3"/><path d="M4 19l4-4 4 2 6-7"/></svg><span class="nav-link-title">Broker Costs</span></a></li>
                         <li class="nav-item tf-nav-heading mt-4">INDICATORS</li>
                         <li class="nav-item"><a class="nav-link @(activeNav == "indicators" ? "active" : string.Empty) tf-indicator-nav-link" data-indicator-sidebar-link="indicator-key" href="@IndicatorsPath("indicator-key")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 15h5l2-7 3 11 2-6h4"/></svg><span class="nav-link-title">Key</span></a></li>
                         <li class="nav-item"><a class="nav-link tf-indicator-nav-link" data-indicator-sidebar-link="indicators-performance" href="@IndicatorsPath("indicators-performance")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-7"/></svg><span class="nav-link-title">Core</span></a></li>
@@ -151,6 +153,10 @@ else
 @if (usesLightweightCharts)
 {
     <script src="~/lib/lightweight-charts/lightweight-charts.standalone.production.js" asp-append-version="true"></script>
+}
+@if (usesLexical)
+{
+    <script src="~/js/lexical-editor.bundle.js" asp-append-version="true"></script>
 }
 <script src="~/js/site.js" asp-append-version="true"></script>
 @await RenderSectionAsync("Scripts", required: false)

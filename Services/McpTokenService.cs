@@ -7,12 +7,12 @@ namespace TradeFoundry.Services;
 
 public sealed class McpTokenService(TradeFoundryDb database)
 {
-    public CreatedMcpAccessToken Create(string name, IReadOnlyCollection<Guid> journalIds)
+    public CreatedMcpAccessToken Create(string name, IReadOnlyCollection<Guid> journalIds, bool allowFeeProfileWrites = false)
     {
         var secret = "tfmcp_" + Base64Url(RandomNumberGenerator.GetBytes(32));
         var hash = Hash(secret);
         var prefix = secret[..Math.Min(secret.Length, 16)];
-        var token = database.CreateMcpAccessToken(name, prefix, hash, journalIds);
+        var token = database.CreateMcpAccessToken(name, prefix, hash, journalIds, allowFeeProfileWrites);
         return new CreatedMcpAccessToken { Token = token, Secret = secret };
     }
 

@@ -1,0 +1,194 @@
+@page "/journal/{journalId:guid}/broker-comparison"
+@using System.Globalization
+@model TradeFoundry.Pages.BrokerComparisonModel
+@{
+    ViewData["Title"] = "Broker cost compare";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / ANALYSIS";
+    ViewData["ActiveNav"] = "broker-comparison";
+    ViewData["UsesPlotly"] = true;
+
+    string Number(decimal value) => value.ToString("0.####", CultureInfo.InvariantCulture);
+    string Rate(decimal? value) => Model.FormatRate(value);
+}
+
+<div class="tf-broker-comparison" data-broker-comparison data-storage-key="@Model.StorageKey" data-currency="@Model.Currency" data-default-round-turns="@Number(Model.Activity.TradesPerMonth)" data-default-contracts="@Number(Model.Activity.ContractsPerTrade)">
+    <div class="tf-page-intro tf-broker-comparison-intro">
+        <div>
+            <div class="tf-kicker">COST MODEL</div>
+            <h1>Could another broker cost less?</h1>
+            <p class="tf-lede">Compare per-contract commissions and monthly charges against the trading activity in <strong>@Model.SelectedInstrumentLabel</strong>. Enter rates from each broker’s current schedule; the table and chart update as you type.</p>
+        </div>
+        <div class="tf-broker-comparison-badge"><span>Rate basis</span><strong>Per contract · per side</strong><small>Monthly charges are added separately.</small></div>
+    </div>
+
+    <div class="alert tf-alert warning tf-broker-comparison-note" role="note">
+        This is an estimate, not a quote. Broker schedules can vary by instrument, account tier, exchange, platform, data package, and promotions. If a rate card gives a round-turn price, divide it by two before entering it here.
+    </div>
+
+    <section class="card tf-card tf-broker-assumptions" aria-labelledby="broker-assumptions-heading">
+        <div class="card-header tf-card-header-split">
+            <div>
+                <div class="tf-kicker">ACTIVITY MODEL</div>
+                <h2 id="broker-assumptions-heading" class="tf-card-title">Normalize the comparison</h2>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-reset-broker-comparison>Reset entries</button>
+        </div>
+        <div class="card-body">
+            <div class="tf-broker-assumption-grid">
+                <form method="get" action="@($"/journal/{Model.JournalId:D}/broker-comparison")" class="tf-broker-assumption-field">
+                    <label for="broker-instrument">Instrument profile</label>
+                    <select id="broker-instrument" class="form-select" name="instrument" onchange="this.form.submit()">
+                        @foreach (var option in Model.InstrumentOptions)
+                        {
+                            <option value="@option.Value" selected="@(option.Value.Equals(Model.Instrument, StringComparison.OrdinalIgnoreCase))">@option.Label</option>
+                        }
+                    </select>
+                    <small>Run separate comparisons when rate schedules differ by product.</small>
+                </form>
+                <div class="tf-broker-assumption-field">
+                    <label for="broker-round-turns">Round turns / month</label>
+                    <input id="broker-round-turns" class="form-control" type="number" min="0" step="0.01" inputmode="decimal" data-broker-round-turns aria-describedby="broker-round-turns-help" value="@Number(Model.Activity.TradesPerMonth)" />
+                    <small id="broker-round-turns-help">
+                        @if (Model.Activity.CompletedTrades > 0)
+                        {
+                            <text>Seeded from @Model.Activity.CompletedTrades.ToString("N0") completed trade(s) over @Model.Activity.ObservedMonths.ToString("N0") month(s).</text>
+                        }
+                        else
+                        {
+                            <text>No completed trades yet; enter expected activity manually.</text>
+                        }
+                    </small>
+                </div>
+                <div class="tf-broker-assumption-field">
+                    <label for="broker-contracts">Contracts / round turn</label>
+                    <input id="broker-contracts" class="form-control" type="number" min="0" step="0.01" inputmode="decimal" data-broker-contracts aria-describedby="broker-contracts-help" value="@Number(Model.Activity.ContractsPerTrade)" />
+                    <small id="broker-contracts-help">Historical contract round turns: @Model.Activity.ContractRoundTurns.ToString("N0").</small>
+                </div>
+                <div class="tf-broker-assumption-readout">
+                    <span>Contract sides / month</span>
+                    <strong data-broker-sides>—</strong>
+                    <small>Every round turn has an entry and an exit.</small>
+                </div>
+            </div>
+            <p class="form-hint mb-0">The model applies each per-side rate twice per round turn, then adds platform, data, and other monthly charges.</p>
+        </div>
+    </section>
+
+    <section class="tf-broker-section" aria-labelledby="broker-rates-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-kicker">BROKER RATE CARDS</div>
+                <div class="tf-chart-section-title-row"><h2 id="broker-rates-heading">Enter comparable rates</h2><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Broker rate cards" aria-expanded="false" aria-controls="broker-rates-description" aria-label="Show explanation for Broker rate cards"><span aria-hidden="true">i</span></button></div>
+                <p id="broker-rates-description" class="tf-section-info" hidden>Commission, exchange, NFA, and clearing values are per contract per side. Platform, data, and other values are monthly fixed costs. The Current setup row is seeded from imported trade fees or instrument settings when available. Saved profiles are managed through MCP.</p>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-add-broker>Add broker</button>
+        </div>
+
+        <div class="tf-table-wrap tf-broker-table-wrap">
+            <table class="table table-vcenter tf-table tf-broker-table">
+                <caption class="visually-hidden">Editable broker commission assumptions and calculated costs.</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Broker</th>
+                        <th scope="col">Commission<br /><span>/ side</span></th>
+                        <th scope="col">Exchange<br /><span>/ side</span></th>
+                        <th scope="col">NFA<br /><span>/ side</span></th>
+                        <th scope="col">Clearing<br /><span>/ side</span></th>
+                        <th scope="col">Platform<br /><span>/ month</span></th>
+                        <th scope="col">Data<br /><span>/ month</span></th>
+                        <th scope="col">Other<br /><span>/ month</span></th>
+                        <th scope="col">Monthly total</th>
+                        <th scope="col">Annual total</th>
+                        <th scope="col">Savings / month</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody data-broker-rows>
+                    @foreach (var row in Model.BrokerRows)
+                    {
+                        <tr data-broker-row data-baseline="@(row.IsBaseline ? "true" : "false")" data-profile-id="@(row.ProfileId?.ToString("D") ?? string.Empty)" data-profile-revision="@(row.Revision?.ToString() ?? string.Empty)">
+                            <th scope="row" class="tf-broker-name-cell">
+                                <input class="form-control form-control-sm" type="text" maxlength="80" data-broker-field="name" value="@row.Name" aria-label="Broker name" />
+                                <small data-row-status>@(row.IsBaseline ? "Baseline" : row.ProfileId.HasValue ? $"Saved profile · revision {row.Revision}" : "Enter rates")</small>
+                            </th>
+                            <td><input class="form-control form-control-sm" type="number" min="0" step="0.0001" inputmode="decimal" data-broker-field="commission" value="@Rate(row.CommissionPerContractSide)" placeholder="—" aria-label="Broker commission per contract per side" /></td>
+                            <td><input class="form-control form-control-sm" type="number" min="0" step="0.0001" inputmode="decimal" data-broker-field="exchange" value="@Rate(row.ExchangePerContractSide)" placeholder="—" aria-label="Exchange fee per contract per side" /></td>
+                            <td><input class="form-control form-control-sm" type="number" min="0" step="0.0001" inputmode="decimal" data-broker-field="nfa" value="@Rate(row.NfaPerContractSide)" placeholder="—" aria-label="NFA fee per contract per side" /></td>
+                            <td><input class="form-control form-control-sm" type="number" min="0" step="0.0001" inputmode="decimal" data-broker-field="clearing" value="@Rate(row.ClearingPerContractSide)" placeholder="—" aria-label="Clearing fee per contract per side" /></td>
+                            <td><input class="form-control form-control-sm" type="number" min="0" step="0.01" inputmode="decimal" data-broker-field="platform" value="@Rate(row.PlatformMonthly)" placeholder="—" aria-label="Platform fee per month" /></td>
+                            <td><input class="form-control form-control-sm" type="number" min="0" step="0.01" inputmode="decimal" data-broker-field="data" value="@Rate(row.DataMonthly)" placeholder="—" aria-label="Data fee per month" /></td>
+                            <td><input class="form-control form-control-sm" type="number" min="0" step="0.01" inputmode="decimal" data-broker-field="other" value="@Rate(row.OtherMonthly)" placeholder="—" aria-label="Other fee per month" /></td>
+                            <td class="tf-broker-result"><strong data-row-monthly>@Model.FormatEstimate(row)</strong><small data-row-variable>@(row.HasRateData ? $"{row.ToRate().VariablePerContractSide.ToString("C2", CultureInfo.CurrentCulture)} / side" : string.Empty)</small></td>
+                            <td class="tf-broker-result"><strong data-row-annual>@Model.FormatEstimate(row, annual: true)</strong></td>
+                            <td class="tf-broker-result"><strong data-row-savings>—</strong><small data-row-savings-note></small></td>
+                            <td class="tf-broker-actions"><button type="button" class="btn btn-sm btn-ghost-secondary" data-remove-broker @(row.IsBaseline ? "disabled" : string.Empty)>Remove</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <template data-broker-row-template>
+            <tr data-broker-row data-baseline="false">
+                <th scope="row" class="tf-broker-name-cell">
+                    <input class="form-control form-control-sm" type="text" maxlength="80" data-broker-field="name" value="New broker" aria-label="Broker name" />
+                    <small data-row-status>Enter rates</small>
+                </th>
+                <td><input class="form-control form-control-sm" type="number" min="0" step="0.0001" inputmode="decimal" data-broker-field="commission" placeholder="—" aria-label="Broker commission per contract per side" /></td>
+                <td><input class="form-control form-control-sm" type="number" min="0" step="0.0001" inputmode="decimal" data-broker-field="exchange" placeholder="—" aria-label="Exchange fee per contract per side" /></td>
+                <td><input class="form-control form-control-sm" type="number" min="0" step="0.0001" inputmode="decimal" data-broker-field="nfa" placeholder="—" aria-label="NFA fee per contract per side" /></td>
+                <td><input class="form-control form-control-sm" type="number" min="0" step="0.0001" inputmode="decimal" data-broker-field="clearing" placeholder="—" aria-label="Clearing fee per contract per side" /></td>
+                <td><input class="form-control form-control-sm" type="number" min="0" step="0.01" inputmode="decimal" data-broker-field="platform" placeholder="—" aria-label="Platform fee per month" /></td>
+                <td><input class="form-control form-control-sm" type="number" min="0" step="0.01" inputmode="decimal" data-broker-field="data" placeholder="—" aria-label="Data fee per month" /></td>
+                <td><input class="form-control form-control-sm" type="number" min="0" step="0.01" inputmode="decimal" data-broker-field="other" placeholder="—" aria-label="Other fee per month" /></td>
+                <td class="tf-broker-result"><strong data-row-monthly>—</strong><small data-row-variable></small></td>
+                <td class="tf-broker-result"><strong data-row-annual>—</strong></td>
+                <td class="tf-broker-result"><strong data-row-savings>—</strong><small data-row-savings-note></small></td>
+                <td class="tf-broker-actions"><button type="button" class="btn btn-sm btn-ghost-secondary" data-remove-broker>Remove</button></td>
+            </tr>
+        </template>
+    </section>
+
+    <div class="tf-broker-results-grid">
+        <article class="card tf-card tf-chart-card tf-broker-chart-card">
+            <div class="card-header tf-card-header-split">
+                <div><div class="tf-kicker">MONTHLY COST</div><h3 class="tf-card-title">Projected cost by broker</h3></div>
+                <span class="text-secondary" data-broker-chart-caption>Based on the activity model above</span>
+            </div>
+            <div class="card-body">
+                <div id="broker-cost-chart" class="tf-plotly-chart" data-broker-cost-chart data-plotly-chart="@Model.InitialChartJson" role="img" aria-label="Projected monthly broker cost comparison" @(!Model.HasConfiguredRows ? "hidden" : string.Empty)></div>
+                <div class="chart-empty" data-broker-chart-empty role="status" @(Model.HasConfiguredRows ? "hidden" : string.Empty)>Add a per-side rate to at least one broker to see the chart.</div>
+            </div>
+        </article>
+        <article class="card tf-card tf-broker-verdict-card">
+            <div class="card-header"><div><div class="tf-kicker">DECISION SUPPORT</div><h3 class="tf-card-title">What could change?</h3></div></div>
+            <div class="card-body">
+                <div class="tf-broker-verdict">
+                    <span>Lowest projected monthly cost</span>
+                    <strong data-broker-best-name>—</strong>
+                    <small data-broker-best-cost>Enter comparable rates to rank brokers.</small>
+                </div>
+                <div class="tf-broker-verdict">
+                    <span>Potential savings vs current setup</span>
+                    <strong data-broker-best-savings>—</strong>
+                    <small data-broker-best-savings-note>Current setup rates are required for a savings estimate.</small>
+                </div>
+                <p class="form-hint mb-0">A lower fee is not automatically a better fit. Include platform quality, data coverage, routing, margin, support, and any non-price trade-offs in your decision.</p>
+            </div>
+        </article>
+    </div>
+
+    <article class="card tf-card tf-broker-volume-chart-card">
+        <div class="card-header tf-card-header-split">
+            <div>
+                <div class="tf-kicker">VOLUME SENSITIVITY</div>
+                <h3 class="tf-card-title">Projected cost as trades increase</h3>
+            </div>
+            <span class="text-secondary" data-broker-volume-chart-caption>Monthly and yearly cost curves</span>
+        </div>
+        <div class="card-body">
+            <div id="broker-volume-cost-chart" class="tf-plotly-chart" data-broker-volume-chart data-plotly-chart="@Model.InitialVolumeChartJson" role="img" aria-label="Projected monthly and yearly broker costs across trading volume" @(!Model.HasConfiguredRows ? "hidden" : string.Empty)></div>
+            <div class="chart-empty" data-broker-volume-chart-empty role="status" @(Model.HasConfiguredRows ? "hidden" : string.Empty)>Add a per-side rate to at least one broker to see the volume chart.</div>
+        </div>
+    </article>
+</div>

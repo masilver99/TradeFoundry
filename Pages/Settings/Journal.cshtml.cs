@@ -9,7 +9,7 @@ namespace TradeFoundry.Pages.Settings;
 [Authorize]
 public class JournalModel : PageModel
 {
-    private const int MaxDescriptionLength = 20_000;
+    private const int MaxDescriptionLength = 100_000;
     private readonly TradeFoundryDb _database;
 
     public JournalModel(TradeFoundryDb database)
@@ -21,7 +21,7 @@ public class JournalModel : PageModel
     [BindProperty] public string Name { get; set; } = string.Empty;
     [BindProperty] public string ExecutionContext { get; set; } = "live";
     [BindProperty] public string? Labels { get; set; }
-    [BindProperty] public string DescriptionMarkdown { get; set; } = string.Empty;
+    [BindProperty] public string DescriptionLexicalStateJson { get; set; } = string.Empty;
     [BindProperty] public string TimeZone { get; set; } = "UTC";
     [BindProperty] public string Currency { get; set; } = "USD";
     [BindProperty] public string GroupingPolicy { get; set; } = "flat_to_flat";
@@ -43,8 +43,8 @@ public class JournalModel : PageModel
     public IActionResult OnPostSave()
     {
         if (_database.GetJournal(JournalId) is null) return NotFound();
-        if ((DescriptionMarkdown?.Length ?? 0) > MaxDescriptionLength)
-            ModelState.AddModelError(nameof(DescriptionMarkdown), $"Keep the description under {MaxDescriptionLength:N0} characters.");
+        if ((DescriptionLexicalStateJson?.Length ?? 0) > MaxDescriptionLength)
+            ModelState.AddModelError(nameof(DescriptionLexicalStateJson), $"Keep the description under {MaxDescriptionLength:N0} characters.");
 
         if (!ModelState.IsValid)
         {
@@ -52,7 +52,7 @@ public class JournalModel : PageModel
             return Page();
         }
 
-        var saved = _database.UpdateJournal(JournalId, Name, ExecutionContext, Labels ?? string.Empty, TimeZone, Currency, GroupingPolicy, StartingEquity, DescriptionMarkdown ?? string.Empty);
+        var saved = _database.UpdateJournal(JournalId, Name, ExecutionContext, Labels ?? string.Empty, TimeZone, Currency, GroupingPolicy, StartingEquity, DescriptionLexicalStateJson ?? string.Empty);
         TempData["FlashMessage"] = saved ? "Journal settings saved." : "The journal could not be updated.";
         TempData["FlashKind"] = saved ? "success" : "error";
         return Redirect($"/journal/{JournalId:D}/settings/journal");
@@ -65,7 +65,7 @@ public class JournalModel : PageModel
         Name = Journal.Name;
         ExecutionContext = Journal.ExecutionContext;
         Labels = Journal.Labels;
-        DescriptionMarkdown = Journal.DescriptionMarkdown;
+        DescriptionLexicalStateJson = Journal.DescriptionLexicalStateJson;
         TimeZone = Journal.TimeZone;
         Currency = Journal.Currency;
         GroupingPolicy = Journal.GroupingPolicy;

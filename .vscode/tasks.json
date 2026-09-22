@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "TradeFoundry: Build web",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/TradeFoundry.csproj",
+        "--nologo",
+        "--maxcpucount:1",
+        "-p:UseAppHost=true"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "TradeFoundry: Build shell",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/DesktopShell/TradeFoundry.Desktop.csproj",
+        "--nologo",
+        "--maxcpucount:1",
+        "-p:UseAppHost=true"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "TradeFoundry: Build desktop",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "TradeFoundry: Build web",
+        "TradeFoundry: Build shell"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

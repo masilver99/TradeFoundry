@@ -5,6 +5,7 @@
     ViewData["PageKicker"] = "TRADEFOUNDRY / SETTINGS / JOURNAL";
     ViewData["ActiveNav"] = "settings";
     ViewData["SettingsSection"] = "journal";
+    ViewData["UsesLexical"] = true;
 }
 
 @await Html.PartialAsync("_SettingsNav", Model.JournalId)
@@ -46,26 +47,27 @@
                 </select>
             </div>
             <div class="col-12">
-                <label class="form-label" asp-for="DescriptionMarkdown">Description</label>
-                <div class="tf-markdown-editor" data-markdown-editor>
-                    <div class="tf-markdown-toolbar" role="toolbar" aria-label="Markdown formatting">
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="bold" title="Bold"><strong>B</strong></button>
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="italic" title="Italic"><em>I</em></button>
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="heading" title="Heading">H</button>
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="link" title="Link">↗</button>
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="unordered-list" title="Bullet list">•</button>
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="ordered-list" title="Numbered list">1.</button>
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="quote" title="Quote">❯</button>
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-action="code" title="Code">&lt;/&gt;</button>
-                        <span class="tf-markdown-toolbar-spacer"></span>
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-tab="write" aria-pressed="true">Write</button>
-                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-markdown-tab="preview" aria-pressed="false">Preview</button>
+                <label id="journal-description-label" class="form-label" asp-for="DescriptionLexicalStateJson">Description</label>
+                <div class="tf-lexical-editor" data-lexical-editor data-max-length="100000" hidden>
+                    <div class="tf-lexical-toolbar" role="toolbar" aria-label="Journal description formatting">
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="italic" title="Italic" aria-label="Italic"><em>I</em></button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="heading" title="Heading" aria-label="Heading">H</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="link" title="Link" aria-label="Link">↗</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="unordered-list" title="Bullet list" aria-label="Bullet list">•</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="ordered-list" title="Numbered list" aria-label="Numbered list">1.</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="quote" title="Quote" aria-label="Quote">❯</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="code" title="Inline code" aria-label="Inline code">&lt;/&gt;</button>
+                        <span class="tf-lexical-toolbar-spacer"></span>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="undo" title="Undo" aria-label="Undo">↶</button>
+                        <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="redo" title="Redo" aria-label="Redo">↷</button>
                     </div>
-                    <textarea asp-for="DescriptionMarkdown" class="form-control tf-markdown-input" rows="14" data-markdown-input placeholder="What is this journal for? Add setup notes, rules, or context using Markdown."></textarea>
-                    <div class="tf-markdown-preview tf-markdown-prose" data-markdown-preview hidden></div>
+                    <div class="tf-lexical-root" data-lexical-root contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="journal-description-label" data-placeholder="What is this journal for? Add setup notes, rules, or context."></div>
+                    <small class="tf-lexical-limit-status" data-lexical-limit-status aria-live="polite"></small>
                 </div>
-                <div class="form-hint">Markdown is supported. The source is stored with the journal, so your notes remain portable and easy to edit.</div>
-                <span asp-validation-for="DescriptionMarkdown" class="text-danger"></span>
+                <textarea asp-for="DescriptionLexicalStateJson" class="form-control tf-lexical-source" rows="14" maxlength="100000" data-lexical-source hidden placeholder="Describe what this journal is for."></textarea>
+                <div class="form-hint">Use the toolbar or Markdown shortcuts such as **bold**, # heading, and - list. Rich text is stored with the journal.</div>
+                <span asp-validation-for="DescriptionLexicalStateJson" class="text-danger"></span>
             </div>
             <div class="col-md-6">
                 <label class="form-label" asp-for="Labels">Labels</label>

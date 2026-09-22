@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TradeFoundry: Desktop",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "TradeFoundry: Build desktop",
+      "program": "${workspaceFolder}/DesktopShell/bin/Debug/net10.0-windows/TradeFoundry.Desktop.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Benchmark__AutomaticRefresh": "false",
+        "Mcp__Enabled": "false",
+        "Storage__DataDirectory": "${env:LOCALAPPDATA}\\TradeFoundry\\VSCodeData",
+        "TradeFoundryServerPath": "${workspaceFolder}\\bin\\Debug\\net10.0\\TradeFoundry.exe",
+        "TradeFoundryWebView2DataDirectory": "${env:LOCALAPPDATA}\\TradeFoundry\\VSCodeWebView2"
+      }
+    }
+  ]
+}

@@ -15,7 +15,7 @@
 }
 @if (!string.IsNullOrWhiteSpace(Model.NewMcpToken))
 {
-    <div class="alert tf-alert warning" role="alert">Copy this token now. It will not be shown again: <code>@Model.NewMcpToken</code></div>
+    <div class="alert tf-alert warning" role="alert" data-notification-ephemeral>Copy this token now. It will not be shown again: <code>@Model.NewMcpToken</code></div>
 }
 
 <div class="tf-settings-intro">

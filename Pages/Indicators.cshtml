@@ -50,7 +50,17 @@
                         {
                             <span class="tf-indicator-help">
                                 <button type="button" class="tf-indicator-help-button" title="@indicator.Help" aria-label="More information about @indicator.Label" aria-describedby="@helpId">?</button>
-                                <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">@indicator.Help</span>
+                                <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">
+                                    @indicator.Help
+                                    @if (indicator.Label == "Ulcer Index")
+                                    {
+                                        <a href="https://www.aaii.com/journal/article/the-ulcer-index" target="_blank" rel="noopener noreferrer">Read about the Ulcer Index</a>
+                                    }
+                                    else if (indicator.Label == "Sharpe")
+                                    {
+                                        <a href="https://www.cfainstitute.org/insights/articles/understanding-investment-risk" target="_blank" rel="noopener noreferrer">Read about the Sharpe ratio</a>
+                                    }
+                                </span>
                             </span>
                         }
                     </div>
@@ -88,7 +98,17 @@
                             {
                                 <span class="tf-indicator-help">
                                     <button type="button" class="tf-indicator-help-button" title="@indicator.Help" aria-label="More information about @indicator.Label" aria-describedby="@helpId">?</button>
-                                    <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">@indicator.Help</span>
+                                    <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">
+                                        @indicator.Help
+                                        @if (indicator.Label == "Ulcer Index")
+                                        {
+                                            <a href="https://www.aaii.com/journal/article/the-ulcer-index" target="_blank" rel="noopener noreferrer">Read about the Ulcer Index</a>
+                                        }
+                                        else if (indicator.Label == "Sharpe")
+                                        {
+                                            <a href="https://www.cfainstitute.org/insights/articles/understanding-investment-risk" target="_blank" rel="noopener noreferrer">Read about the Sharpe ratio</a>
+                                        }
+                                    </span>
                                 </span>
                             }
                         </div>

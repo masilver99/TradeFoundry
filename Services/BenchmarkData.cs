@@ -197,14 +197,17 @@ public sealed class BenchmarkRefreshService
     public string DefaultSymbol => NormalizeSymbol(_options.DefaultSymbol);
 
     public async Task<BenchmarkRefreshResult> RefreshAsync(Guid journalId, IReadOnlyList<Trade> trades, bool force, CancellationToken cancellationToken = default)
+        => await RefreshAsync(journalId, trades, DefaultSymbol, force, cancellationToken);
+
+    public async Task<BenchmarkRefreshResult> RefreshAsync(Guid journalId, IReadOnlyList<Trade> trades, string requestedSymbol, bool force, CancellationToken cancellationToken = default)
     {
+        var symbol = NormalizeSymbol(requestedSymbol);
         var completedTrades = trades.Where(x => x.ExitUtc.HasValue).OrderBy(x => x.ExitUtc).ThenBy(x => x.Sequence).ToArray();
         if (completedTrades.Length == 0)
             return new BenchmarkRefreshResult { Skipped = true, Message = "Benchmark data will download after the first completed trade." };
         if (!force && !_options.AutomaticRefresh)
             return new BenchmarkRefreshResult { Skipped = true, Message = "Automatic benchmark refresh is disabled." };
 
-        var symbol = DefaultSymbol;
         var firstDate = DateOnly.FromDateTime(completedTrades[0].ExitUtc!.Value.UtcDateTime.Date);
         var lastDate = DateOnly.FromDateTime(completedTrades[^1].ExitUtc!.Value.UtcDateTime.Date);
         var requestedStart = firstDate.AddDays(-Math.Clamp(_options.StartPaddingDays, 0, 60));

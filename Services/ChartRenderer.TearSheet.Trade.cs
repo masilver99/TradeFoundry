@@ -56,7 +56,7 @@ public static partial class ChartRenderer
         if (values.Count == 0) return Empty("Daily P&L appears after the first completed trade.");
 
         var layout = CartesianLayout();
-        SetAxis(layout, "xaxis", "exit date", date: true);
+        SetAxis(layout, "xaxis", "exit date", category: true);
         SetAxis(layout, "yaxis", "gross P&L");
         layout["bargap"] = .3;
         return Plotly("Daily gross P&L", new object[]

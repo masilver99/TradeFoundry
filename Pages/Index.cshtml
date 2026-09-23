@@ -78,7 +78,7 @@ else
                                 <span class="form-check-label">By Trade/Daily</span>
                             </label>
                             <label class="form-check form-switch mb-0">
-                                <input class="form-check-input" type="checkbox" name="hideEmptyDays" value="true" checked="@(Model.HideEmptyEquityDays ? "checked" : null)" disabled="@(Model.ShowDailyEquity ? null : "disabled")" onchange="this.form.requestSubmit()" aria-label="Hide days without trades from the Daily equity curve" />
+                                <input class="form-check-input" type="checkbox" name="hideEmptyDays" value="true" checked="@(Model.HideEmptyEquityDays ? "checked" : null)" onchange="this.form.requestSubmit()" aria-label="Hide dates without trades from the equity curve" />
                                 <span class="form-check-label">Hide days without trades</span>
                             </label>
                         </form>

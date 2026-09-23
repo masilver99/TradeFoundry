@@ -28,7 +28,7 @@ public class IndexModel : PageModel
     public bool ShowDailyEquity { get; set; }
 
     [BindProperty(Name = "hideEmptyDays", SupportsGet = true)]
-    public bool HideEmptyEquityDays { get; set; }
+    public bool HideEmptyEquityDays { get; set; } = true;
 
     public IReadOnlyList<Journal> Journals { get; private set; } = Array.Empty<Journal>();
     public JournalOverview? Overview { get; private set; }

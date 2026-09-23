@@ -1,4 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
+  initializeNotifications();
   initializeChartExportOptions();
   initializePlotlyCharts();
   initializeBrokerComparison();
@@ -31,6 +32,195 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 });
+
+function initializeNotifications() {
+  const host = document.querySelector("[data-notification-host]");
+  if (!host) return;
+
+  const toggle = host.querySelector("[data-notification-toggle]");
+  const panel = host.querySelector("[data-notification-panel]");
+  const list = host.querySelector("[data-notification-list]");
+  const empty = host.querySelector("[data-notification-empty]");
+  const badge = host.querySelector("[data-notification-count]");
+  const summary = host.querySelector("[data-notification-summary]");
+  const owner = document.body.dataset.notificationOwnerName || "owner";
+  const storageKey = "tradefoundry.notifications.v1." + encodeURIComponent(owner.trim().toLowerCase());
+  const safeHref = value => {
+    if (!value) return "";
+    try {
+      const url = new URL(value, window.location.href);
+      return url.origin === window.location.origin && url.pathname.startsWith("/journal/") ? url.pathname + url.search + url.hash : "";
+    } catch {
+      return "";
+    }
+  };
+
+  let state = { items: [], dismissed: [] };
+  let ephemeralItems = [];
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(storageKey) || "null");
+    if (saved && Array.isArray(saved.items) && Array.isArray(saved.dismissed)) {
+      state = {
+        items: saved.items.filter(item => item && typeof item.key === "string" && typeof item.message === "string"),
+        dismissed: saved.dismissed.filter(key => typeof key === "string")
+      };
+    }
+  } catch {
+    state = { items: [], dismissed: [] };
+  }
+
+  const persist = () => {
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(state));
+    } catch {
+      // Keep notifications usable for this page even when browser storage is unavailable.
+    }
+  };
+
+  const render = () => {
+    list.replaceChildren();
+    const items = [...ephemeralItems, ...state.items];
+    const count = items.length;
+    badge.textContent = String(count);
+    badge.hidden = count === 0;
+    toggle.setAttribute("aria-label", count ? "Notifications, " + count + " active" : "Notifications");
+    if (summary) summary.textContent = count ? String(count) : "";
+    empty.hidden = count !== 0;
+
+    items.forEach(item => {
+      const article = document.createElement("article");
+      const severity = ["error", "warning", "success"].includes(item.severity) ? item.severity : "notice";
+      article.className = "tf-notification-item tf-notification-" + severity;
+      article.setAttribute("role", "listitem");
+
+      const content = document.createElement("div");
+      content.className = "tf-notification-content";
+      const heading = document.createElement("div");
+      heading.className = "tf-notification-meta";
+      const type = document.createElement("strong");
+      type.textContent = severity === "error" ? "Error" : severity === "warning" ? "Warning" : severity === "success" ? "Success" : "Notice";
+      const date = document.createElement("time");
+      date.dateTime = typeof item.createdAt === "string" ? item.createdAt : "";
+      const parsedDate = new Date(item.createdAt);
+      date.textContent = Number.isNaN(parsedDate.getTime()) ? "" : parsedDate.toLocaleString();
+      heading.append(type, date);
+
+      const href = safeHref(item.href);
+      const message = href ? document.createElement("a") : document.createElement("p");
+      message.className = "tf-notification-message";
+      message.textContent = item.message;
+      if (href) message.href = href;
+      content.append(heading, message);
+
+      const dismiss = document.createElement("button");
+      dismiss.type = "button";
+      dismiss.className = "tf-notification-dismiss";
+      dismiss.setAttribute("aria-label", "Dismiss notification");
+      dismiss.title = "Dismiss notification";
+      dismiss.textContent = "×";
+      dismiss.addEventListener("click", () => {
+        if (item.ephemeral) {
+          ephemeralItems = ephemeralItems.filter(candidate => candidate.key !== item.key);
+        } else {
+          state.items = state.items.filter(candidate => candidate.key !== item.key);
+          if (!state.dismissed.includes(item.key)) state.dismissed.push(item.key);
+          persist();
+        }
+        render();
+      });
+
+      article.append(content, dismiss);
+      list.append(article);
+    });
+  };
+
+  const capture = alert => {
+    if (!(alert instanceof HTMLElement) || alert.hidden || alert.dataset.notificationExclude !== undefined) return;
+    if (alert.closest("[data-notification-exclude]")) return;
+    const containingAlert = alert.parentElement?.closest(".alert");
+    if (containingAlert && containingAlert !== alert) return;
+
+    const message = (alert.innerText || alert.textContent || "").replace(/\s+/g, " ").trim();
+    if (!message) return;
+    const ephemeral = alert.dataset.notificationEphemeral !== undefined;
+
+    let severity = "notice";
+    if (alert.classList.contains("error") || alert.classList.contains("alert-danger")) severity = "error";
+    else if (alert.classList.contains("warning") || alert.classList.contains("alert-warning")) severity = "warning";
+    else if (alert.classList.contains("success") || alert.classList.contains("alert-success")) severity = "success";
+    else if (alert.getAttribute("role") === "alert") severity = "error";
+
+    let href = safeHref(alert.dataset.notificationHref);
+    if (!href) {
+      const links = Array.from(alert.querySelectorAll("a[href]"));
+      for (const link of links) {
+        href = safeHref(link.href);
+        if (href) break;
+      }
+    }
+
+    const sourcePath = window.location.pathname;
+    const key = JSON.stringify([sourcePath, severity, message, href]);
+    const destination = ephemeral ? ephemeralItems : state.items;
+    if ((ephemeral || !state.dismissed.includes(key)) && !destination.some(item => item.key === key)) {
+      destination.unshift({ key, sourcePath, severity, message, href, createdAt: new Date().toISOString(), ephemeral });
+      if (!ephemeral) persist();
+      render();
+    }
+
+    alert.hidden = true;
+    alert.dataset.notificationCaptured = "true";
+  };
+
+  const scan = root => {
+    if (root instanceof HTMLElement && root.matches(".alert, [role='alert']")) capture(root);
+    if (root && root.querySelectorAll) root.querySelectorAll(".alert, [role='alert']").forEach(capture);
+  };
+
+  toggle.addEventListener("click", () => {
+    const open = panel.hidden;
+    panel.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", event => {
+    if (!panel.hidden && !host.contains(event.target)) {
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+    }
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !panel.hidden) {
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.focus();
+    }
+  });
+  window.addEventListener("storage", event => {
+    if (event.key !== storageKey) return;
+    try {
+      const saved = JSON.parse(event.newValue || "null");
+      if (saved && Array.isArray(saved.items) && Array.isArray(saved.dismissed)) state = saved;
+    } catch {
+      state = { items: [], dismissed: [] };
+    }
+    render();
+  });
+
+  render();
+  scan(document);
+  const observer = new MutationObserver(records => {
+    records.forEach(record => {
+      if (record.type === "characterData") {
+        const alert = record.target.parentElement?.closest(".alert, [role='alert']");
+        if (alert) capture(alert);
+        return;
+      }
+      if (record.target instanceof HTMLElement && record.target.matches(".alert, [role='alert']")) capture(record.target);
+      record.addedNodes.forEach(scan);
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+}
 
 function initializeImportDropzones() {
   document.querySelectorAll("[data-import-dropzone]").forEach(dropZone => {
@@ -677,7 +867,7 @@ function initializeChartInfo() {
     ["Daily active returns", "Measure daily strategy returns relative to the benchmark to show where the journal adds or loses value independent of market direction."],
     ["Monthly return heatmap", "Scan month-by-month return patterns across years to identify recurring seasonal strength, weakness, and gaps in the record."],
     ["Strategy vs benchmark returns", "Compare cumulative strategy and benchmark paths from the same starting point to see whether the journal is building independent performance."],
-    ["Monte Carlo simulated paths", "Resample the observed trades into simulated paths to estimate the range of plausible outcomes and the uncertainty around the recorded sequence."],
+    ["Monte Carlo simulated paths", "Each of 400 paths samples recorded trade P&Ls with replacement and compounds them in a new order. Compare the actual path with the median and 5th–95th percentile bands to see how sensitive this sample's outcomes are to trade order. Use the spread as a scenario range for planning and capital decisions. This is not a forecast: it assumes the sample remains representative and cannot create market regimes or trade outcomes absent from the record."],
     ["Underwater net P&L", "Plot the distance below the running equity high to make drawdown depth, timing, and time underwater visible."],
     ["Worst five drawdown periods", "Rank the most severe drawdown episodes by depth and recovery duration so the journal's hardest stretches can be reviewed directly."],
     ["Drawdown duration and recovery", "Compare drawdown length with recovery length to show how quickly the strategy repairs losses after each equity high."],
@@ -742,6 +932,15 @@ function initializeChartInfo() {
     panel.className = "tf-section-info tf-chart-card-info";
     panel.hidden = true;
     panel.textContent = description;
+    if (label === "Monte Carlo simulated paths") {
+      panel.append(document.createTextNode(" "));
+      const learnMore = document.createElement("a");
+      learnMore.href = "https://itl.nist.gov/div898/handbook/eda/section3/bootplot.htm";
+      learnMore.target = "_blank";
+      learnMore.rel = "noopener noreferrer";
+      learnMore.textContent = "Learn more about bootstrap uncertainty.";
+      panel.appendChild(learnMore);
+    }
     titleContainer.appendChild(panel);
     card.dataset.chartInfoInitialized = "true";
   });
@@ -1011,13 +1210,22 @@ function initializePnlCalendar() {
       }
       dayNode.dataset.tone = tone;
       dayNode.setAttribute("aria-label", day.tradeCount > 0
-        ? `${day.date}: ${formatPnl(day.netPnl)}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}`
+        ? `${day.date}: ${formatPnl(day.netPnl)}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}, ${Number(day.points || 0).toFixed(2)} points${day.averageMaePoints === null || day.averageMaePoints === undefined ? "" : `, average MAE ${Number(day.averageMaePoints).toFixed(2)} points`}`
         : `${day.date}: no completed trades`);
       if (day.tradeCount === 0) dayNode.classList.add("tf-pnl-day-no-trades");
+      const footer = element("div", "tf-pnl-day-footer");
+      footer.append(element("small", "tf-pnl-day-count", day.tradeCount > 0 ? `${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}` : "no trades"));
+      if (day.tradeCount > 0) {
+        const metrics = element("span", "tf-pnl-day-metrics");
+        metrics.append(element("span", "tf-pnl-day-points", `Pts ${Number(day.points || 0).toFixed(2)}`));
+        if (day.averageMaePoints !== null && day.averageMaePoints !== undefined)
+          metrics.append(element("span", "tf-pnl-day-mae", `Avg MAE ${Number(day.averageMaePoints).toFixed(2)}`));
+        footer.append(metrics);
+      }
       dayNode.append(
         element("span", "tf-pnl-day-number", String(day.day)),
         element("strong", "tf-pnl-day-value", day.tradeCount > 0 ? formatPnl(day.netPnl) : "—"),
-        element("small", "tf-pnl-day-count", day.tradeCount > 0 ? `${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}` : "no trades")
+        footer
       );
       days.append(dayNode);
     });
@@ -1848,13 +2056,8 @@ function initializeEquityToggle() {
 function updateEquityToggleAvailability(form, dailyCheckbox, hideEmptyDaysCheckbox) {
   if (!hideEmptyDaysCheckbox) return;
 
-  hideEmptyDaysCheckbox.disabled = dailyCheckbox.disabled || !dailyCheckbox.checked;
-  hideEmptyDaysCheckbox.setAttribute(
-    "aria-label",
-    dailyCheckbox.checked
-      ? "Hide days without trades from the Daily equity curve"
-      : "Hide days without trades when showing the Daily equity curve"
-  );
+  hideEmptyDaysCheckbox.disabled = dailyCheckbox.disabled;
+  hideEmptyDaysCheckbox.setAttribute("aria-label", "Hide dates without trades from the equity curve");
 }
 
 async function updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, host) {
@@ -1879,8 +2082,7 @@ async function updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, hos
     url.searchParams.set("journalId", journalId);
     if (requestedDaily) url.searchParams.set("daily", "true");
     else url.searchParams.delete("daily");
-    if (requestedHideEmptyDays) url.searchParams.set("hideEmptyDays", "true");
-    else url.searchParams.delete("hideEmptyDays");
+    url.searchParams.set("hideEmptyDays", String(requestedHideEmptyDays));
 
     const response = await fetch(url, {
       headers: { Accept: "text/html" },
@@ -1923,6 +2125,7 @@ async function updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, hos
     const displayUrl = new URL(window.location.href);
     if (requestedDaily) displayUrl.searchParams.set("daily", "true");
     else displayUrl.searchParams.delete("daily");
+    displayUrl.searchParams.set("hideEmptyDays", String(requestedHideEmptyDays));
     displayUrl.searchParams.delete("handler");
     window.history.replaceState(null, "", `${displayUrl.pathname}${displayUrl.search}${displayUrl.hash}`);
   } catch (error) {
@@ -2038,11 +2241,17 @@ async function downloadChartAsPng(graph) {
 }
 
 function getChartExportContext() {
-  const options = document.querySelector("[data-chart-export-options]");
   const body = document.body;
+  const isEnabled = key => {
+    try {
+      return window.localStorage.getItem(key) === "true";
+    } catch {
+      return false;
+    }
+  };
   return {
-    owner: options?.querySelector("[data-chart-export-owner]")?.checked ? (body.dataset.chartExportOwnerName || "").trim() : "",
-    journal: options?.querySelector("[data-chart-export-journal]")?.checked ? (body.dataset.chartExportJournalName || "").trim() : ""
+    owner: isEnabled("tradefoundry.chart-export.include-owner") ? (body.dataset.chartExportOwnerName || "").trim() : "",
+    journal: isEnabled("tradefoundry.chart-export.include-journal") ? (body.dataset.chartExportJournalName || "").trim() : ""
   };
 }
 

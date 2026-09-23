@@ -30,14 +30,20 @@
     string PeriodTone(decimal value) => value > 0m ? "positive" : value < 0m ? "negative" : "neutral";
     string BenchmarkSummary()
     {
+        var symbols = Model.BenchmarkPoints
+            .Select(point => point.Symbol)
+            .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var symbolsLabel = symbols.Length > 0 ? string.Join(", ", symbols) : Model.BenchmarkSymbol;
         if (Model.BenchmarkStatus is not { } status || status.PointCount == 0)
-            return $"Automatic {Model.BenchmarkSymbol} data";
+            return $"Automatic {symbolsLabel} data";
 
         var source = status.IsAutomatic ? "Yahoo Finance" : "manual import";
         var updated = status.LastFetchedUtc.HasValue
             ? $"updated {TimeZoneCatalog.Format(status.LastFetchedUtc.Value, Model.Journal?.TimeZone, "MMM d, yyyy HH:mm")}"
             : "manual import";
-        return $"{status.Symbol} · {status.PointCount:N0} daily points · {source} · {updated}";
+        return $"{symbolsLabel} · {Model.BenchmarkPoints.Count:N0} daily points · {source} · {updated}";
     }
 }
 
@@ -48,7 +54,7 @@
 
 @if (Model.DataAvailabilityWarnings.Count > 0)
 {
-    <div class="alert tf-alert warning" role="status"><strong>Evidence limits:</strong> @string.Join(" ", Model.DataAvailabilityWarnings)</div>
+    <div class="alert tf-alert warning" role="status" data-notification-href="@($"/journal/{Model.JournalId:D}/imports")"><strong>Evidence limits:</strong> @string.Join(" ", Model.DataAvailabilityWarnings)</div>
 }
 
 @if (Model.Overview is not null)
@@ -61,7 +67,7 @@
         <a href="#risk" data-analysis-target="risk">Risk &amp; stability</a>
         <a href="#edge-persistence" data-analysis-target="edge-persistence">Edge persistence</a>
         <a href="#trade-quality" data-analysis-target="trade-quality">Trade quality</a>
-        <a href="#timing-sizing" data-analysis-target="timing-sizing">Timing &amp; sizing</a>
+        <a href="#timing-sizing" data-analysis-target="timing-sizing">Trade context</a>
         <a href="#execution" data-analysis-target="execution">Execution</a>
     </nav>
 
@@ -125,7 +131,6 @@
     <section id="period-summary" class="tf-chart-section tf-period-summary-section" aria-labelledby="period-summary-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">PERIOD SUMMARY</div>
                 <div class="tf-chart-section-title-row">
                     <h2 id="period-summary-heading">Period Summary</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Period Summary" aria-expanded="false" aria-controls="period-summary-description" aria-label="Show explanation for Period Summary"><span aria-hidden="true">i</span></button>
@@ -222,7 +227,7 @@
 
     <div class="tf-history-calendar">
         <article class="card tf-card tf-library-chart tf-library-chart-wide">
-            <div class="card-header"><div><div class="tf-kicker">P&amp;L CALENDAR</div><h3 class="tf-card-title">Monthly net P&amp;L by day</h3></div><span>@Model.Journal?.TimeZone · completed trades</span></div>
+            <div class="card-header"><div><div class="tf-kicker">P&amp;L CALENDAR</div><h3 class="tf-card-title">Monthly net P&amp;L by day</h3></div><span>completed trades</span></div>
             <div class="card-body">
                 <div class="tf-pnl-calendar" data-pnl-calendar data-pnl-currency="@Model.PnlCalendarCurrency" data-pnl-review-base="@($"/journal/{Model.JournalId:D}/review")">
                     <div class="tf-pnl-calendar-toolbar">
@@ -424,7 +429,7 @@
             </div>
             <div class="tf-chart-grid">
                 <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">BENCHMARK</div><h4 class="tf-card-title">Strategy vs benchmark returns</h4></div><div class="tf-benchmark-actions"><span class="text-secondary">@BenchmarkSummary()</span><form method="post" action="@($"/journal/{Model.JournalId:D}/analytics?handler=RefreshBenchmark")">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><button class="btn btn-sm btn-outline-secondary" type="submit">Refresh data</button></form></div></div><div class="card-body">@Html.Raw(Model.ReturnsChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ROBUSTNESS</div><h4 class="tf-card-title">Monte Carlo simulated paths</h4></div><span class="text-secondary">bootstrap resampling</span></div><div class="card-body">@Html.Raw(Model.MonteCarloChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ROBUSTNESS</div><h4 class="tf-card-title">Monte Carlo simulated paths</h4></div></div><div class="card-body">@Html.Raw(Model.MonteCarloChart)</div></article>
             </div>
         </div>
     </section>
@@ -471,7 +476,6 @@
                     <h3 id="risk-metrics-heading">Drawdown and risk-adjusted returns</h3>
                     <p id="risk-metrics-description" class="tf-section-info" hidden>These indicator cards summarize drawdown depth, recovery, tail loss, and risk-adjusted return. Percentage-based measures depend on a valid positive starting balance; dollar drawdown remains available from completed trades.</p>
                 </div>
-                <span>the metric snapshot behind the charts</span>
             </div>
             <div class="tf-indicator-grid tf-risk-metrics-grid">
                 @for (var indicatorIndex = 0; indicatorIndex < riskIndicators.Count; indicatorIndex++)
@@ -485,7 +489,17 @@
                             {
                                 <span class="tf-indicator-help">
                                     <button type="button" class="tf-indicator-help-button" title="@indicator.Help" aria-label="More information about @indicator.Label" aria-describedby="@helpId">?</button>
-                                    <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">@indicator.Help</span>
+                                    <span id="@helpId" class="tf-indicator-help-popup" role="tooltip">
+                                        @indicator.Help
+                                        @if (indicator.Label == "Ulcer Index")
+                                        {
+                                            <a href="https://www.aaii.com/journal/article/the-ulcer-index" target="_blank" rel="noopener noreferrer">Read about the Ulcer Index</a>
+                                        }
+                                        else if (indicator.Label == "Sharpe")
+                                        {
+                                            <a href="https://www.cfainstitute.org/insights/articles/understanding-investment-risk" target="_blank" rel="noopener noreferrer">Read about the Sharpe ratio</a>
+                                        }
+                                    </span>
                                 </span>
                             }
                         </div>
@@ -1019,37 +1033,17 @@
     <section id="timing-sizing" class="tf-chart-section" aria-labelledby="timing-sizing-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">TIMING &amp; SIZING</div>
+                <div class="tf-kicker">TRADE CONTEXT</div>
                 <div class="tf-chart-section-title-row">
-                    <h2 id="timing-sizing-heading">When and how large the edge is</h2>
-                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Timing and sizing" aria-expanded="false" aria-controls="timing-sizing-description" aria-label="Show explanation for Timing and sizing"><span aria-hidden="true">i</span></button>
+                    <h2 id="timing-sizing-heading">Trade direction and session</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Trade context" aria-expanded="false" aria-controls="timing-sizing-description" aria-label="Show explanation for Trade context"><span aria-hidden="true">i</span></button>
                 </div>
-                <p id="timing-sizing-description" class="tf-section-info" hidden>This section looks for the time windows, directions, sessions, and position sizes where the strategy performs best, while making low-sample and size-related changes visible.</p>
+                <p id="timing-sizing-description" class="tf-section-info" hidden>This section breaks out recorded results by trade direction and trading session.</p>
             </div>
-            <span>@Model.Journal?.TimeZone · entry time</span>
         </div>
-        <nav class="tf-subsection-index" aria-label="Timing and sizing subsections">
-            <a href="#timing-entry">Entry timing</a>
+        <nav class="tf-subsection-index" aria-label="Trade context subsections">
             <a href="#timing-context">Direction &amp; session</a>
-            <a href="#timing-size">Position size</a>
         </nav>
-
-        <div id="timing-entry" class="tf-chart-subsection">
-            <div class="tf-chart-subsection-heading">
-                <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">ENTRY TIMING</div>
-                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Entry timing" aria-expanded="false" aria-controls="timing-entry-description" aria-label="Show explanation for Entry timing"><span aria-hidden="true">i</span></button>
-                    </div>
-                    <h3>When entries work best</h3>
-                    <p id="timing-entry-description" class="tf-section-info" hidden>This subsection finds the entry days, hours, and sessions where expectancy is strongest or weakest.</p>
-                </div>
-            </div>
-            <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">TIMING</div><h4 class="tf-card-title">Average P&amp;L by entry day and hour</h4></div></div><div class="card-body">@Html.Raw(Model.TimingChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">TIME BUCKETS</div><h4 class="tf-card-title">Expectancy by session, day, and hour</h4></div></div><div class="card-body">@Html.Raw(Model.TimeBucketChart)</div></article>
-            </div>
-        </div>
 
         <div id="timing-context" class="tf-chart-subsection">
             <div class="tf-chart-subsection-heading">
@@ -1068,22 +1062,6 @@
             </div>
         </div>
 
-        <div id="timing-size" class="tf-chart-subsection">
-            <div class="tf-chart-subsection-heading">
-                <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">POSITION SIZE</div>
-                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Position size" aria-expanded="false" aria-controls="timing-size-description" aria-label="Show explanation for Position size"><span aria-hidden="true">i</span></button>
-                    </div>
-                    <h3>Trade-size distribution and expectancy</h3>
-                    <p id="timing-size-description" class="tf-section-info" hidden>This subsection shows how often each contract size is profitable or losing, then compares expectancy and win rate across sizes. Profitable trades extend right from zero, losses extend left, and breakeven trades are marked at zero.</p>
-                </div>
-            </div>
-            <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">POSITION SIZE</div><h4 class="tf-card-title">Trade-size distribution by outcome</h4></div></div><div class="card-body">@Html.Raw(Model.TradeSizeDistributionChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">POSITION SIZE</div><h4 class="tf-card-title">Expectancy and win rate by contracts</h4></div></div><div class="card-body">@Html.Raw(Model.PositionSizeChart)</div></article>
-            </div>
-        </div>
     </section>
 
     <section id="execution" class="tf-chart-section" aria-labelledby="execution-heading">
@@ -1094,30 +1072,12 @@
                     <h2 id="execution-heading">How the plan is expressed</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Execution" aria-expanded="false" aria-controls="execution-description" aria-label="Show explanation for Execution"><span aria-hidden="true">i</span></button>
                 </div>
-                <p id="execution-description" class="tf-section-info" hidden>This section evaluates how the plan becomes orders, including fill, cancel, modify, and partial-fill behavior, plus the way completed positions are classified at exit.</p>
+                <p id="execution-description" class="tf-section-info" hidden>This section groups completed positions by exit type to show how the plan is being closed and how each exit behaves.</p>
             </div>
-            <span>order lifecycle and exit classification</span>
         </div>
         <nav class="tf-subsection-index" aria-label="Execution subsections">
-            <a href="#execution-orders">Order lifecycle</a>
             <a href="#execution-exits">Exit classification</a>
         </nav>
-
-        <div id="execution-orders" class="tf-chart-subsection">
-            <div class="tf-chart-subsection-heading">
-                <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">ORDER LIFECYCLE</div>
-                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Order lifecycle" aria-expanded="false" aria-controls="execution-orders-description" aria-label="Show explanation for Order lifecycle"><span aria-hidden="true">i</span></button>
-                    </div>
-                    <h3>Fill, cancel, modify, and partial-fill behavior</h3>
-                    <p id="execution-orders-description" class="tf-section-info" hidden>This subsection measures how orders become fills, including fill, cancel, modify, and partial-fill behavior.</p>
-                </div>
-            </div>
-            <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ORDER LIFECYCLE</div><h4 class="tf-card-title">Order execution rates</h4></div><span class="text-secondary">fill, cancel, modify, partial fill</span></div><div class="card-body">@Html.Raw(Model.OrderExecutionChart)</div></article>
-            </div>
-        </div>
 
         <div id="execution-exits" class="tf-chart-subsection">
             <div class="tf-chart-subsection-heading">
@@ -1137,6 +1097,6 @@
     </section>
 
     <section class="card tf-card tf-chart-boundary mt-3">
-        <div class="card-body"><div class="tf-kicker">DATA BOUNDARY</div><p class="mb-0 text-secondary">Benchmark comparisons require a starting-equity value and a daily benchmark series. The default S&amp;P 500 series is refreshed automatically from Yahoo Finance when completed trades exist; manual CSV/TSV benchmark imports remain available. R-multiple values require an initial stop order; order execution requires Sierra order rows. Missing source evidence remains an explicit empty state.</p></div>
+        <div class="card-body"><div class="tf-kicker">DATA BOUNDARY</div><p class="mb-0 text-secondary">Benchmark comparisons require a starting-equity value and a daily benchmark series. The default S&amp;P 500 series and NQ/RTY index series are refreshed automatically from Yahoo Finance when matching completed trades exist; manual CSV/TSV benchmark imports remain available. R-multiple values require an initial stop order. Missing source evidence remains an explicit empty state.</p></div>
     </section>
 }

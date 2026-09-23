@@ -94,7 +94,7 @@ public class AnalyticsModel : PageModel
     public string ExitTypeChart => ChartRenderer.ExitTypeAnalysis(Trades);
     public string OrderExecutionChart => ChartRenderer.OrderExecution(OrderEvents);
 
-    public sealed record PnlCalendarDay(string Date, int Day, decimal NetPnl, int TradeCount);
+    public sealed record PnlCalendarDay(string Date, int Day, decimal NetPnl, int TradeCount, decimal Points, decimal? AverageMaePoints);
 
     public sealed record PnlCalendarMonth(
         string Key,
@@ -112,10 +112,17 @@ public class AnalyticsModel : PageModel
 
         Overview = _database.GetOverview(JournalId);
         Trades = _database.GetAllTrades(JournalId);
-        var refresh = await _benchmarkRefresh.RefreshAsync(JournalId, Trades, force: false, cancellationToken: cancellationToken);
-        if (refresh.Failed)
+        var benchmarkRefreshes = new List<(string Symbol, BenchmarkRefreshResult Result)>();
+        foreach (var symbol in BenchmarkSymbolsForTrades(Trades))
         {
-            BenchmarkRefreshMessage = $"{refresh.Message} Existing cached benchmark data was kept.";
+            var refresh = await _benchmarkRefresh.RefreshAsync(JournalId, Trades, symbol, force: false, cancellationToken: cancellationToken);
+            benchmarkRefreshes.Add((symbol, refresh));
+        }
+
+        var benchmarkFailures = benchmarkRefreshes.Where(item => item.Result.Failed).ToArray();
+        if (benchmarkFailures.Length > 0)
+        {
+            BenchmarkRefreshMessage = string.Join(" ", benchmarkFailures.Select(item => $"{item.Symbol}: {item.Result.Message}"));
             BenchmarkRefreshMessageKind = "warning";
         }
 
@@ -143,16 +150,46 @@ public class AnalyticsModel : PageModel
     {
         if (_database.GetJournal(JournalId) is null) return NotFound();
         var trades = _database.GetAllTrades(JournalId);
-        var refresh = await _benchmarkRefresh.RefreshAsync(JournalId, trades, force: true, cancellationToken);
-        TempData["BenchmarkFlashMessage"] = refresh.Message;
-        TempData["BenchmarkFlashKind"] = refresh.Succeeded ? "success" : "warning";
+        var refreshes = new List<(string Symbol, BenchmarkRefreshResult Result)>();
+        foreach (var symbol in BenchmarkSymbolsForTrades(trades))
+        {
+            var refresh = await _benchmarkRefresh.RefreshAsync(JournalId, trades, symbol, force: true, cancellationToken);
+            refreshes.Add((symbol, refresh));
+        }
+
+        var failures = refreshes.Where(item => item.Result.Failed).ToArray();
+        TempData["BenchmarkFlashMessage"] = failures.Length > 0
+            ? string.Join(" ", failures.Select(item => $"{item.Symbol}: {item.Result.Message}"))
+            : string.Join(" ", refreshes.Select(item => item.Result.Message));
+        TempData["BenchmarkFlashKind"] = failures.Length == 0 ? "success" : "warning";
         return Redirect($"/journal/{JournalId:D}/analytics#performance-benchmark");
     }
 
     private void LoadBenchmarkPoints()
     {
-        BenchmarkPoints = _database.GetBenchmarkPoints(JournalId, BenchmarkSymbol);
+        BenchmarkPoints = BenchmarkSymbolsForTrades(Trades)
+            .SelectMany(symbol => _database.GetBenchmarkPoints(JournalId, symbol))
+            .OrderBy(point => point.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(point => point.EventUtc)
+            .ToArray();
         if (BenchmarkPoints.Count == 0) BenchmarkPoints = _database.GetBenchmarkPoints(JournalId);
+    }
+
+    private IReadOnlyList<string> BenchmarkSymbolsForTrades(IEnumerable<Trade> trades)
+    {
+        var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { BenchmarkSymbol };
+        foreach (var trade in trades.Where(item => item.ExitUtc.HasValue))
+        {
+            var instrument = string.IsNullOrWhiteSpace(trade.Instrument) ? trade.Symbol : trade.Instrument;
+            var root = InstrumentCatalog.ExtractRoot(instrument);
+            if (root is "NQ" or "MNQ") symbols.Add("^NDX");
+            if (root is "RTY" or "M2K") symbols.Add("^RUT");
+        }
+
+        return symbols
+            .OrderBy(symbol => string.Equals(symbol, BenchmarkSymbol, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private void BuildPnlCalendar()
@@ -161,7 +198,18 @@ public class AnalyticsModel : PageModel
 
         var daily = DailyTradeAggregation.Build(Trades, Journal.TimeZone)
             .Where(day => day.CompletedTradeCount > 0)
-            .ToDictionary(day => day.Date, day => (NetPnl: day.RealizedNetPnl, TradeCount: day.CompletedTradeCount));
+            .ToDictionary(day => day.Date, day =>
+            {
+                var maeValues = day.CompletedTrades
+                    .Where(trade => trade.MaePoints.HasValue)
+                    .Select(trade => trade.MaePoints!.Value)
+                    .ToArray();
+                return (
+                    NetPnl: day.RealizedNetPnl,
+                    TradeCount: day.CompletedTradeCount,
+                    Points: day.CompletedTrades.Sum(trade => trade.AveragePoints),
+                    AverageMaePoints: maeValues.Length > 0 ? (decimal?)maeValues.Average() : null);
+            });
 
         PnlCalendarMonths = daily.Keys
             .GroupBy(date => new { date.Year, date.Month })
@@ -176,12 +224,14 @@ public class AnalyticsModel : PageModel
                         var date = new DateOnly(group.Key.Year, group.Key.Month, dayNumber);
                         var summary = daily.TryGetValue(date, out var value)
                             ? value
-                            : (NetPnl: 0m, TradeCount: 0);
+                            : (NetPnl: 0m, TradeCount: 0, Points: 0m, AverageMaePoints: (decimal?)null);
                         return new PnlCalendarDay(
                             date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                             dayNumber,
                             summary.NetPnl,
-                            summary.TradeCount);
+                            summary.TradeCount,
+                            summary.Points,
+                            summary.AverageMaePoints);
                     })
                     .ToArray();
 

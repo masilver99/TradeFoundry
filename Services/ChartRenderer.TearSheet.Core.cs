@@ -90,26 +90,37 @@ public static partial class ChartRenderer
             }
         };
 
-        var benchmark = SelectBenchmark(benchmarkSource);
-        if (benchmark.Count > 0)
+        var benchmarkColors = new[] { Gold, "#a371f7", "#3fb950", "#f85149" };
+        var benchmarkIndex = 0;
+        foreach (var benchmark in benchmarkSource
+            .Where(point => point.Value > 0m && !string.IsNullOrWhiteSpace(point.Symbol))
+            .GroupBy(point => point.Symbol, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
         {
+            var orderedBenchmark = benchmark
+                .OrderBy(point => point.EventUtc)
+                .Select(point => new BenchmarkValue(point.Symbol, DateOnly.FromDateTime(point.EventUtc.UtcDateTime.Date), point.Value))
+                .ToArray();
+            if (orderedBenchmark.Length == 0) continue;
             var firstStrategyDate = daily[0].Date;
-            var basePoint = benchmark.LastOrDefault(x => x.Date <= firstStrategyDate);
-            if (basePoint == default) basePoint = benchmark[0];
-            var comparison = benchmark
+            var basePoint = orderedBenchmark.LastOrDefault(point => point.Date <= firstStrategyDate);
+            if (basePoint == default) basePoint = orderedBenchmark[0];
+            var comparison = orderedBenchmark
                 .Where(x => x.Date >= basePoint.Date && x.Date <= lastDate)
                 .ToArray();
             if (comparison.Length > 0 && basePoint.Value > 0m)
             {
+                var symbol = benchmark.Key;
+                var color = benchmarkColors[benchmarkIndex++ % benchmarkColors.Length];
                 traces.Add(new
                 {
                     type = "scatter",
                     x = comparison.Select(x => DateLabel(x.Date)).ToArray(),
                     y = comparison.Select(x => (x.Value / basePoint.Value - 1m) * 100m).ToArray(),
                     mode = "lines",
-                    name = benchmark[0].Symbol,
-                    line = new { color = Gold, width = 1.7, dash = "dot" },
-                    hovertemplate = $"%{{x}}<br>{WebUtility.HtmlEncode(benchmark[0].Symbol)}: %{{y:.2f}}%<extra></extra>"
+                    name = symbol,
+                    line = new { color, width = 1.7, dash = "dot" },
+                    hovertemplate = $"%{{x}}<br>{WebUtility.HtmlEncode(symbol)}: %{{y:.2f}}%<extra></extra>"
                 });
             }
         }

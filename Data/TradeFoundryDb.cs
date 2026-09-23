@@ -16,7 +16,7 @@ namespace TradeFoundry.Data;
 public sealed class TradeFoundryDb
 {
     private const string DerivedFillSource = "Derived fills";
-    private const string JournalColumns = "id, name, execution_context, labels, description_lexical_state_json, timezone, currency, grouping_policy, starting_equity, created_utc";
+    private const string JournalColumns = "id, name, execution_context, labels, description_lexical_state_json, timezone, currency, grouping_policy, starting_equity, import_watch_directory, created_utc";
     private const string ImportColumns = "id, journal_id, file_name, source_application, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message";
     private const string EffectiveExchangeFeesSql = "COALESCE(r.exchange_fees, t.exchange_fees)";
     private const string EffectiveNfaFeesSql = "COALESCE(r.nfa_fees, t.nfa_fees)";
@@ -93,6 +93,7 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_source_instrument_mappings_application ON source_instrument_mappings(application_key, position, id)",
             "CREATE TABLE IF NOT EXISTS app_settings (settings_key TEXT PRIMARY KEY, settings_value TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS import_batches (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), file_name TEXT NOT NULL, source_application TEXT NOT NULL DEFAULT '', source_type TEXT NOT NULL, imported_utc TEXT NOT NULL, total_rows INTEGER NOT NULL, new_rows INTEGER NOT NULL, duplicate_rows INTEGER NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL DEFAULT '')",
+            "CREATE TABLE IF NOT EXISTS watched_import_files (journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, file_path TEXT NOT NULL, content_hash TEXT NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL, import_batch_id TEXT NULL REFERENCES import_batches(id) ON DELETE SET NULL, PRIMARY KEY(journal_id, file_path))",
             "CREATE INDEX IF NOT EXISTS ix_import_batches_journal ON import_batches(journal_id, imported_utc DESC)",
             "CREATE TABLE IF NOT EXISTS raw_records (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, row_number INTEGER NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
             "CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, activity_type TEXT NOT NULL DEFAULT 'Fills', order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', side TEXT NOT NULL, quantity INTEGER NOT NULL, price TEXT NOT NULL, price2 TEXT NULL, filled_quantity INTEGER NULL, open_close TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', high TEXT NULL, low TEXT NULL, note TEXT NOT NULL DEFAULT '', position_quantity INTEGER NULL, order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, account_balance TEXT NULL, fees TEXT NOT NULL DEFAULT '0', exchange_fee_per_contract TEXT NULL, nfa_fee_per_contract TEXT NULL, clearing_fee_per_contract TEXT NULL, row_number INTEGER NOT NULL, instrument TEXT NOT NULL DEFAULT '', point_value TEXT NOT NULL DEFAULT '0', tick_size TEXT NOT NULL DEFAULT '0', source_timeframe TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
@@ -152,6 +153,12 @@ public sealed class TradeFoundryDb
         // additive and idempotent for existing local SQLite files.
         EnsureColumn(connection, "journals", "starting_equity", "TEXT NULL");
         EnsureColumn(connection, "journals", "description_lexical_state_json", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "journals", "import_watch_directory", "TEXT NOT NULL DEFAULT ''");
+        using (var watchDirectoryIndex = connection.CreateCommand())
+        {
+            watchDirectoryIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS ix_journals_import_watch_directory ON journals(import_watch_directory COLLATE NOCASE) WHERE archived = 0 AND import_watch_directory <> ''";
+            watchDirectoryIndex.ExecuteNonQuery();
+        }
         EnsureColumn(connection, "daily_review_journals", "editor_state_json", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "import_batches", "source_application", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "benchmark_series", "provider", "TEXT NOT NULL DEFAULT 'Imported CSV'");
@@ -454,6 +461,96 @@ public sealed class TradeFoundryDb
         return reader.Read() ? ReadJournal(reader) : null;
     }
 
+    public bool SaveImportWatchDirectory(Guid journalId, string? directory, out string? conflictJournalName)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        conflictJournalName = null;
+        var normalizedDirectory = string.IsNullOrWhiteSpace(directory) ? string.Empty : NormalizeImportWatchDirectory(directory);
+
+        using var connection = OpenConnection();
+        if (normalizedDirectory.Length > 0)
+        {
+            using var existing = connection.CreateCommand();
+            existing.CommandText = "SELECT name FROM journals WHERE archived = 0 AND id <> $id AND import_watch_directory <> '' AND import_watch_directory = $directory COLLATE NOCASE LIMIT 1";
+            existing.Parameters.AddWithValue("$id", journalId.ToString("D"));
+            existing.Parameters.AddWithValue("$directory", normalizedDirectory);
+            conflictJournalName = existing.ExecuteScalar() as string;
+            if (conflictJournalName is not null) return false;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE journals SET import_watch_directory = $directory WHERE id = $id AND owner_user_id = $owner AND archived = 0";
+        command.Parameters.AddWithValue("$directory", normalizedDirectory);
+        command.Parameters.AddWithValue("$id", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$owner", TradeFoundryConstants.OwnerUserId);
+        return command.ExecuteNonQuery() == 1;
+    }
+
+    public IReadOnlyList<WatchedImportFileStatus> GetWatchedImportFileStatuses(Guid journalId, int limit = 25)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT journal_id, file_path, content_hash, status, message, updated_utc, import_batch_id FROM watched_import_files WHERE journal_id = $journal ORDER BY updated_utc DESC LIMIT $limit";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+        using var reader = command.ExecuteReader();
+        var statuses = new List<WatchedImportFileStatus>();
+        while (reader.Read())
+        {
+            statuses.Add(new WatchedImportFileStatus
+            {
+                JournalId = Guid.Parse(reader.GetString(0)),
+                FilePath = reader.GetString(1),
+                ContentHash = reader.GetString(2),
+                Status = reader.GetString(3),
+                Message = reader.GetString(4),
+                UpdatedUtc = ParseDate(reader.GetString(5)),
+                ImportBatchId = reader.IsDBNull(6) ? null : Guid.Parse(reader.GetString(6))
+            });
+        }
+        return statuses;
+    }
+
+    public WatchedImportFileStatus? GetWatchedImportFileStatus(Guid journalId, string filePath)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT journal_id, file_path, content_hash, status, message, updated_utc, import_batch_id FROM watched_import_files WHERE journal_id = $journal AND file_path = $path";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$path", Path.GetFullPath(filePath));
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? new WatchedImportFileStatus
+            {
+                JournalId = Guid.Parse(reader.GetString(0)), FilePath = reader.GetString(1), ContentHash = reader.GetString(2),
+                Status = reader.GetString(3), Message = reader.GetString(4), UpdatedUtc = ParseDate(reader.GetString(5)),
+                ImportBatchId = reader.IsDBNull(6) ? null : Guid.Parse(reader.GetString(6))
+            }
+            : null;
+    }
+
+    public void RecordWatchedImportFailure(WatchedImportRequest request, string message)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO watched_import_files (journal_id, file_path, content_hash, status, message, updated_utc, import_batch_id) VALUES ($journal, $path, $hash, 'failed', $message, $updated, NULL) ON CONFLICT(journal_id, file_path) DO UPDATE SET content_hash = excluded.content_hash, status = 'failed', message = excluded.message, updated_utc = excluded.updated_utc, import_batch_id = NULL";
+        command.Parameters.AddWithValue("$journal", request.JournalId.ToString("D"));
+        command.Parameters.AddWithValue("$path", Path.GetFullPath(request.FilePath));
+        command.Parameters.AddWithValue("$hash", request.ContentHash);
+        command.Parameters.AddWithValue("$message", message.Length > 1000 ? message[..1000] : message);
+        command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    private static string NormalizeImportWatchDirectory(string directory)
+    {
+        var fullPath = Path.GetFullPath(directory.Trim());
+        var root = Path.GetPathRoot(fullPath);
+        return fullPath.Length > (root?.Length ?? 0) ? Path.TrimEndingDirectorySeparator(fullPath) : fullPath;
+    }
+
     public IReadOnlyList<BrokerFeeProfile> GetBrokerFeeProfiles(Guid journalId, string? instrument = null)
     {
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
@@ -693,7 +790,7 @@ public sealed class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT j.id, j.name, j.execution_context, j.labels, j.description_lexical_state_json, j.timezone, j.currency, j.grouping_policy, j.starting_equity, j.created_utc FROM journals j JOIN mcp_token_journals g ON g.journal_id = j.id JOIN mcp_access_tokens t ON t.id = g.token_id WHERE t.id = $token AND t.revoked_utc IS NULL AND j.archived = 0 ORDER BY j.created_utc";
+        command.CommandText = "SELECT j.id, j.name, j.execution_context, j.labels, j.description_lexical_state_json, j.timezone, j.currency, j.grouping_policy, j.starting_equity, j.import_watch_directory, j.created_utc FROM journals j JOIN mcp_token_journals g ON g.journal_id = j.id JOIN mcp_access_tokens t ON t.id = g.token_id WHERE t.id = $token AND t.revoked_utc IS NULL AND j.archived = 0 ORDER BY j.created_utc";
         command.Parameters.AddWithValue("$token", tokenId.ToString("D"));
         var journals = new List<Journal>();
         using var reader = command.ExecuteReader();
@@ -2164,7 +2261,7 @@ public sealed class TradeFoundryDb
         return present.Length == 0 ? null : checked(present.Sum());
     }
 
-    public ImportResult CommitImport(Guid journalId, string fileName, ParsedImport parsed, string groupingPolicy, string interval, string? sourceTimeZone = null)
+    public ImportResult CommitImport(Guid journalId, string fileName, ParsedImport parsed, string groupingPolicy, string interval, string? sourceTimeZone = null, WatchedImportRequest? watchedImport = null)
     {
         var batchId = Guid.NewGuid();
         var importedUtc = DateTimeOffset.UtcNow;
@@ -2233,6 +2330,19 @@ public sealed class TradeFoundryDb
             update.Parameters.AddWithValue("$message", string.Join(" ", messages));
             update.Parameters.AddWithValue("$id", batchId.ToString("D"));
             update.ExecuteNonQuery();
+
+            if (watchedImport is not null)
+            {
+                using var watched = connection.CreateCommand();
+                watched.Transaction = transaction;
+                watched.CommandText = "INSERT INTO watched_import_files (journal_id, file_path, content_hash, status, message, updated_utc, import_batch_id) VALUES ($journal, $path, $hash, 'completed', '', $updated, $batch) ON CONFLICT(journal_id, file_path) DO UPDATE SET content_hash = excluded.content_hash, status = 'completed', message = '', updated_utc = excluded.updated_utc, import_batch_id = excluded.import_batch_id";
+                watched.Parameters.AddWithValue("$journal", watchedImport.JournalId.ToString("D"));
+                watched.Parameters.AddWithValue("$path", Path.GetFullPath(watchedImport.FilePath));
+                watched.Parameters.AddWithValue("$hash", watchedImport.ContentHash);
+                watched.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+                watched.Parameters.AddWithValue("$batch", batchId.ToString("D"));
+                watched.ExecuteNonQuery();
+            }
             transaction.Commit();
         }
 
@@ -3324,7 +3434,7 @@ public sealed class TradeFoundryDb
 
     private static Journal ReadJournal(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), Name = reader.GetString(1), ExecutionContext = reader.GetString(2), Labels = reader.GetString(3), DescriptionLexicalStateJson = reader.GetString(4), TimeZone = reader.GetString(5), Currency = reader.GetString(6), GroupingPolicy = reader.GetString(7), StartingEquity = NullableDecimal(reader, 8), CreatedUtc = ParseDate(reader.GetString(9))
+        Id = Guid.Parse(reader.GetString(0)), Name = reader.GetString(1), ExecutionContext = reader.GetString(2), Labels = reader.GetString(3), DescriptionLexicalStateJson = reader.GetString(4), TimeZone = reader.GetString(5), Currency = reader.GetString(6), GroupingPolicy = reader.GetString(7), StartingEquity = NullableDecimal(reader, 8), ImportWatchDirectory = reader.GetString(9), CreatedUtc = ParseDate(reader.GetString(10))
     };
 
     private static string InferSourceApplication(string sourceApplication, string sourceType)

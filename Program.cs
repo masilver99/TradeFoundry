@@ -49,11 +49,13 @@ builder.Services.Configure<BenchmarkOptions>(builder.Configuration.GetSection("B
 builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
 builder.Services.AddSingleton<TradeFoundryDb>();
 builder.Services.AddSingleton<ImportService>();
+builder.Services.AddSingleton<ImportFolderMonitor>();
 builder.Services.AddSingleton<McpTokenService>();
 builder.Services.AddSingleton<JournalAnalysisService>();
 builder.Services.AddSingleton<TradeReviewService>();
 builder.Services.AddSingleton<AccountLedgerService>();
 builder.Services.AddHostedService<McpHostedService>();
+builder.Services.AddHostedService<ImportFolderMonitor>(services => services.GetRequiredService<ImportFolderMonitor>());
 builder.Services.AddHttpClient<YahooFinanceBenchmarkProvider>(client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TradeFoundry/1.0 local benchmark refresh");

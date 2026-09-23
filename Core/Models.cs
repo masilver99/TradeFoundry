@@ -44,7 +44,26 @@ public sealed class Journal
     public string Currency { get; init; } = "USD";
     public string GroupingPolicy { get; init; } = "flat_to_flat";
     public decimal? StartingEquity { get; init; }
+    public string ImportWatchDirectory { get; init; } = string.Empty;
     public DateTimeOffset CreatedUtc { get; init; }
+}
+
+public sealed class WatchedImportFileStatus
+{
+    public Guid JournalId { get; init; }
+    public string FilePath { get; init; } = string.Empty;
+    public string ContentHash { get; init; } = string.Empty;
+    public string Status { get; init; } = string.Empty;
+    public string Message { get; init; } = string.Empty;
+    public DateTimeOffset UpdatedUtc { get; init; }
+    public Guid? ImportBatchId { get; init; }
+}
+
+public sealed class WatchedImportRequest
+{
+    public Guid JournalId { get; init; }
+    public string FilePath { get; init; } = string.Empty;
+    public string ContentHash { get; init; } = string.Empty;
 }
 
 public sealed class ImportBatch

@@ -34,6 +34,51 @@ public sealed class ImportService
         return _database.CommitImport(journalId, fileName, parsed, groupingPolicy, interval, importTimeZone);
     }
 
+    public ImportResult ImportWatchedText(Guid journalId, string filePath, string text, string contentHash)
+    {
+        text = (text ?? string.Empty).TrimStart('\uFEFF');
+        if (!IsSupportedTradeExport(text))
+            throw new FormatException("The file is not a recognized trade export. Supported sources are Sierra Chart fills and orders, TradingView account history, and TradingView Strategy Tester.");
+
+        var journal = _database.GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var importTimeZone = ResolveSourceTimeZone(text, "auto", TimeZoneCatalog.Auto, TimeZoneCatalog.CanonicalId(journal.TimeZone));
+        var parsed = Parse(text, "auto", "source", importTimeZone, configuration: _database.GetInstrumentConfiguration());
+        if (parsed.Records.Count == 0 && parsed.Trades.Count == 0)
+            throw new FormatException("The file did not contain any importable trade rows.");
+
+        return _database.CommitImport(
+            journalId,
+            Path.GetFileName(filePath),
+            parsed,
+            journal.GroupingPolicy,
+            "source",
+            importTimeZone,
+            new WatchedImportRequest { JournalId = journalId, FilePath = Path.GetFullPath(filePath), ContentHash = contentHash });
+    }
+
+    public static bool IsSupportedTradeExport(string text)
+    {
+        var headerLine = (text ?? string.Empty).TrimStart('\uFEFF').Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n')
+            .FirstOrDefault(line => !string.IsNullOrWhiteSpace(line));
+        if (string.IsNullOrWhiteSpace(headerLine)) return false;
+
+        var delimiter = ChooseDelimiter(headerLine);
+        var headers = ParseDelimitedLine(headerLine, delimiter).Select(NormalizeHeader).ToArray();
+        bool Has(params string[] names) => names.Any(headers.Contains);
+
+        if (Has("activitytype", "fillexecutionserviceid")) return true;
+        if ((Has("trade", "tradenumber") && Has("netpnl", "profit", "entryprice"))) return true;
+
+        if (Has("adjclose", "adjustedclose", "totalreturn", "totalreturnvalue") && Has("date", "datetime", "timestamp")) return false;
+        if (Has("open") && Has("high") && Has("low") && Has("close", "last")) return false;
+
+        return Has("timestamp", "datetime", "filledat", "executedat", "date", "time")
+            && Has("quantity", "qty", "contracts", "filledquantity")
+            && Has("price", "fillprice", "filledprice", "executionprice")
+            && Has("side", "action", "buysell", "direction", "type")
+            && Has("symbol", "ticker", "instrument");
+    }
+
     public ParsedImport Parse(string text, string requestedType = "auto", string interval = "source", string timeZone = "UTC", string benchmarkSymbol = "SPY", InstrumentConfiguration? configuration = null, string barSymbol = "")
     {
         configuration ??= InstrumentConfiguration.Empty;

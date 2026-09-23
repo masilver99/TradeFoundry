@@ -22,6 +22,47 @@
     </div>
 </div>
 
+<div class="card tf-card mb-3">
+    <div class="card-header"><div><div class="tf-kicker">AUTOMATIC IMPORTS</div><h3 class="tf-card-title">Watched folder</h3></div></div>
+    <div class="card-body">
+        <form method="post" action="@($"/journal/{Model.JournalId:D}/settings/sources?handler=SaveImportWatchDirectory")" class="row g-3 align-items-end">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="journalId" value="@Model.JournalId" />
+            <div class="col-lg-9">
+                <label asp-for="ImportWatchDirectory" class="form-label">Folder path on the TradeFoundry server</label>
+                <input asp-for="ImportWatchDirectory" class="form-control font-monospace" placeholder="C:\\TradeFoundry\\Incoming" autocomplete="off" />
+                <div class="form-hint">Leave blank to disable. CSV, TSV, and TXT files in this folder are scanned on startup and while the server runs. Supported trade exports are imported into this journal; files stay in the folder.</div>
+            </div>
+            <div class="col-lg-3 d-flex gap-2">
+                <button class="btn btn-primary" type="submit">Save folder</button>
+                @if (!string.IsNullOrWhiteSpace(Model.ImportWatchDirectory))
+                {
+                    <button class="btn btn-outline-secondary" type="submit" name="clearImportWatchDirectory" value="true">Disable</button>
+                }
+            </div>
+        </form>
+        @if (Model.WatchedImportFiles.Count > 0)
+        {
+            <div class="table-responsive mt-4">
+                <table class="table table-vcenter tf-table">
+                    <thead><tr><th>File</th><th>Last result</th><th>Updated (UTC)</th><th>Batch</th></tr></thead>
+                    <tbody>
+                    @foreach (var file in Model.WatchedImportFiles)
+                    {
+                        <tr>
+                            <td class="font-monospace small">@System.IO.Path.GetFileName(file.FilePath)<small>@file.FilePath</small></td>
+                            <td><span class="tf-status @(file.Status == "completed" ? "tf-status-closed" : "tf-status-open text-danger")">@file.Status</span>@if (!string.IsNullOrWhiteSpace(file.Message)){<small>@file.Message</small>}</td>
+                            <td>@file.UpdatedUtc.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td>@if (file.ImportBatchId.HasValue){<a href="/journal/@Model.JournalId/imports">View imports</a>}else{<span class="text-secondary">—</span>}</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
 <div class="card tf-card">
     <div class="card-header"><div><div class="tf-kicker">SIERRA CHART</div><h3 class="tf-card-title">Symbol mappings</h3></div><span class="badge bg-blue-lt">sierra_chart</span></div>
     <div class="card-body">

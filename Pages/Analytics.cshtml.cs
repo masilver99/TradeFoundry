@@ -98,7 +98,7 @@ public class AnalyticsModel : PageModel
     public string ExitTypeChart => ChartRenderer.ExitTypeAnalysis(Trades);
     public string OrderExecutionChart => ChartRenderer.OrderExecution(OrderEvents);
 
-    public sealed record PnlCalendarDay(string Date, int Day, decimal NetPnl, int TradeCount, decimal Points, decimal? AverageMaePoints);
+    public sealed record PnlCalendarDay(string Date, int Day, decimal NetPnl, int TradeCount, decimal Points, decimal? MaeCurrency);
 
     public sealed record PnlCalendarMonth(
         string Key,
@@ -206,15 +206,11 @@ public class AnalyticsModel : PageModel
             .Where(day => day.CompletedTradeCount > 0)
             .ToDictionary(day => day.Date, day =>
             {
-                var maeValues = day.CompletedTrades
-                    .Where(trade => trade.MaePoints.HasValue)
-                    .Select(trade => trade.MaePoints!.Value)
-                    .ToArray();
                 return (
                     NetPnl: day.RealizedNetPnl,
                     TradeCount: day.CompletedTradeCount,
-                    Points: day.CompletedTrades.Sum(trade => trade.AveragePoints),
-                    AverageMaePoints: maeValues.Length > 0 ? (decimal?)maeValues.Average() : null);
+                    Points: day.RealizedGrossPoints,
+                    MaeCurrency: day.RealizedMaeCurrency);
             });
 
         PnlCalendarMonths = daily.Keys
@@ -230,14 +226,14 @@ public class AnalyticsModel : PageModel
                         var date = new DateOnly(group.Key.Year, group.Key.Month, dayNumber);
                         var summary = daily.TryGetValue(date, out var value)
                             ? value
-                            : (NetPnl: 0m, TradeCount: 0, Points: 0m, AverageMaePoints: (decimal?)null);
+                            : (NetPnl: 0m, TradeCount: 0, Points: 0m, MaeCurrency: (decimal?)null);
                         return new PnlCalendarDay(
                             date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                             dayNumber,
                             summary.NetPnl,
                             summary.TradeCount,
                             summary.Points,
-                            summary.AverageMaePoints);
+                            summary.MaeCurrency);
                     })
                     .ToArray();
 

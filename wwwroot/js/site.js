@@ -1162,9 +1162,27 @@ function initializePnlCalendar() {
     currencyFormat = null;
   }
 
+  let maeCurrencyFormat;
+  try {
+    maeCurrencyFormat = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: root.dataset.pnlCurrency || "USD",
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 0
+    });
+  } catch {
+    maeCurrencyFormat = null;
+  }
+
   const formatPnl = value => {
     const numericValue = Number(value || 0);
-    return currencyFormat ? currencyFormat.format(numericValue) : numericValue.toFixed(2);
+    const absoluteValue = Math.abs(numericValue);
+    const formattedValue = currencyFormat ? currencyFormat.format(absoluteValue) : absoluteValue.toFixed(2);
+    return numericValue < 0 ? `(${formattedValue})` : formattedValue;
+  };
+  const formatMae = value => {
+    const numericValue = Number(value || 0);
+    return maeCurrencyFormat ? maeCurrencyFormat.format(numericValue) : `$${numericValue.toFixed(2)}`;
   };
   const element = (tagName, className, textContent) => {
     const node = document.createElement(tagName);
@@ -1211,21 +1229,23 @@ function initializePnlCalendar() {
       }
       dayNode.dataset.tone = tone;
       dayNode.setAttribute("aria-label", day.tradeCount > 0
-        ? `${day.date}: ${formatPnl(day.netPnl)}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}, ${Number(day.points || 0).toFixed(2)} points${day.averageMaePoints === null || day.averageMaePoints === undefined ? "" : `, average MAE ${Number(day.averageMaePoints).toFixed(2)} points`}`
+        ? `${day.date}: ${formatPnl(day.netPnl)}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}, ${Number(day.points || 0).toFixed(2)} points${day.maeCurrency === null || day.maeCurrency === undefined ? "" : `, ${formatMae(day.maeCurrency)} MAE`}`
         : `${day.date}: no completed trades`);
       if (day.tradeCount === 0) dayNode.classList.add("tf-pnl-day-no-trades");
       const footer = element("div", "tf-pnl-day-footer");
       footer.append(element("small", "tf-pnl-day-count", day.tradeCount > 0 ? `${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}` : "no trades"));
       if (day.tradeCount > 0) {
-        const metrics = element("span", "tf-pnl-day-metrics");
-        metrics.append(element("span", "tf-pnl-day-points", `Pts ${Number(day.points || 0).toFixed(2)}`));
-        if (day.averageMaePoints !== null && day.averageMaePoints !== undefined)
-          metrics.append(element("span", "tf-pnl-day-mae", `Avg MAE ${Number(day.averageMaePoints).toFixed(2)}`));
-        footer.append(metrics);
+        if (day.maeCurrency !== null && day.maeCurrency !== undefined)
+          footer.append(element("span", "tf-pnl-day-mae", `${formatMae(day.maeCurrency)} MAE`));
       }
+      const result = element("div", "tf-pnl-day-result");
+      result.append(
+        element("strong", "tf-pnl-day-value", day.tradeCount > 0 ? formatPnl(day.netPnl) : "—"),
+        ...(day.tradeCount > 0 ? [element("span", "tf-pnl-day-points", `${Number(day.points || 0).toFixed(2)}p`)] : [])
+      );
       dayNode.append(
         element("span", "tf-pnl-day-number", String(day.day)),
-        element("strong", "tf-pnl-day-value", day.tradeCount > 0 ? formatPnl(day.netPnl) : "—"),
+        result,
         footer
       );
       days.append(dayNode);

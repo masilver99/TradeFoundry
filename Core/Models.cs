@@ -609,6 +609,25 @@ public sealed class DailyTradeSummary
     public IReadOnlyList<Trade> CompletedTrades { get; init; } = Array.Empty<Trade>();
     public IReadOnlyList<Trade> OpenTrades { get; init; } = Array.Empty<Trade>();
     public decimal RealizedNetPnl => CompletedTrades.Sum(trade => trade.NetPnl);
+    public decimal RealizedGrossPoints => CompletedTrades.Sum(trade => trade.GrossPoints);
+    public decimal? RealizedMaeCurrency
+    {
+        get
+        {
+            var values = CompletedTrades
+                .Where(trade => trade.MaePoints.HasValue)
+                .Select(trade =>
+                {
+                    var instrument = string.IsNullOrWhiteSpace(trade.Instrument) ? trade.Symbol : trade.Instrument;
+                    var pointValue = trade.PointValue > 0m ? trade.PointValue : InstrumentCatalog.Resolve(instrument).PointValue;
+                    var quantity = Math.Max(1, trade.ClosedQuantity > 0 ? trade.ClosedQuantity : trade.Quantity);
+                    return Math.Abs(trade.MaePoints!.Value) * pointValue * quantity;
+                })
+                .ToArray();
+            // A daily MAE card represents the worst single completed position, not cumulative MAE across trades.
+            return values.Length > 0 ? values.Max() : null;
+        }
+    }
     public int CompletedTradeCount => CompletedTrades.Count;
     public int OpenTradeCount => OpenTrades.Count;
     public int TotalTradeCount => CompletedTradeCount + OpenTradeCount;

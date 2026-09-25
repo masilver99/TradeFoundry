@@ -68,6 +68,32 @@ public sealed class TradeReviewTests
     }
 
     [Fact]
+    public void DailyAggregationSumsGrossPointsAndSelectsHighestPositionMaeCurrencyAcrossMixedPositionSizes()
+    {
+        var trades = new[]
+        {
+            new Trade
+            {
+                Id = Guid.NewGuid(), EntryUtc = new DateTimeOffset(2026, 9, 25, 13, 30, 0, TimeSpan.Zero),
+                ExitUtc = new DateTimeOffset(2026, 9, 25, 13, 35, 0, TimeSpan.Zero), Status = "closed",
+                GrossPoints = -15m, AveragePoints = -15m, NetPnl = -75.98m, Quantity = 1, ClosedQuantity = 1, PointValue = 5m, MaePoints = 15m, Sequence = 1
+            },
+            new Trade
+            {
+                Id = Guid.NewGuid(), EntryUtc = new DateTimeOffset(2026, 9, 25, 13, 40, 0, TimeSpan.Zero),
+                ExitUtc = new DateTimeOffset(2026, 9, 25, 14, 0, 0, TimeSpan.Zero), Status = "closed",
+                GrossPoints = 29.25m, AveragePoints = 14.625m, NetPnl = 144.29m, Quantity = 2, ClosedQuantity = 2, PointValue = 5m, MaePoints = 16.125m, Sequence = 2
+            }
+        };
+
+        var day = Assert.Single(DailyTradeAggregation.Build(trades, "America/New_York"));
+
+        Assert.Equal(68.31m, day.RealizedNetPnl);
+        Assert.Equal(14.25m, day.RealizedGrossPoints);
+        Assert.Equal(161.25m, day.RealizedMaeCurrency);
+    }
+
+    [Fact]
     public async Task ReviewAnnotationsAreRevisionCheckedAndAttachmentsStayOutsideEvidence()
     {
         var directory = NewDirectory();

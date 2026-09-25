@@ -627,14 +627,16 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-pnl-day[data-tone="positive"] { border-left: 2px solid var(--tf-green); background: #123b26; }
 .tf-pnl-day[data-tone="negative"] { border-left: 2px solid var(--tf-red); background: #4a1c1c; }
 .tf-pnl-day-number { color: var(--tf-muted); font-size: 11px; font-weight: 600; }
+.tf-pnl-day-result { display: flex; width: 100%; min-width: 0; align-items: baseline; justify-content: space-between; gap: 4px; }
 .tf-pnl-day-value { color: var(--tf-ink); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.tf-pnl-day-points { color: var(--tf-muted); font-size: 10px; white-space: nowrap; }
 .tf-pnl-day[data-tone="positive"] .tf-pnl-day-value { color: #f0fdf4; }
 .tf-pnl-day[data-tone="negative"] .tf-pnl-day-value { color: #fff1f2; }
-.tf-pnl-day[data-tone="positive"] .tf-pnl-day-number, .tf-pnl-day[data-tone="positive"] .tf-pnl-day-count, .tf-pnl-day[data-tone="positive"] .tf-pnl-day-metrics { color: #a7f3d0; }
-.tf-pnl-day[data-tone="negative"] .tf-pnl-day-number, .tf-pnl-day[data-tone="negative"] .tf-pnl-day-count, .tf-pnl-day[data-tone="negative"] .tf-pnl-day-metrics { color: #fecaca; }
+.tf-pnl-day[data-tone="positive"] .tf-pnl-day-number, .tf-pnl-day[data-tone="positive"] .tf-pnl-day-count, .tf-pnl-day[data-tone="positive"] .tf-pnl-day-points, .tf-pnl-day[data-tone="positive"] .tf-pnl-day-mae { color: #a7f3d0; }
+.tf-pnl-day[data-tone="negative"] .tf-pnl-day-number, .tf-pnl-day[data-tone="negative"] .tf-pnl-day-count, .tf-pnl-day[data-tone="negative"] .tf-pnl-day-points, .tf-pnl-day[data-tone="negative"] .tf-pnl-day-mae { color: #fecaca; }
 .tf-pnl-day-footer { display: flex; width: 100%; min-width: 0; align-items: baseline; justify-content: space-between; gap: 4px; }
 .tf-pnl-day-count { color: var(--tf-muted); font-size: 10px; }
-.tf-pnl-day-metrics { display: flex; min-width: 0; justify-content: flex-end; gap: 6px; color: var(--tf-muted); font-size: 9px; white-space: nowrap; }
+.tf-pnl-day-mae { color: var(--tf-muted); font-size: 9px; white-space: nowrap; }
 
 .tf-settings-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--tf-line); }
 .tf-settings-nav a { padding: 6px 10px; border: 1px solid transparent; border-radius: 5px; color: var(--tf-muted); font-size: 12px; text-decoration: none; }
@@ -747,7 +749,9 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
   .tf-pnl-month-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tf-pnl-day { min-height: 4.25rem; padding: .4rem; }
   .tf-pnl-day-value { font-size: .58rem; }
-  .tf-pnl-day-metrics { gap: 3px; font-size: .48rem; }
+  .tf-pnl-day-result { gap: 3px; }
+  .tf-pnl-day-points { font-size: .48rem; }
+  .tf-pnl-day-mae { font-size: .48rem; }
   .tf-pnl-day-count { font-size: .5rem; }
 }
 

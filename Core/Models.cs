@@ -399,6 +399,7 @@ public sealed class JournalOverview
     public decimal NetPnl { get; init; }
     public decimal GrossPnl { get; init; }
     public decimal Points { get; init; }
+    public decimal FeeAdjustedPoints { get; init; }
     public decimal ExchangeFees { get; init; }
     public decimal NfaFees { get; init; }
     public decimal ClearingFees { get; init; }
@@ -406,10 +407,36 @@ public sealed class JournalOverview
     public decimal? StartingEquity { get; init; }
     public int ClosedTradeCount { get; init; }
     public int OpenTradeCount { get; init; }
+    public int TradingDays { get; init; }
     public int WinningTrades { get; init; }
     public int LosingTrades { get; init; }
     public decimal WinRate => ClosedTradeCount == 0 ? 0m : (decimal)WinningTrades / ClosedTradeCount * 100m;
     public decimal ProfitFactor { get; init; }
+    public double? EquityRSquared
+    {
+        get
+        {
+            // Fit cumulative net P&L against closed-trade order, matching the overview equity chart.
+            if (Equity.Count < 3) return null;
+
+            var meanPnl = Equity.Average(point => (double)point.CumulativePnl);
+            var meanIndex = (Equity.Count - 1) / 2d;
+            double covariance = 0d;
+            double pnlVariance = 0d;
+            double indexVariance = 0d;
+            for (var index = 0; index < Equity.Count; index++)
+            {
+                var centeredIndex = index - meanIndex;
+                var centeredPnl = (double)Equity[index].CumulativePnl - meanPnl;
+                covariance += centeredIndex * centeredPnl;
+                pnlVariance += centeredPnl * centeredPnl;
+                indexVariance += centeredIndex * centeredIndex;
+            }
+
+            if (pnlVariance == 0d) return null;
+            return Math.Clamp(covariance * covariance / (indexVariance * pnlVariance), 0d, 1d);
+        }
+    }
 }
 
 public sealed class EquityPoint

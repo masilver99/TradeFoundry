@@ -1033,6 +1033,7 @@ public sealed class TradeFoundryDb
         decimal grossPnl;
         decimal netPnl;
         decimal points;
+        decimal feeAdjustedPoints;
         decimal exchangeFees;
         decimal nfaFees;
         decimal clearingFees;
@@ -1064,6 +1065,15 @@ public sealed class TradeFoundryDb
             losingTrades = AggregateInt(reader, 12);
         }
 
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $"SELECT COALESCE(SUM(CAST(t.gross_points AS REAL) - CASE WHEN CAST(t.point_value AS REAL) > 0 THEN ({EffectiveFeesSql}) / CAST(t.point_value AS REAL) ELSE 0 END), 0) FROM {TradeFrom} WHERE t.journal_id = $journal";
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            using var reader = command.ExecuteReader();
+            if (!reader.Read()) throw new InvalidOperationException("The fee-adjusted points metric could not be read.");
+            feeAdjustedPoints = AggregateDecimal(reader, 0);
+        }
+
         var recentTrades = new List<Trade>();
         using (var command = connection.CreateCommand())
         {
@@ -1080,6 +1090,19 @@ public sealed class TradeFoundryDb
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             using var reader = command.ExecuteReader();
             while (reader.Read()) recentImports.Add(ReadImport(reader));
+        }
+
+        var tradingDays = new HashSet<DateOnly>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT DISTINCT entry_utc FROM trades WHERE journal_id = $journal";
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var localEntry = TimeZoneCatalog.Convert(ParseDate(reader.GetString(0)), journal.TimeZone);
+                tradingDays.Add(DateOnly.FromDateTime(localEntry.DateTime));
+            }
         }
 
         var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1124,6 +1147,7 @@ public sealed class TradeFoundryDb
             NetPnl = netPnl,
             GrossPnl = grossPnl,
             Points = points,
+            FeeAdjustedPoints = feeAdjustedPoints,
             ExchangeFees = exchangeFees,
             NfaFees = nfaFees,
             ClearingFees = clearingFees,
@@ -1131,6 +1155,7 @@ public sealed class TradeFoundryDb
             StartingEquity = startingEquity,
             ClosedTradeCount = closedTradeCount,
             OpenTradeCount = openTradeCount,
+            TradingDays = tradingDays.Count,
             WinningTrades = winningTrades,
             LosingTrades = losingTrades,
             ProfitFactor = profitFactor

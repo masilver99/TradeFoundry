@@ -124,6 +124,14 @@
                         }
                     </article>
                 }
+                @if (group.Id == "indicators-benchmark")
+                {
+                    <article class="tf-indicator-card">
+                        <div class="tf-indicator-label">R-squared</div>
+                        <div class="tf-indicator-value">@(overview.EquityRSquared?.ToString("0.000") ?? "—")</div>
+                        <div class="tf-indicator-note">Cumulative net P&amp;L vs. trade order · last 180 closed trades</div>
+                    </article>
+                }
             </div>
         </section>
     }

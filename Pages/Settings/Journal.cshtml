@@ -97,3 +97,31 @@
         </form>
     </div>
 </div>
+
+<div class="card tf-card mt-3">
+    <div class="card-header">
+        <div>
+            <div class="tf-kicker">TRADE REVIEW</div>
+            <h3 class="tf-card-title">MAE target</h3>
+        </div>
+    </div>
+    <div class="card-body">
+        <p class="text-secondary">Set a review target per contract. TradeFoundry flags recorded MAE at or above the target for review; this setting does not place or change broker orders.</p>
+        <form method="post" action="@($"/journal/{Model.JournalId:D}/settings/journal?handler=SaveMaeTargets")" class="row g-3">
+            @Html.AntiForgeryToken()
+            <input type="hidden" asp-for="JournalId" />
+            <div class="col-md-5">
+                <label class="form-label" asp-for="MaeTargetPerContract">Default target per contract (@Model.Journal!.Currency)</label>
+                <input asp-for="MaeTargetPerContract" class="form-control" type="number" min="0.01" step="0.01" placeholder="No default target" />
+                <span asp-validation-for="MaeTargetPerContract" class="text-danger"></span>
+            </div>
+            <div class="col-12">
+                <label class="form-label" asp-for="MaeInstrumentOverrides">Instrument overrides</label>
+                <textarea asp-for="MaeInstrumentOverrides" class="form-control" rows="4" spellcheck="false" placeholder="MES=35.00&#10;MNQ=50.00"></textarea>
+                <div class="form-hint">One instrument root and amount per line. For example, MES=35.00. An override replaces the default for that instrument.</div>
+                <span asp-validation-for="MaeInstrumentOverrides" class="text-danger"></span>
+            </div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Save MAE targets</button></div>
+        </form>
+    </div>
+</div>

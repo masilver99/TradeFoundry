@@ -275,6 +275,63 @@
                 </div>
             </div>
         </article>
+
+        <article class="card tf-card tf-library-chart tf-library-chart-wide tf-mae-calendar-card">
+            <div class="card-header"><div><div class="tf-kicker">MAE CALENDAR</div><h3 class="tf-card-title">Worst trade excursion by day</h3></div><span>@Model.PnlCalendarCurrency per contract · targets in Settings</span></div>
+            <div class="card-body">
+                <div class="tf-mae-calendar" data-mae-calendar data-mae-currency="@Model.PnlCalendarCurrency" data-mae-review-base="@($"/journal/{Model.JournalId:D}/review")">
+                    <div class="tf-pnl-calendar-toolbar">
+                        <div><div class="tf-kicker" data-mae-calendar-kicker>MONTHLY</div><h5 class="tf-pnl-calendar-title" data-mae-calendar-title aria-live="polite">Monthly MAE</h5></div>
+                        <button type="button" class="tf-pnl-calendar-back" data-mae-calendar-back hidden>Back to months</button>
+                    </div>
+                    @if (Model.MaeCalendarMonths.Count == 0)
+                    {
+                        <div class="chart-empty">No completed-trade MAE data is available yet.</div>
+                    }
+                    else
+                    {
+                        <div data-mae-calendar-monthly>
+                            @foreach (var year in Model.MaeCalendarMonths.GroupBy(month => month.Year))
+                            {
+                                <section class="tf-pnl-calendar-year" aria-labelledby="history-mae-calendar-year-@year.Key">
+                                    <div class="tf-pnl-calendar-year-heading"><h5 id="history-mae-calendar-year-@year.Key">@year.Key</h5><span>@year.Sum(month => month.TradeCount) completed trades</span></div>
+                                    <div class="tf-mae-month-grid">
+                                        @foreach (var month in year)
+                                        {
+                                            var tone = month.BreachCount > 0 ? "breach" : month.TargetEvaluatedTradeCount > 0 ? "within" : month.TargetConfiguredTradeCount > 0 ? "unavailable" : "unconfigured";
+                                            var value = month.WorstMaePerContract.HasValue ? $"{month.WorstMaePerContract.Value.ToString("N2", CultureInfo.CurrentCulture)} {Model.PnlCalendarCurrency}" : "No MAE";
+                                            var targetMeta = month.TargetConfiguredTradeCount > 0
+                                                ? $"{month.BreachCount} breaches · {month.TargetEvaluatedTradeCount}/{month.TargetConfiguredTradeCount} targets checked · {month.MaeObservedTradeCount}/{month.TradeCount} MAE"
+                                                : $"{month.MaeObservedTradeCount}/{month.TradeCount} MAE recorded · no target";
+                                            <button type="button" class="tf-mae-month" data-mae-month="@month.Key" data-tone="@tone" aria-label="@month.Label: worst MAE @value per contract, @month.BreachCount breaches, @month.TradeCount trades, @month.MaeObservedTradeCount with MAE, @month.TargetEvaluatedTradeCount of @month.TargetConfiguredTradeCount target configured trades checked">
+                                                <span class="tf-pnl-month-label">@month.Label</span>
+                                                <strong class="tf-mae-month-value">@value <small>/ contract</small></strong>
+                                                <small class="tf-mae-month-meta">@targetMeta</small>
+                                            </button>
+                                        }
+                                    </div>
+                                </section>
+                            }
+                        </div>
+                    }
+                    <div class="tf-mae-calendar-daily" data-mae-calendar-daily hidden aria-live="polite">
+                        <div class="tf-pnl-calendar-summary" data-mae-calendar-summary></div>
+                        <div class="tf-pnl-calendar-weekdays" aria-hidden="true">
+                            @foreach (var weekday in new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" })
+                            {
+                                <span class="tf-pnl-calendar-weekday">@weekday</span>
+                            }
+                        </div>
+                        <div class="tf-mae-calendar-days" data-mae-calendar-days></div>
+                        <section class="tf-mae-breach-section" aria-labelledby="history-mae-breach-heading">
+                            <div class="tf-mae-breach-heading"><h6 id="history-mae-breach-heading">Target breaches this month</h6><span data-mae-breach-summary></span></div>
+                            <div class="tf-mae-breach-list" data-mae-breach-list></div>
+                        </section>
+                    </div>
+                    <script type="application/json" data-mae-calendar-data>@Html.Raw(Model.MaeCalendarJson)</script>
+                </div>
+            </div>
+        </article>
     </div>
     </section>
 

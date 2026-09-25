@@ -9,6 +9,20 @@
     var reviewIndex = (int?)ViewData["ReviewIndex"] ?? 1;
     var reviewCount = (int?)ViewData["ReviewCount"] ?? 1;
     var reviewActive = (bool?)ViewData["ReviewActive"] ?? true;
+    var maeMetrics = reviewPage.MaeReview(trade, review);
+    var maeReviewStatus = maeMetrics.IsBreach switch
+    {
+        true => "Review target exceeded",
+        false => "Within target",
+        _ when maeMetrics.TargetPerContract.HasValue => "MAE unavailable",
+        _ => "No target"
+    };
+    var maeTargetText = maeMetrics.TargetPerContract.HasValue
+        ? $"{maeMetrics.TargetPerContract.Value.ToString("C2", CultureInfo.CurrentCulture)} / contract"
+        : string.Empty;
+    var maeRiskText = maeMetrics.MaeRiskMultiple.HasValue
+        ? $"{maeMetrics.MaeRiskMultiple.Value.ToString("0.00", CultureInfo.CurrentCulture)}R"
+        : "—";
     var reviewId = reviewPage.DomId(trade.ReviewKey);
     var chartUrl = Url.Page("/Review", "CandleChart", new { journalId = trade.JournalId, reviewKey = trade.ReviewKey }) ?? string.Empty;
     var chartIntervalId = $"trade-bar-interval-{reviewId}";
@@ -82,6 +96,12 @@
         <div class="tf-review-effective-strip" aria-label="Effective trade totals">
             <div><span>Effective net P&amp;L</span><strong class="@(trade.NetPnl >= 0 ? "text-success" : "text-danger")" data-review-trade-pnl-stat>@trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong></div>
             <div><span>Effective fees</span><strong data-review-trade-fees-stat>@trade.Fees.ToString("C2", CultureInfo.CurrentCulture)@(review.AllInCommission.HasValue ? " · per-trade override" : " · imported/settings-derived")</strong></div>
+        </div>
+        <div class="tf-review-mae-strip" aria-label="MAE target review">
+            <div><span>MAE per contract</span><strong>@(maeMetrics.MaePerContract?.ToString("C2", CultureInfo.CurrentCulture) ?? "—")</strong></div>
+            <div><span>Position MAE</span><strong>@(maeMetrics.PositionMae?.ToString("C2", CultureInfo.CurrentCulture) ?? "—")</strong></div>
+            <div><span>Review target</span><strong class="@(maeMetrics.IsBreach == true ? "negative" : maeMetrics.IsBreach == false ? "positive" : "muted")">@maeReviewStatus@(maeTargetText.Length > 0 ? $" · {maeTargetText}" : string.Empty)</strong></div>
+            <div><span>MAE / planned risk</span><strong>@maeRiskText</strong></div>
         </div>
 
         <section class="card tf-card tf-chart-card tf-review-chart-card" data-review-chart-card>

@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeSectionInfo();
   initializePeriodSummary();
   initializePnlCalendar();
+  initializeMaeCalendar();
   initializeDailyJournal();
   initializeReviewWorkspace();
   initializeReviewAttachmentPaste();
@@ -1238,6 +1239,188 @@ function initializePnlCalendar() {
     if (month) renderDaily(month);
   });
   back.addEventListener("click", renderMonthly);
+  renderMonthly();
+}
+
+function initializeMaeCalendar() {
+  const root = document.querySelector("[data-mae-calendar]");
+  const dataNode = root?.querySelector("[data-mae-calendar-data]");
+  const monthly = root?.querySelector("[data-mae-calendar-monthly]");
+  const daily = root?.querySelector("[data-mae-calendar-daily]");
+  const title = root?.querySelector("[data-mae-calendar-title]");
+  const kicker = root?.querySelector("[data-mae-calendar-kicker]");
+  const back = root?.querySelector("[data-mae-calendar-back]");
+  const summary = root?.querySelector("[data-mae-calendar-summary]");
+  const days = root?.querySelector("[data-mae-calendar-days]");
+  const breachSummary = root?.querySelector("[data-mae-breach-summary]");
+  const breachList = root?.querySelector("[data-mae-breach-list]");
+
+  if (!root || !dataNode || !monthly || !daily || !title || !kicker || !back || !summary || !days || !breachSummary || !breachList) return;
+
+  let months;
+  try {
+    months = JSON.parse(dataNode.textContent || "[]");
+  } catch {
+    return;
+  }
+
+  if (!Array.isArray(months) || months.length === 0) return;
+
+  const monthsByKey = new Map(months.map(month => [month.key, month]));
+  let lastMonthButton = null;
+  let currencyFormat;
+  try {
+    currencyFormat = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: root.dataset.maeCurrency || "USD",
+      maximumFractionDigits: 2
+    });
+  } catch {
+    currencyFormat = null;
+  }
+
+  const formatMoney = value => {
+    const numericValue = Number(value);
+    return currencyFormat ? currencyFormat.format(numericValue) : numericValue.toFixed(2);
+  };
+  const formatMaeCell = value => new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value));
+  const element = (tagName, className, textContent) => {
+    const node = document.createElement(tagName);
+    if (className) node.className = className;
+    if (textContent !== undefined) node.textContent = textContent;
+    return node;
+  };
+  const reviewHref = (date, reviewKey) => {
+    const base = root.dataset.maeReviewBase;
+    if (!base || !reviewKey) return "";
+    return `${base}?date=${encodeURIComponent(date)}&focus=${encodeURIComponent(reviewKey)}`;
+  };
+
+  const renderMonthly = () => {
+    monthly.hidden = false;
+    daily.hidden = true;
+    back.hidden = true;
+    kicker.textContent = "MONTHLY";
+    title.textContent = "Monthly MAE";
+    root.dataset.maeCalendarView = "monthly";
+  };
+
+  const renderBreachList = month => {
+    const breaches = Array.isArray(month.breaches) ? month.breaches : [];
+    const targetConfigured = Number(month.targetConfiguredTradeCount || 0);
+    breachSummary.textContent = targetConfigured > 0
+      ? `${breaches.length} breaches · ${month.targetEvaluatedTradeCount}/${targetConfigured} target-checked · ${month.maeObservedTradeCount}/${month.tradeCount} MAE recorded`
+      : `${month.maeObservedTradeCount}/${month.tradeCount} MAE recorded · no target configured`;
+    breachList.replaceChildren();
+
+    if (breaches.length === 0) {
+      const message = targetConfigured === 0
+        ? "Set a journal target or an instrument override to flag excursions for review."
+        : month.targetEvaluatedTradeCount === 0
+          ? "Targets are configured, but MAE is unavailable for all target-configured trades this month."
+          : `No evaluated trade reached its configured target. ${targetConfigured - month.targetEvaluatedTradeCount} target-configured trades were not checked because MAE is unavailable.`;
+      breachList.append(element("p", "tf-mae-breach-empty text-secondary", message));
+      return;
+    }
+
+    breaches.forEach(trade => {
+      const href = reviewHref(trade.date, trade.reviewKey);
+      const row = element(href ? "a" : "div", "tf-mae-breach-row");
+      if (href) row.href = href;
+      row.setAttribute("aria-label", `${trade.date} ${trade.entryTime}, ${trade.instrument}, ${formatMoney(trade.maePerContract)} MAE per contract against ${formatMoney(trade.targetPerContract)}, ${formatMoney(trade.netPnl)} net P&L`);
+
+      const setup = trade.setup ? ` · ${trade.setup}` : " · setup not tagged";
+      const plannedRisk = trade.plannedRiskCurrency === null || trade.plannedRiskCurrency === undefined
+        ? "planned risk unavailable"
+        : `planned risk ${formatMoney(trade.plannedRiskCurrency)}`;
+      const riskMultiple = trade.maeRiskMultiple === null || trade.maeRiskMultiple === undefined
+        ? "risk multiple unavailable"
+        : `${Number(trade.maeRiskMultiple).toFixed(2)}R`;
+      const outcome = Number(trade.netPnl) > 0 ? "Win" : Number(trade.netPnl) < 0 ? "Loss" : "Flat";
+      row.append(
+        element("span", "tf-mae-breach-identity", `${trade.date} · ${trade.entryTime} · ${trade.instrument} × ${trade.quantity}${setup}`),
+        element("strong", "tf-mae-breach-value", `${formatMoney(trade.maePerContract)} / contract`),
+        element("small", "tf-mae-breach-context", `${outcome} · ${formatMoney(trade.netPnl)} net · Target ${formatMoney(trade.targetPerContract)} / contract · ${formatMoney(trade.positionMae)} position MAE · ${plannedRisk} · ${riskMultiple}`)
+      );
+      breachList.append(row);
+    });
+  };
+
+  const renderDaily = month => {
+    monthly.hidden = true;
+    daily.hidden = false;
+    back.hidden = false;
+    kicker.textContent = `DAILY · ${month.year}`;
+    title.textContent = month.label;
+    root.dataset.maeCalendarView = "daily";
+
+    summary.replaceChildren();
+    const worst = month.worstMaePerContract === null || month.worstMaePerContract === undefined
+      ? "No MAE data"
+      : `${formatMoney(month.worstMaePerContract)} / contract`;
+    const targetStatus = month.targetConfiguredTradeCount > 0
+      ? `${month.breachCount} ${month.breachCount === 1 ? "trade" : "trades"} at or above target · ${month.targetEvaluatedTradeCount}/${month.targetConfiguredTradeCount} checked`
+      : "No target configured";
+    summary.append(
+      element("strong", "tf-pnl-calendar-summary-value", worst),
+      element("span", "tf-pnl-calendar-summary-meta", targetStatus),
+      element("span", "tf-pnl-calendar-summary-meta", `${month.maeObservedTradeCount}/${month.tradeCount} trades have MAE`)
+    );
+    days.replaceChildren();
+    const firstDay = new Date(month.year, month.month - 1, 1).getDay();
+    const leadingDays = (firstDay + 6) % 7;
+    for (let index = 0; index < leadingDays; index += 1)
+      days.append(element("span", "tf-mae-day tf-mae-day-leading"));
+
+    (month.days || []).forEach(day => {
+      const evaluated = Number(day.targetEvaluatedTradeCount || 0);
+      const targetConfigured = Number(day.targetConfiguredTradeCount || 0);
+      const tone = day.breachCount > 0 ? "breach" : evaluated > 0 ? "within" : targetConfigured > 0 ? "unavailable" : "unconfigured";
+      const href = reviewHref(day.date, day.worstTradeReviewKey);
+      const dayNode = element(href ? "a" : "div", "tf-mae-day");
+      if (href) {
+        dayNode.href = href;
+        dayNode.title = "Open Daybook at the day's worst MAE trade";
+      }
+      dayNode.dataset.tone = tone;
+      dayNode.setAttribute("aria-label", day.tradeCount > 0
+        ? `${day.date}: ${day.worstMaePerContract === null || day.worstMaePerContract === undefined ? "MAE unavailable" : `${formatMoney(day.worstMaePerContract)} worst MAE per contract`}, ${day.breachCount} breaches, ${day.tradeCount} trades, ${day.maeObservedTradeCount} with MAE, ${evaluated}/${targetConfigured} target-checked`
+        : `${day.date}: no completed trades`);
+      if (day.tradeCount === 0) dayNode.classList.add("tf-mae-day-no-trades");
+      const meta = element("div", "tf-mae-day-meta");
+      const targetStatus = targetConfigured === 0
+        ? "no target"
+        : evaluated === 0
+          ? `${targetConfigured} unchecked`
+          : `${day.breachCount} flagged`;
+      meta.append(
+        element("small", "tf-mae-day-count", day.tradeCount > 0 ? `${day.maeObservedTradeCount}/${day.tradeCount} MAE` : "no trades"),
+        element("small", "tf-mae-day-breaches", targetStatus)
+      );
+      dayNode.append(
+        element("span", "tf-mae-day-number", String(day.day)),
+        element("strong", "tf-mae-day-value", day.worstMaePerContract === null || day.worstMaePerContract === undefined ? "—" : formatMaeCell(day.worstMaePerContract)),
+        meta
+      );
+      days.append(dayNode);
+    });
+    renderBreachList(month);
+  };
+
+  monthly.addEventListener("click", event => {
+    const button = event.target.closest("[data-mae-month]");
+    if (!button || !monthly.contains(button)) return;
+    const month = monthsByKey.get(button.dataset.maeMonth);
+    if (month) {
+      lastMonthButton = button;
+      renderDaily(month);
+      back.focus({ preventScroll: true });
+    }
+  });
+  back.addEventListener("click", () => {
+    renderMonthly();
+    lastMonthButton?.focus();
+  });
   renderMonthly();
 }
 

@@ -33,10 +33,14 @@ public class ReviewModel : PageModel
     [BindProperty] public string? AttachmentCaption { get; set; }
 
     public DailyReviewModel Day { get; private set; } = new();
+    public MaeTargetSettings MaeTargets { get; private set; } = new();
     public string? ErrorMessage { get; private set; }
     public string? NoticeMessage { get; private set; }
     public DailyReviewTrade[] DayTrades => Day.CompletedTrades.Concat(Day.OpenTrades).ToArray();
     public DailyReviewTrade? ActiveTrade => DayTrades.FirstOrDefault(item => item.Trade.ReviewKey == Focus) ?? DayTrades.FirstOrDefault();
+
+    public MaeTradeMetrics MaeReview(Trade trade, TradeReviewAnnotation? annotation = null)
+        => MaeReviewMetrics.Build(trade, MaeTargets, annotation?.PlannedRiskCurrency, annotation?.PlannedRiskPoints);
 
     public IActionResult OnGet()
     {
@@ -44,6 +48,7 @@ public class ReviewModel : PageModel
         {
             var date = Date ?? _reviews.GetDefaultDate(JournalId);
             Day = _reviews.GetDay(JournalId, date);
+            MaeTargets = _database.GetMaeTargetSettings(JournalId);
             Date = date;
             DailyJournalStateJson = Day.DailyJournal.Text;
             Focus = ActiveTrade?.Trade.ReviewKey;
@@ -473,7 +478,11 @@ public class ReviewModel : PageModel
 
     private bool IsAjaxRequest() => string.Equals(Request.Headers["X-Requested-With"].ToString(), "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
 
-    private void LoadDay() => Day = _reviews.GetDay(JournalId, Date ?? _reviews.GetDefaultDate(JournalId));
+    private void LoadDay()
+    {
+        Day = _reviews.GetDay(JournalId, Date ?? _reviews.GetDefaultDate(JournalId));
+        MaeTargets = _database.GetMaeTargetSettings(JournalId);
+    }
 
     private BarQueryResult GetTradeBarQuery(Trade trade, string? interval)
     {

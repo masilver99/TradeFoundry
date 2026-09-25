@@ -10,6 +10,37 @@ namespace TradeFoundry.Tests;
 public sealed class TradeReviewTests
 {
     [Fact]
+    public void MaeTargetsPersistPerJournalAndCanBeClearedWithoutTouchingAnotherJournal()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var live = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var paper = database.CreateJournal("Paper", "paper", string.Empty, "UTC", "USD", "flat_to_flat");
+
+            database.SaveMaeTargetSettings(live.Id, 50m, new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["MESZ26_FUT_CME"] = 35m });
+
+            var liveTargets = database.GetMaeTargetSettings(live.Id);
+            Assert.Equal(50m, liveTargets.DefaultPerContract);
+            Assert.Equal(35m, liveTargets.Resolve("MES"));
+            Assert.Null(database.GetMaeTargetSettings(paper.Id).DefaultPerContract);
+            Assert.Empty(database.GetMaeTargetSettings(paper.Id).InstrumentTargets);
+
+            database.SaveMaeTargetSettings(live.Id, null, new Dictionary<string, decimal>());
+
+            Assert.Null(database.GetMaeTargetSettings(live.Id).DefaultPerContract);
+            Assert.Empty(database.GetMaeTargetSettings(live.Id).InstrumentTargets);
+            Assert.Null(database.GetMaeTargetSettings(paper.Id).DefaultPerContract);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void DailyAggregationUsesExitDateForCompletedAndEntryDateForOpen()
     {
         var trades = new[]

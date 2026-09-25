@@ -87,6 +87,7 @@ public sealed class TradeFoundryDb
         {
             "CREATE TABLE IF NOT EXISTS app_users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, created_utc TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS journals (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES app_users(id), name TEXT NOT NULL, execution_context TEXT NOT NULL, labels TEXT NOT NULL DEFAULT '', description_lexical_state_json TEXT NOT NULL DEFAULT '', timezone TEXT NOT NULL DEFAULT 'UTC', currency TEXT NOT NULL DEFAULT 'USD', grouping_policy TEXT NOT NULL DEFAULT 'flat_to_flat', starting_equity TEXT NULL, created_utc TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
+            "CREATE TABLE IF NOT EXISTS journal_mae_targets (journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, instrument_code TEXT NOT NULL DEFAULT '', target_per_contract TEXT NOT NULL CHECK(CAST(target_per_contract AS REAL) > 0), updated_utc TEXT NOT NULL, PRIMARY KEY(journal_id, instrument_code))",
             "CREATE INDEX IF NOT EXISTS ix_journals_owner ON journals(owner_user_id, archived, created_utc)",
             "CREATE TABLE IF NOT EXISTS instruments (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, default_commission TEXT NULL, exchange_fee_per_contract TEXT NULL, nfa_fee_per_contract TEXT NULL, clearing_fee_per_contract TEXT NULL, point_value TEXT NOT NULL, tick_size TEXT NOT NULL DEFAULT '0', created_utc TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS source_instrument_mappings (id TEXT PRIMARY KEY, application_key TEXT NOT NULL, match_regex TEXT NOT NULL, instrument_code TEXT NOT NULL REFERENCES instruments(code), commission_override TEXT NULL, position INTEGER NOT NULL DEFAULT 0, created_utc TEXT NOT NULL, UNIQUE(application_key, match_regex))",
@@ -448,6 +449,80 @@ public sealed class TradeFoundryDb
         var journals = new List<Journal>();
         while (reader.Read()) journals.Add(ReadJournal(reader));
         return journals;
+    }
+
+    public MaeTargetSettings GetMaeTargetSettings(Guid journalId)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT instrument_code, target_per_contract FROM journal_mae_targets WHERE journal_id = $journal ORDER BY instrument_code";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+
+        decimal? defaultTarget = null;
+        var instrumentTargets = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var instrument = reader.GetString(0);
+            var target = ParseDecimal(reader.GetString(1));
+            if (string.IsNullOrEmpty(instrument)) defaultTarget = target;
+            else instrumentTargets[instrument] = target;
+        }
+
+        return new MaeTargetSettings
+        {
+            DefaultPerContract = defaultTarget,
+            InstrumentTargets = instrumentTargets
+        };
+    }
+
+    public void SaveMaeTargetSettings(Guid journalId, decimal? defaultPerContract, IReadOnlyDictionary<string, decimal> instrumentTargets)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        if (defaultPerContract is <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(defaultPerContract), "The default MAE target must be greater than zero.");
+
+        var normalizedTargets = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in instrumentTargets)
+        {
+            var root = InstrumentCatalog.ExtractRoot(pair.Key);
+            if (string.IsNullOrWhiteSpace(root))
+                throw new ArgumentException("Each instrument override must include an instrument root.", nameof(instrumentTargets));
+            if (pair.Value <= 0m)
+                throw new ArgumentOutOfRangeException(nameof(instrumentTargets), "Instrument MAE targets must be greater than zero.");
+            if (!normalizedTargets.TryAdd(root, pair.Value))
+                throw new ArgumentException($"Instrument override {root} appears more than once.", nameof(instrumentTargets));
+        }
+
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using (var delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = "DELETE FROM journal_mae_targets WHERE journal_id = $journal";
+            delete.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            delete.ExecuteNonQuery();
+        }
+
+        var savedUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        if (defaultPerContract.HasValue)
+            InsertMaeTarget(connection, transaction, journalId, string.Empty, defaultPerContract.Value, savedUtc);
+        foreach (var pair in normalizedTargets.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+            InsertMaeTarget(connection, transaction, journalId, pair.Key, pair.Value, savedUtc);
+        transaction.Commit();
+    }
+
+    private static void InsertMaeTarget(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, string instrument, decimal target, string savedUtc)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "INSERT INTO journal_mae_targets (journal_id, instrument_code, target_per_contract, updated_utc) VALUES ($journal, $instrument, $target, $updated)";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$instrument", instrument);
+        command.Parameters.AddWithValue("$target", NumberFormat.Decimal(target));
+        command.Parameters.AddWithValue("$updated", savedUtc);
+        command.ExecuteNonQuery();
     }
 
     public Journal? GetJournal(Guid journalId)

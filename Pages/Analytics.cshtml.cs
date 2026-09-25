@@ -13,6 +13,7 @@ namespace TradeFoundry.Pages;
 public class AnalyticsModel : PageModel
 {
     private static readonly JsonSerializerOptions PnlCalendarJsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions MaeCalendarJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly TradeFoundryDb _database;
     private readonly BenchmarkRefreshService _benchmarkRefresh;
     private readonly JournalAnalysisService _analysis;
@@ -37,11 +38,14 @@ public class AnalyticsModel : PageModel
     public IReadOnlyList<BenchmarkPoint> BenchmarkPoints { get; private set; } = Array.Empty<BenchmarkPoint>();
     public BenchmarkSeriesStatus? BenchmarkStatus { get; private set; }
     public IReadOnlyList<PnlCalendarMonth> PnlCalendarMonths { get; private set; } = Array.Empty<PnlCalendarMonth>();
+    public IReadOnlyList<MaeCalendarMonth> MaeCalendarMonths { get; private set; } = Array.Empty<MaeCalendarMonth>();
+    public MaeTargetSettings MaeTargets { get; private set; } = new();
     public string BenchmarkSymbol => _benchmarkRefresh.DefaultSymbol;
     public string? BenchmarkRefreshMessage { get; private set; }
     public string BenchmarkRefreshMessageKind { get; private set; } = "warning";
     public string PnlCalendarCurrency => Journal?.Currency ?? "USD";
     public string PnlCalendarJson => JsonSerializer.Serialize(PnlCalendarMonths, PnlCalendarJsonOptions);
+    public string MaeCalendarJson => JsonSerializer.Serialize(MaeCalendarMonths, MaeCalendarJsonOptions);
     public IReadOnlyList<string> DataAvailabilityWarnings { get; private set; } = Array.Empty<string>();
 
     public string EquityChart => ChartRenderer.TearSheetEquity(Trades, AccountBalances, Overview?.StartingEquity);
@@ -137,6 +141,8 @@ public class AnalyticsModel : PageModel
         PeriodBreakdown = periodData.Breakdown;
         DataAvailabilityWarnings = _analysis.GetOverview(JournalId, null).DataGaps;
         BuildPnlCalendar();
+        MaeTargets = _database.GetMaeTargetSettings(JournalId);
+        MaeCalendarMonths = MaeCalendarBuilder.Build(Trades, Journal.TimeZone, MaeTargets, _database.GetTradeReviewAnnotations(JournalId));
 
         if (TempData["BenchmarkFlashMessage"] is string flashMessage && !string.IsNullOrWhiteSpace(flashMessage))
         {
@@ -247,4 +253,5 @@ public class AnalyticsModel : PageModel
             .ToArray();
 
     }
+
 }

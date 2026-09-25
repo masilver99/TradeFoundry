@@ -48,6 +48,19 @@ public sealed class Journal
     public DateTimeOffset CreatedUtc { get; init; }
 }
 
+public sealed class MaeTargetSettings
+{
+    public decimal? DefaultPerContract { get; init; }
+    public IReadOnlyDictionary<string, decimal> InstrumentTargets { get; init; }
+        = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+    public decimal? Resolve(string instrument)
+    {
+        var root = InstrumentCatalog.ExtractRoot(instrument);
+        return InstrumentTargets.TryGetValue(root, out var target) ? target : DefaultPerContract;
+    }
+}
+
 public sealed class WatchedImportFileStatus
 {
     public Guid JournalId { get; init; }

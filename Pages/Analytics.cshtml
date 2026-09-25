@@ -118,7 +118,6 @@
     <section id="history" class="tf-chart-section tf-history-section" aria-labelledby="history-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">HISTORY</div>
                 <div class="tf-chart-section-title-row">
                     <h2 id="history-heading">History</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="History" aria-expanded="false" aria-controls="history-description" aria-label="Show explanation for History"><span aria-hidden="true">i</span></button>
@@ -227,7 +226,7 @@
 
     <div class="tf-history-calendar">
         <article class="card tf-card tf-library-chart tf-library-chart-wide">
-            <div class="card-header"><div><div class="tf-kicker">P&amp;L CALENDAR</div><h3 class="tf-card-title">Monthly net P&amp;L by day</h3></div><span>completed trades</span></div>
+            <div class="card-header"><div><h3 class="tf-card-title">Monthly net P&amp;L by day</h3></div><span>completed trades</span></div>
             <div class="card-body">
                 <div class="tf-pnl-calendar" data-pnl-calendar data-pnl-currency="@Model.PnlCalendarCurrency" data-pnl-review-base="@($"/journal/{Model.JournalId:D}/review")">
                     <div class="tf-pnl-calendar-toolbar">
@@ -277,7 +276,7 @@
         </article>
 
         <article class="card tf-card tf-library-chart tf-library-chart-wide tf-mae-calendar-card">
-            <div class="card-header"><div><div class="tf-kicker">MAE CALENDAR</div><h3 class="tf-card-title">Worst trade excursion by day</h3></div><span>@Model.PnlCalendarCurrency per contract · targets in Settings</span></div>
+            <div class="card-header"><div><h3 class="tf-card-title">Worst trade excursion by day</h3></div><span>@Model.PnlCalendarCurrency per contract · targets in Settings</span></div>
             <div class="card-body">
                 <div class="tf-mae-calendar" data-mae-calendar data-mae-currency="@Model.PnlCalendarCurrency" data-mae-review-base="@($"/journal/{Model.JournalId:D}/review")">
                     <div class="tf-pnl-calendar-toolbar">
@@ -421,7 +420,17 @@
         </div>
     </section>
 
-    <section id="performance" class="tf-chart-section" aria-label="Performance">
+    <section id="performance" class="tf-chart-section" aria-labelledby="performance-heading">
+        <div class="tf-chart-section-heading">
+            <div class="tf-chart-section-heading-main">
+                <div class="tf-chart-section-title-row">
+                    <h2 id="performance-heading">Performance</h2>
+                    <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Performance" aria-expanded="false" aria-controls="performance-description" aria-label="Show explanation for Performance"><span aria-hidden="true">i</span></button>
+                </div>
+                <p id="performance-description" class="tf-section-info" hidden>Account equity growth, fee drag, periodic returns, and benchmark comparison over time.</p>
+            </div>
+            <span>equity, fee drag, and periodic returns</span>
+        </div>
         <nav class="tf-subsection-index" aria-label="Performance subsections">
             <a href="#performance-equity">Equity &amp; P&amp;L</a>
             <a href="#performance-costs">Costs</a>
@@ -431,24 +440,14 @@
 
         <div id="performance-equity" class="tf-chart-subsection" aria-label="Equity &amp; P&amp;L">
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EQUITY</div><h4 class="tf-card-title">Adjusted and raw balance</h4></div><span class="text-secondary">account history when available</span></div><div class="card-body">@Html.Raw(Model.EquityChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">TRADE PATH</div><h4 class="tf-card-title">Trade P&amp;L waterfall</h4></div><span class="text-secondary">one bar per completed trade</span></div><div class="card-body">@Html.Raw(Model.WaterfallChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Adjusted and raw balance</h4></div><span class="text-secondary">account history when available</span></div><div class="card-body">@Html.Raw(Model.EquityChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Trade P&amp;L waterfall</h4></div><span class="text-secondary">one bar per completed trade</span></div><div class="card-body">@Html.Raw(Model.WaterfallChart)</div></article>
             </div>
         </div>
 
-        <div id="performance-costs" class="tf-chart-subsection">
-            <div class="tf-chart-subsection-heading">
-                <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">COSTS</div>
-                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Costs" aria-expanded="false" aria-controls="performance-costs-description" aria-label="Show explanation for Costs"><span aria-hidden="true">i</span></button>
-                    </div>
-                    <h3>What friction takes from the edge</h3>
-                    <p id="performance-costs-description" class="tf-section-info" hidden>This subsection isolates fee drag, comparing gross and net results to show how much execution friction removes from the edge.</p>
-                </div>
-            </div>
+        <div id="performance-costs" class="tf-chart-subsection" aria-label="Costs">
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">FEE DRAG</div><h4 class="tf-card-title">Gross, net, and cumulative fees</h4></div></div><div class="card-body">@Html.Raw(Model.FeeDragChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Gross, net, and cumulative fees</h4></div></div><div class="card-body">@Html.Raw(Model.FeeDragChart)</div></article>
             </div>
         </div>
 
@@ -464,12 +463,12 @@
                 </div>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RHYTHM</div><h4 class="tf-card-title">Daily gross P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DailyChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">SEASONALITY</div><h4 class="tf-card-title">Monthly net P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">ANNUAL RETURNS</div><h4 class="tf-card-title">Yearly strategy vs benchmark</h4></div></div><div class="card-body">@Html.Raw(Model.AnnualReturnsChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RETURN SHAPE</div><h4 class="tf-card-title">Distribution of monthly returns</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyReturnsDistributionChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">ALPHA</div><h4 class="tf-card-title">Daily active returns</h4></div></div><div class="card-body">@Html.Raw(Model.DailyActiveReturnsChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">SEASONALITY</div><h4 class="tf-card-title">Monthly return heatmap</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyHeatmapChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Daily gross P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DailyChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Monthly net P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Yearly strategy vs benchmark</h4></div></div><div class="card-body">@Html.Raw(Model.AnnualReturnsChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Distribution of monthly returns</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyReturnsDistributionChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Daily active returns</h4></div></div><div class="card-body">@Html.Raw(Model.DailyActiveReturnsChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Monthly return heatmap</h4></div></div><div class="card-body">@Html.Raw(Model.MonthlyHeatmapChart)</div></article>
             </div>
         </div>
 
@@ -485,8 +484,8 @@
                 </div>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">BENCHMARK</div><h4 class="tf-card-title">Strategy vs benchmark returns</h4></div><div class="tf-benchmark-actions"><span class="text-secondary">@BenchmarkSummary()</span><form method="post" action="@($"/journal/{Model.JournalId:D}/analytics?handler=RefreshBenchmark")">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><button class="btn btn-sm btn-outline-secondary" type="submit">Refresh data</button></form></div></div><div class="card-body">@Html.Raw(Model.ReturnsChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ROBUSTNESS</div><h4 class="tf-card-title">Monte Carlo simulated paths</h4></div></div><div class="card-body">@Html.Raw(Model.MonteCarloChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Strategy vs benchmark returns</h4></div><div class="tf-benchmark-actions"><span class="text-secondary">@BenchmarkSummary()</span><form method="post" action="@($"/journal/{Model.JournalId:D}/analytics?handler=RefreshBenchmark")">@Html.AntiForgeryToken()<input type="hidden" name="journalId" value="@Model.JournalId" /><button class="btn btn-sm btn-outline-secondary" type="submit">Refresh data</button></form></div></div><div class="card-body">@Html.Raw(Model.ReturnsChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Monte Carlo simulated paths</h4></div></div><div class="card-body">@Html.Raw(Model.MonteCarloChart)</div></article>
             </div>
         </div>
     </section>
@@ -494,12 +493,11 @@
     <section id="risk" class="tf-chart-section" aria-labelledby="risk-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">RISK &amp; STABILITY</div>
                 <div class="tf-chart-section-title-row">
-                    <h2 id="risk-heading">Where the equity curve takes heat</h2>
+                    <h2 id="risk-heading">Risk &amp; Stability</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Risk and stability" aria-expanded="false" aria-controls="risk-description" aria-label="Show explanation for Risk and stability"><span aria-hidden="true">i</span></button>
                 </div>
-                <p id="risk-description" class="tf-section-info" hidden>This section measures the depth, duration, and recovery of drawdowns, then tests consistency through rolling risk, return distributions, and profit concentration.</p>
+                <p id="risk-description" class="tf-section-info" hidden>Where the equity curve takes heat. This section measures the depth, duration, and recovery of drawdowns, then tests consistency through rolling risk, return distributions, and profit concentration.</p>
             </div>
             <span>drawdown, distributions, and repeatability</span>
         </div>
@@ -590,7 +588,7 @@
             <div class="tf-risk-discipline-layout">
                 <article class="card tf-card tf-risk-discipline-score-card">
                     <div class="card-header">
-                        <div><div class="tf-kicker">OVERALL SCORE</div><h4 class="tf-card-title">Risk Discipline Score</h4></div>
+                        <div><h4 class="tf-card-title">Risk Discipline Score</h4></div>
                         <span class="tf-risk-discipline-badge @riskScore.Tone" data-risk-discipline-tier="@riskScore.Tier" aria-label="Risk Discipline score status: @riskScore.Tier">@riskScore.Tier</span>
                     </div>
                     <div class="card-body">
@@ -661,10 +659,10 @@
                     <span>20-trade rolling · monthly summary</span>
                 </div>
                 <div class="tf-chart-grid">
-                    <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ROLLING RESCUE</div><h4 class="tf-card-title">Rolling rescue dependency</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineRollingRescueChart)</div></article>
-                    <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">WINNER HEAT</div><h4 class="tf-card-title">Rolling winner heat and MAE</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineRollingHeatChart)</div></article>
-                    <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">MAE VIOLATIONS</div><h4 class="tf-card-title">Rolling MAE violations</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineRollingViolationsChart)</div></article>
-                    <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">MONTHLY SUMMARY</div><h4 class="tf-card-title">Monthly Risk Discipline score</h4></div><span class="text-secondary">score + trade count</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineMonthlyChart)</div></article>
+                    <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Rolling rescue dependency</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineRollingRescueChart)</div></article>
+                    <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Rolling winner heat and MAE</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineRollingHeatChart)</div></article>
+                    <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Rolling MAE violations</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineRollingViolationsChart)</div></article>
+                    <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Monthly Risk Discipline score</h4></div><span class="text-secondary">score + trade count</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineMonthlyChart)</div></article>
                 </div>
             </div>
         </div>
@@ -681,9 +679,9 @@
                 </div>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">DRAWDOWN</div><h4 class="tf-card-title">Underwater net P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DrawdownChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">DRAWDOWN EPISODES</div><h4 class="tf-card-title">Worst five drawdown periods</h4></div></div><div class="card-body">@Html.Raw(Model.WorstDrawdownChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RECOVERY</div><h4 class="tf-card-title">Drawdown duration and recovery</h4></div></div><div class="card-body">@Html.Raw(Model.DrawdownRecoveryChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Underwater net P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DrawdownChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Worst five drawdown periods</h4></div></div><div class="card-body">@Html.Raw(Model.WorstDrawdownChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Drawdown duration and recovery</h4></div></div><div class="card-body">@Html.Raw(Model.DrawdownRecoveryChart)</div></article>
             </div>
         </div>
 
@@ -699,11 +697,11 @@
                 </div>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">ROLLING EDGE</div><h4 class="tf-card-title">Expectancy, win rate, and Sharpe</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RollingAnalyticsChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">VOLATILITY</div><h4 class="tf-card-title">Rolling six-month volatility</h4></div></div><div class="card-body">@Html.Raw(Model.RollingVolatilityChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RISK-ADJUSTED</div><h4 class="tf-card-title">Rolling six-month Sharpe</h4></div></div><div class="card-body">@Html.Raw(Model.RollingSharpeChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">DOWNSIDE RISK</div><h4 class="tf-card-title">Rolling six-month Sortino</h4></div></div><div class="card-body">@Html.Raw(Model.RollingSortinoChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">WIN RATE</div><h4 class="tf-card-title">Win rate over time</h4></div><span class="text-secondary">monthly</span></div><div class="card-body">@Html.Raw(Model.WinRateChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Expectancy, win rate, and Sharpe</h4></div><span class="text-secondary">20-trade window</span></div><div class="card-body">@Html.Raw(Model.RollingAnalyticsChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Rolling six-month volatility</h4></div></div><div class="card-body">@Html.Raw(Model.RollingVolatilityChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Rolling six-month Sharpe</h4></div></div><div class="card-body">@Html.Raw(Model.RollingSharpeChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Rolling six-month Sortino</h4></div></div><div class="card-body">@Html.Raw(Model.RollingSortinoChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Win rate over time</h4></div><span class="text-secondary">monthly</span></div><div class="card-body">@Html.Raw(Model.WinRateChart)</div></article>
             </div>
         </div>
 
@@ -719,11 +717,11 @@
                 </div>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">DAILY RISK</div><h4 class="tf-card-title">Daily P&amp;L distribution</h4></div></div><div class="card-body">@Html.Raw(Model.DailyDistributionChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">OUTCOMES</div><h4 class="tf-card-title">Trade P&amp;L distribution</h4></div></div><div class="card-body">@Html.Raw(Model.PnlDistributionChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">OUTCOME RANGES</div><h4 class="tf-card-title">Trade P&amp;L by dollar range</h4></div><span class="text-secondary">losses &larr; $0 &rarr; wins</span></div><div class="card-body">@Html.Raw(Model.TradePnlRangeChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">CONCENTRATION</div><h4 class="tf-card-title">Winner profit concentration</h4></div></div><div class="card-body">@Html.Raw(Model.ConcentrationChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">RISK UNITS</div><h4 class="tf-card-title">R-multiple distribution</h4></div></div><div class="card-body">@Html.Raw(Model.RMultipleChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Daily P&amp;L distribution</h4></div></div><div class="card-body">@Html.Raw(Model.DailyDistributionChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Trade P&amp;L distribution</h4></div></div><div class="card-body">@Html.Raw(Model.PnlDistributionChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Trade P&amp;L by dollar range</h4></div><span class="text-secondary">losses &larr; $0 &rarr; wins</span></div><div class="card-body">@Html.Raw(Model.TradePnlRangeChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Winner profit concentration</h4></div></div><div class="card-body">@Html.Raw(Model.ConcentrationChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">R-multiple distribution</h4></div></div><div class="card-body">@Html.Raw(Model.RMultipleChart)</div></article>
             </div>
         </div>
     </section>
@@ -731,12 +729,11 @@
     <section id="edge-persistence" class="tf-chart-section tf-edge-persistence-section" aria-labelledby="edge-persistence-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">EDGE PERSISTENCE</div>
                 <div class="tf-chart-section-title-row">
-                    <h2 id="edge-persistence-heading">Is the edge repeating?</h2>
+                    <h2 id="edge-persistence-heading">Edge Persistence</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Edge Persistence" aria-expanded="false" aria-controls="edge-persistence-description" aria-label="Show explanation for Edge Persistence"><span aria-hidden="true">i</span></button>
                 </div>
-                <p id="edge-persistence-description" class="tf-section-info" hidden>Profitability asks whether the account made money. Edge persistence asks whether positive expectancy remains across sequential samples after outlier and risk stress tests.</p>
+                <p id="edge-persistence-description" class="tf-section-info" hidden>Is the edge repeating? Profitability asks whether the account made money. Edge persistence asks whether positive expectancy remains across sequential samples after outlier and risk stress tests.</p>
             </div>
             <span>repeatability, robustness, and risk stability</span>
         </div>
@@ -762,7 +759,7 @@
             <div class="tf-edge-persistence-summary-layout">
                 <article class="card tf-card tf-edge-persistence-score-card">
                     <div class="card-header">
-                        <div><div class="tf-kicker">OVERALL SCORE</div><h3 id="edge-persistence-summary-heading" class="tf-card-title">Edge Persistence Score</h3></div>
+                        <div><h3 id="edge-persistence-summary-heading" class="tf-card-title">Edge Persistence Score</h3></div>
                         <span class="tf-edge-persistence-badge @edgeScore.Tone">@edgeScore.Tier</span>
                     </div>
                     <div class="card-body">
@@ -787,7 +784,7 @@
                 </article>
 
                 <article class="card tf-card tf-edge-persistence-interpretation-card">
-                    <div class="card-header"><div><div class="tf-kicker">CALCULATED FINDINGS</div><h3 class="tf-card-title">What the history says</h3></div><span class="text-secondary">descriptive, not predictive</span></div>
+                    <div class="card-header"><div><h3 class="tf-card-title">What the history says</h3></div><span class="text-secondary">descriptive, not predictive</span></div>
                     <div class="card-body">
                         <ul class="tf-edge-persistence-findings">
                             @foreach (var finding in edge.Interpretation)
@@ -814,10 +811,10 @@
                 <span>25 · 50 · 100 trades</span>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EXPECTANCY</div><h4 class="tf-card-title">Rolling expectancy</h4></div><span>gross P&amp;L per trade</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingExpectancyChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">QUALITY</div><h4 class="tf-card-title">Profit factor and win rate</h4></div><span>PF · %</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingQualityChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">MAE</div><h4 class="tf-card-title">Median and tail MAE</h4></div><span>absolute currency</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingMaeChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">LOSSES</div><h4 class="tf-card-title">Average and median loss</h4></div><span>gross loss per trade</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingLossChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Rolling expectancy</h4></div><span>gross P&amp;L per trade</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingExpectancyChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Profit factor and win rate</h4></div><span>PF · %</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingQualityChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Median and tail MAE</h4></div><span>absolute currency</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingMaeChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Average and median loss</h4></div><span>gross loss per trade</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingLossChart)</div></article>
             </div>
         </div>
 
@@ -843,7 +840,7 @@
                     </article>
                 }
             </div>
-            <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">BLOCK RESULTS</div><h4 class="tf-card-title">P&amp;L by non-overlapping block</h4></div></div><div class="card-body">@Html.Raw(Model.EdgePersistenceBlocksChart)</div></article>
+            <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">P&amp;L by non-overlapping block</h4></div></div><div class="card-body">@Html.Raw(Model.EdgePersistenceBlocksChart)</div></article>
             @if (edge.Blocks.Count == 0)
             {
                 <div class="tf-empty">Non-overlapping block analysis appears after 25 completed trades.</div>
@@ -891,7 +888,7 @@
             </div>
             <div class="tf-edge-persistence-robustness-layout">
                 <article class="card tf-card">
-                    <div class="card-header"><div><div class="tf-kicker">WINNER STRESS</div><h4 class="tf-card-title">Remove best trades</h4></div><span>net P&amp;L</span></div>
+                    <div class="card-header"><div><h4 class="tf-card-title">Remove best trades</h4></div><span>net P&amp;L</span></div>
                     <div class="card-body p-0">
                         <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-edge-table"><thead><tr><th>Scenario</th><th>Remaining net P&amp;L</th><th>Remaining gross P&amp;L</th></tr></thead><tbody>
                             <tr><th scope="row">Actual</th><td class="@PeriodTone(edgeRobustness.ActualNetPnl)">@EdgeMoney(edgeRobustness.ActualNetPnl)</td><td>@EdgeMoney(edgeRobustness.ActualGrossPnl)</td></tr>
@@ -903,7 +900,7 @@
                     </div>
                 </article>
                 <article class="card tf-card">
-                    <div class="card-header"><div><div class="tf-kicker">LOSS STRESS</div><h4 class="tf-card-title">Remove worst trades</h4></div><span>net P&amp;L</span></div>
+                    <div class="card-header"><div><h4 class="tf-card-title">Remove worst trades</h4></div><span>net P&amp;L</span></div>
                     <div class="card-body p-0">
                         <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-edge-table"><thead><tr><th>Scenario</th><th>Remaining net P&amp;L</th><th>Remaining gross P&amp;L</th></tr></thead><tbody>
                             <tr><th scope="row">Actual</th><td class="@PeriodTone(edgeRobustness.ActualNetPnl)">@EdgeMoney(edgeRobustness.ActualNetPnl)</td><td>@EdgeMoney(edgeRobustness.ActualGrossPnl)</td></tr>
@@ -945,8 +942,8 @@
                 <article class="card tf-card"><div class="card-body"><div class="tf-kicker">LOSS P90</div><strong>@EdgeMoney(edgeRisk.LossP90)</strong><span>largest @EdgeMoney(edgeRisk.MaximumLoss)</span></div></article>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">MAE TREND</div><h4 class="tf-card-title">MAE by rolling window</h4></div><span class="@EdgeTrendTone(edgeRisk.MaeTrend)">@edgeRisk.MaeTrend</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingMaeChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">LOSS TREND</div><h4 class="tf-card-title">Loss size by rolling window</h4></div><span class="@EdgeTrendTone(edgeRisk.LossTrend)">@edgeRisk.LossTrend</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingLossChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">MAE by rolling window</h4></div><span class="@EdgeTrendTone(edgeRisk.MaeTrend)">@edgeRisk.MaeTrend</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingMaeChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Loss size by rolling window</h4></div><span class="@EdgeTrendTone(edgeRisk.LossTrend)">@edgeRisk.LossTrend</span></div><div class="card-body">@Html.Raw(Model.EdgePersistenceRollingLossChart)</div></article>
             </div>
         </div>
 
@@ -1017,12 +1014,11 @@
     <section id="trade-quality" class="tf-chart-section" aria-labelledby="trade-quality-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">TRADE QUALITY</div>
                 <div class="tf-chart-section-title-row">
-                    <h2 id="trade-quality-heading">How trades move before they close</h2>
+                    <h2 id="trade-quality-heading">Trade Quality</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Trade quality" aria-expanded="false" aria-controls="trade-quality-description" aria-label="Show explanation for Trade quality"><span aria-hidden="true">i</span></button>
                 </div>
-                <p id="trade-quality-description" class="tf-section-info" hidden>This section examines the path of each trade: the heat it took, the opportunity it captured, how long it was held, how it was exited, and whether outcomes repeat across streaks.</p>
+                <p id="trade-quality-description" class="tf-section-info" hidden>How trades move before they close. This section examines the path of each trade: the heat it took, the opportunity it captured, how long it was held, and whether outcomes repeat across streaks.</p>
             </div>
             <span>excursion, efficiency, and outcomes</span>
         </div>
@@ -1044,9 +1040,9 @@
                 </div>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">EXCURSION</div><h4 class="tf-card-title">MAE vs MFE</h4></div></div><div class="card-body">@Html.Raw(Model.MfeMaeChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">MAE</div><h4 class="tf-card-title">Heat taken by winning trades</h4></div></div><div class="card-body">@Html.Raw(Model.MaeWinnersChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EXCURSION PROFILE</div><h4 class="tf-card-title">MAE and MFE percentile profile</h4></div></div><div class="card-body">@Html.Raw(Model.ExcursionPercentileChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">MAE vs MFE</h4></div></div><div class="card-body">@Html.Raw(Model.MfeMaeChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Heat taken by winning trades</h4></div></div><div class="card-body">@Html.Raw(Model.MaeWinnersChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">MAE and MFE percentile profile</h4></div></div><div class="card-body">@Html.Raw(Model.ExcursionPercentileChart)</div></article>
             </div>
         </div>
 
@@ -1062,9 +1058,9 @@
                 </div>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">DURATION</div><h4 class="tf-card-title">Time in trade vs gross P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DurationProfitChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EFFICIENCY</div><h4 class="tf-card-title">Expectancy, win rate, and MFE capture</h4></div></div><div class="card-body">@Html.Raw(Model.HoldingEfficiencyChart)</div></article>
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EXIT EFFICIENCY</div><h4 class="tf-card-title">MFE capture and profit left on table</h4></div></div><div class="card-body">@Html.Raw(Model.ExitEfficiencyChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Time in trade vs gross P&amp;L</h4></div></div><div class="card-body">@Html.Raw(Model.DurationProfitChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Expectancy, win rate, and MFE capture</h4></div></div><div class="card-body">@Html.Raw(Model.HoldingEfficiencyChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">MFE capture and profit left on table</h4></div></div><div class="card-body">@Html.Raw(Model.ExitEfficiencyChart)</div></article>
             </div>
         </div>
 
@@ -1080,8 +1076,8 @@
                 </div>
             </div>
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">STREAKS</div><h4 class="tf-card-title">Next-trade expectancy and win rate</h4></div></div><div class="card-body">@Html.Raw(Model.StreakStateChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">OUTCOME</div><h4 class="tf-card-title">Outcome mix</h4></div></div><div class="card-body">@Html.Raw(Model.OutcomeMixChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Next-trade expectancy and win rate</h4></div></div><div class="card-body">@Html.Raw(Model.StreakStateChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Outcome mix</h4></div></div><div class="card-body">@Html.Raw(Model.OutcomeMixChart)</div></article>
             </div>
         </div>
     </section>
@@ -1090,65 +1086,38 @@
     <section id="timing-sizing" class="tf-chart-section" aria-labelledby="timing-sizing-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">TRADE CONTEXT</div>
                 <div class="tf-chart-section-title-row">
-                    <h2 id="timing-sizing-heading">Trade direction and session</h2>
+                    <h2 id="timing-sizing-heading">Trade Context</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Trade context" aria-expanded="false" aria-controls="timing-sizing-description" aria-label="Show explanation for Trade context"><span aria-hidden="true">i</span></button>
                 </div>
-                <p id="timing-sizing-description" class="tf-section-info" hidden>This section breaks out recorded results by trade direction and trading session.</p>
+                <p id="timing-sizing-description" class="tf-section-info" hidden>Trade direction and session. This section breaks out recorded results by trade direction and trading session.</p>
             </div>
+            <span>direction and session</span>
         </div>
-        <nav class="tf-subsection-index" aria-label="Trade context subsections">
-            <a href="#timing-context">Direction &amp; session</a>
-        </nav>
 
-        <div id="timing-context" class="tf-chart-subsection">
-            <div class="tf-chart-subsection-heading">
-                <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">DIRECTION &amp; SESSION</div>
-                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Direction and session" aria-expanded="false" aria-controls="timing-context-description" aria-label="Show explanation for Direction and session"><span aria-hidden="true">i</span></button>
-                    </div>
-                    <h3>What the journal is actually trading</h3>
-                    <p id="timing-context-description" class="tf-section-info" hidden>This subsection shows whether the journal’s results are driven by long or short trades and by particular trading sessions.</p>
-                </div>
-            </div>
+        <div id="timing-context" class="tf-chart-subsection" aria-label="Direction and session">
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">DIRECTION</div><h4 class="tf-card-title">Direction mix</h4></div></div><div class="card-body">@Html.Raw(Model.DirectionMixChart)</div></article>
-                <article class="card tf-card tf-library-chart"><div class="card-header"><div><div class="tf-kicker">SESSION</div><h4 class="tf-card-title">Session mix</h4></div></div><div class="card-body">@Html.Raw(Model.SessionMixChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Direction mix</h4></div></div><div class="card-body">@Html.Raw(Model.DirectionMixChart)</div></article>
+                <article class="card tf-card tf-library-chart"><div class="card-header"><div><h4 class="tf-card-title">Session mix</h4></div></div><div class="card-body">@Html.Raw(Model.SessionMixChart)</div></article>
             </div>
         </div>
-
     </section>
 
     <section id="execution" class="tf-chart-section" aria-labelledby="execution-heading">
         <div class="tf-chart-section-heading">
             <div class="tf-chart-section-heading-main">
-                <div class="tf-kicker">EXECUTION</div>
                 <div class="tf-chart-section-title-row">
-                    <h2 id="execution-heading">How the plan is expressed</h2>
+                    <h2 id="execution-heading">Execution</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Execution" aria-expanded="false" aria-controls="execution-description" aria-label="Show explanation for Execution"><span aria-hidden="true">i</span></button>
                 </div>
-                <p id="execution-description" class="tf-section-info" hidden>This section groups completed positions by exit type to show how the plan is being closed and how each exit behaves.</p>
+                <p id="execution-description" class="tf-section-info" hidden>How the plan is expressed. This section groups completed positions by exit type to show how the plan is being closed and how each exit behaves.</p>
             </div>
+            <span>exit classification</span>
         </div>
-        <nav class="tf-subsection-index" aria-label="Execution subsections">
-            <a href="#execution-exits">Exit classification</a>
-        </nav>
 
-        <div id="execution-exits" class="tf-chart-subsection">
-            <div class="tf-chart-subsection-heading">
-                <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">EXIT CLASSIFICATION</div>
-                        <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Exit classification" aria-expanded="false" aria-controls="execution-exits-description" aria-label="Show explanation for Exit classification"><span aria-hidden="true">i</span></button>
-                    </div>
-                    <h3>How positions are being closed</h3>
-                    <p id="execution-exits-description" class="tf-section-info" hidden>This subsection groups completed positions by exit type to show how the plan is being closed and how each exit behaves.</p>
-                </div>
-            </div>
+        <div id="execution-exits" class="tf-chart-subsection" aria-label="Exit classification">
             <div class="tf-chart-grid">
-                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><div class="tf-kicker">EXIT CLASSIFICATION</div><h4 class="tf-card-title">Average P&amp;L and win rate by exit type</h4></div></div><div class="card-body">@Html.Raw(Model.ExitTypeChart)</div></article>
+                <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Average P&amp;L and win rate by exit type</h4></div></div><div class="card-body">@Html.Raw(Model.ExitTypeChart)</div></article>
             </div>
         </div>
     </section>

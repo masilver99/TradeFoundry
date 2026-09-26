@@ -754,6 +754,17 @@ public sealed class DailyJournalEntry
     public bool HasContent => !string.IsNullOrWhiteSpace(Text);
 }
 
+public sealed record TradeReviewSearchHit(
+    string ReviewKey,
+    string Symbol,
+    string Instrument,
+    string Status,
+    DateTimeOffset EntryUtc,
+    DateTimeOffset? ExitUtc,
+    string SearchText);
+
+public sealed record DailyJournalSearchHit(DateOnly Date, string SearchText);
+
 public sealed class DailyJournalSaveResult
 {
     public bool Saved { get; init; }

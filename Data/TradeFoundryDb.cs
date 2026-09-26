@@ -110,7 +110,7 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_trade_review_history_trade ON trade_review_history(journal_id, review_key, revision DESC)",
             "CREATE TABLE IF NOT EXISTS trade_review_attachments (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, storage_key TEXT NOT NULL, original_file_name TEXT NOT NULL, caption TEXT NOT NULL DEFAULT '', content_type TEXT NOT NULL, length INTEGER NOT NULL, created_utc TEXT NOT NULL, removed_utc TEXT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_trade_review_attachments_trade ON trade_review_attachments(journal_id, review_key, created_utc DESC)",
-            "CREATE TABLE IF NOT EXISTS daily_review_journals (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, editor_state_json TEXT NOT NULL DEFAULT '', updated_utc TEXT NULL, UNIQUE(journal_id, review_date))",
+            "CREATE TABLE IF NOT EXISTS daily_review_journals (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, editor_state_json TEXT NOT NULL DEFAULT '', search_text TEXT NULL, updated_utc TEXT NULL, UNIQUE(journal_id, review_date))",
             "CREATE INDEX IF NOT EXISTS ix_daily_review_journals_journal_date ON daily_review_journals(journal_id, review_date)",
             "CREATE TABLE IF NOT EXISTS daily_review_journal_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', reason TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_daily_review_journal_history_date ON daily_review_journal_history(journal_id, review_date, revision DESC)",
@@ -220,11 +220,13 @@ public sealed class TradeFoundryDb
         EnsureColumn(connection, "trade_review_annotations", "nfa_fees", "TEXT NULL");
         EnsureColumn(connection, "trade_review_annotations", "clearing_fees", "TEXT NULL");
         EnsureColumn(connection, "trade_review_attachments", "caption", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "daily_review_journals", "search_text", "TEXT NULL");
         EnsureColumn(connection, "bars", "number_of_trades", "INTEGER NULL");
         EnsureColumn(connection, "bars", "bid_volume", "INTEGER NULL");
         EnsureColumn(connection, "bars", "ask_volume", "INTEGER NULL");
 
         BackfillTradeReviewKeys(connection);
+        BackfillDailyJournalSearchText(connection);
         using (var reviewKeyIndex = connection.CreateCommand())
         {
             reviewKeyIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS ix_trades_journal_review_key ON trades(journal_id, review_key) WHERE review_key <> ''";
@@ -1466,7 +1468,7 @@ public sealed class TradeFoundryDb
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, journal_id, review_date, revision, editor_state_json, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
+        command.CommandText = "SELECT id, journal_id, review_date, revision, editor_state_json, search_text, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         using var reader = command.ExecuteReader();
@@ -1494,6 +1496,7 @@ public sealed class TradeFoundryDb
         }
 
         var now = DateTimeOffset.UtcNow;
+        var searchText = LexicalPlainText.Extract(normalizedText);
         var entry = new DailyJournalEntry
         {
             JournalId = journalId,
@@ -1505,12 +1508,13 @@ public sealed class TradeFoundryDb
         using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
-            command.CommandText = "INSERT INTO daily_review_journals (id, journal_id, review_date, revision, editor_state_json, updated_utc) VALUES ($id, $journal, $date, $revision, $text, $updated) ON CONFLICT(journal_id, review_date) DO UPDATE SET revision = excluded.revision, editor_state_json = excluded.editor_state_json, updated_utc = excluded.updated_utc";
+            command.CommandText = "INSERT INTO daily_review_journals (id, journal_id, review_date, revision, editor_state_json, search_text, updated_utc) VALUES ($id, $journal, $date, $revision, $text, $searchText, $updated) ON CONFLICT(journal_id, review_date) DO UPDATE SET revision = excluded.revision, editor_state_json = excluded.editor_state_json, search_text = excluded.search_text, updated_utc = excluded.updated_utc";
             command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
             command.Parameters.AddWithValue("$revision", entry.Revision);
             command.Parameters.AddWithValue("$text", entry.Text);
+            command.Parameters.AddWithValue("$searchText", searchText);
             command.Parameters.AddWithValue("$updated", now.ToString("O", CultureInfo.InvariantCulture));
             command.ExecuteNonQuery();
         }
@@ -1518,6 +1522,77 @@ public sealed class TradeFoundryDb
         InsertDailyJournalHistory(connection, transaction, journalId, date, entry.Revision, action, JsonSerializer.Serialize(current), JsonSerializer.Serialize(entry), TrimTo(action, 500), now);
         transaction.Commit();
         return new DailyJournalSaveResult { Saved = true, Entry = entry };
+    }
+
+    public IReadOnlyList<DailyJournalSearchHit> SearchDailyJournalEntries(Guid journalId, string query, int limit = 6)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var terms = SearchTerms(query);
+        if (terms.Length == 0) return Array.Empty<DailyJournalSearchHit>();
+
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var filters = new List<string> { "journal_id = $journal", "TRIM(COALESCE(search_text, '')) <> ''" };
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        AddPaletteSearchTerms(filters, command, "search_text", terms);
+        command.CommandText = $"SELECT review_date, search_text FROM daily_review_journals WHERE {string.Join(" AND ", filters)} ORDER BY review_date DESC LIMIT $limit";
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 10));
+
+        var results = new List<DailyJournalSearchHit>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(new DailyJournalSearchHit(
+                DateOnly.Parse(reader.GetString(0), CultureInfo.InvariantCulture),
+                reader.IsDBNull(1) ? string.Empty : reader.GetString(1)));
+        }
+        return results;
+    }
+
+    public IReadOnlyList<TradeReviewSearchHit> SearchTradeReviewNotes(Guid journalId, string query, int limit = 6)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var terms = SearchTerms(query);
+        if (terms.Length == 0) return Array.Empty<TradeReviewSearchHit>();
+
+        const string annotationText = "COALESCE(r.review_note, '') || ' ' || COALESCE(r.setup, '') || ' ' || COALESCE(NULLIF(r.tags_json, '[]'), '') || ' ' || COALESCE(r.plan_adherence, '') || ' ' || COALESCE(r.mistakes, '') || ' ' || COALESCE(r.lessons, '')";
+        var searchableText = $"COALESCE(t.symbol, '') || ' ' || COALESCE(t.instrument, '') || ' ' || COALESCE(t.note, '') || ' ' || {annotationText}";
+        var hasNote = $"TRIM(COALESCE(t.note, '') || ' ' || {annotationText}) <> ''";
+
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var filters = new List<string> { "t.journal_id = $journal", hasNote };
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        AddPaletteSearchTerms(filters, command, searchableText, terms);
+        command.CommandText = $"SELECT t.review_key, t.symbol, t.instrument, t.status, t.entry_utc, t.exit_utc, t.note, r.review_note, r.setup, r.tags_json, r.plan_adherence, r.mistakes, r.lessons FROM {TradeFrom} WHERE {string.Join(" AND ", filters)} ORDER BY COALESCE(r.updated_utc, t.entry_utc) DESC, t.entry_utc DESC LIMIT $limit";
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 10));
+
+        var results = new List<TradeReviewSearchHit>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var entryUtc = ParseDate(reader.GetString(4));
+            DateTimeOffset? exitUtc = reader.IsDBNull(5) ? null : ParseDate(reader.GetString(5));
+            var noteParts = new[]
+            {
+                StringOrEmpty(reader, 7),
+                StringOrEmpty(reader, 8),
+                ReadSearchTags(StringOrEmpty(reader, 9)),
+                StringOrEmpty(reader, 10),
+                StringOrEmpty(reader, 11),
+                StringOrEmpty(reader, 12),
+                StringOrEmpty(reader, 6)
+            };
+            results.Add(new TradeReviewSearchHit(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                entryUtc,
+                exitUtc,
+                string.Join(" · ", noteParts.Where(part => !string.IsNullOrWhiteSpace(part)).Select(part => part.Trim()))));
+        }
+        return results;
     }
 
     public TradeReviewAttachment AddTradeReviewAttachment(Guid journalId, string reviewKey, string storageKey, string originalFileName, string contentType, long length, string? caption = null)
@@ -3451,6 +3526,30 @@ public sealed class TradeFoundryDb
         alter.ExecuteNonQuery();
     }
 
+    private static void BackfillDailyJournalSearchText(SqliteConnection connection)
+    {
+        var rows = new List<(string Id, string State)>();
+        using (var read = connection.CreateCommand())
+        {
+            read.CommandText = "SELECT id, editor_state_json FROM daily_review_journals WHERE search_text IS NULL";
+            using var reader = read.ExecuteReader();
+            while (reader.Read()) rows.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        if (rows.Count == 0) return;
+        using var transaction = connection.BeginTransaction();
+        foreach (var row in rows)
+        {
+            using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = "UPDATE daily_review_journals SET search_text = $searchText WHERE id = $id AND search_text IS NULL";
+            update.Parameters.AddWithValue("$searchText", LexicalPlainText.Extract(row.State));
+            update.Parameters.AddWithValue("$id", row.Id);
+            update.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
     private static void BackfillTradeReviewKeys(SqliteConnection connection)
     {
         using var read = connection.CreateCommand();
@@ -3625,14 +3724,14 @@ public sealed class TradeFoundryDb
         Date = DateOnly.Parse(reader.GetString(2), CultureInfo.InvariantCulture),
         Revision = reader.GetInt32(3),
         Text = reader.GetString(4),
-        UpdatedUtc = reader.IsDBNull(5) ? null : ParseDate(reader.GetString(5))
+        UpdatedUtc = reader.IsDBNull(6) ? null : ParseDate(reader.GetString(6))
     };
 
     private static DailyJournalEntry ReadDailyJournalOrDefault(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, DateOnly date)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT id, journal_id, review_date, revision, editor_state_json, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
+        command.CommandText = "SELECT id, journal_id, review_date, revision, editor_state_json, search_text, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date = $date";
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         using var reader = command.ExecuteReader();
@@ -3750,6 +3849,43 @@ public sealed class TradeFoundryDb
         var trimmed = (value ?? string.Empty).Trim();
         return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
+
+    private static string[] SearchTerms(string? query) => (query ?? string.Empty)
+        .Trim()
+        .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(term => term.Length > 80 ? term[..80] : term)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Take(8)
+        .ToArray();
+
+    private static void AddPaletteSearchTerms(List<string> filters, SqliteCommand command, string expression, IReadOnlyList<string> terms)
+    {
+        for (var index = 0; index < terms.Count; index++)
+        {
+            var parameter = $"$paletteTerm{index}";
+            filters.Add($"({expression}) LIKE {parameter} ESCAPE '\\'");
+            command.Parameters.AddWithValue(parameter, $"%{EscapeLike(terms[index])}%");
+        }
+    }
+
+    private static string EscapeLike(string value) => value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("%", "\\%", StringComparison.Ordinal)
+        .Replace("_", "\\_", StringComparison.Ordinal);
+
+    private static string ReadSearchTags(string json)
+    {
+        try
+        {
+            return string.Join(", ", JsonSerializer.Deserialize<string[]>(json) ?? Array.Empty<string>());
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string StringOrEmpty(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? string.Empty : reader.GetString(ordinal);
 
     private static string SerializeReview(TradeReviewAnnotation annotation) => JsonSerializer.Serialize(annotation);
 

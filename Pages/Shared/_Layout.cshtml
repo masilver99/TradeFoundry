@@ -1,5 +1,6 @@
 @using TradeFoundry.Core
 @using TradeFoundry.Data
+@using TradeFoundry.Services
 @inject TradeFoundryDb Database
 @{
     var authenticated = User.Identity?.IsAuthenticated == true;
@@ -30,9 +31,27 @@
     <link rel="stylesheet" href="~/lib/tabler/tabler.min.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
-<body class="@(authenticated ? "tf-app" : "tf-public")" data-chart-export-owner-name="@exportOwnerName" data-chart-export-journal-name="@exportJournalName" data-notification-owner-name="@exportOwnerName">
+<body class="@(authenticated ? "tf-app" : "tf-public")" data-chart-export-owner-name="@exportOwnerName" data-chart-export-journal-name="@exportJournalName" data-notification-owner-name="@exportOwnerName" data-command-journal-id="@(activeJournal?.Id.ToString("D") ?? string.Empty)" data-command-search-url="@(activeJournal is null ? string.Empty : $"/journal/{activeJournal.Id:D}/command-search")">
 @if (authenticated)
 {
+    @if (activeJournal is not null)
+    {
+        <dialog class="tf-command-dialog" id="tf-command-dialog" aria-labelledby="tf-command-title" aria-describedby="tf-command-help" data-command-dialog>
+            <div class="tf-command-heading">
+                <h2 id="tf-command-title">Search TradeFoundry</h2>
+                <button type="button" class="tf-command-close" data-command-close aria-label="Close search">×</button>
+            </div>
+            <label class="visually-hidden" for="tf-command-input">Search pages, charts, metrics, trades, and notes</label>
+            <div class="tf-command-input-wrap">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg>
+                <input id="tf-command-input" type="search" class="tf-command-input" placeholder="Search pages, charts, metrics, trades, and notes…" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="tf-command-results" data-command-input />
+            </div>
+            <div id="tf-command-results" class="tf-command-results" role="listbox" aria-label="Search results" data-command-results></div>
+            <div class="tf-command-status" role="status" aria-live="polite" data-command-status></div>
+            <div class="tf-command-footer" id="tf-command-help"><span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span><span><kbd>Enter</kbd> Open</span><span><kbd>Esc</kbd> Close</span></div>
+        </dialog>
+<script id="tf-command-catalog" type="application/json">@Html.Raw(CommandPaletteCatalog.ToJson())</script>
+    }
     <div class="page">
         <aside id="workspace-sidebar" class="navbar navbar-vertical navbar-expand-lg tf-sidebar" data-bs-theme="dark">
             <div class="container-fluid">
@@ -130,6 +149,10 @@
                         @if (activeJournal is not null)
                         {
                             <div class="col-auto tf-page-header-tools">
+                                <button type="button" class="tf-command-trigger" data-command-trigger aria-haspopup="dialog" aria-controls="tf-command-dialog" aria-expanded="false" title="Search TradeFoundry (Ctrl+K)">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg>
+                                    <span>Search</span><kbd data-command-shortcut>Ctrl K</kbd>
+                                </button>
                                 <span class="tf-page-context">@activeJournal.Name <span>·</span> @activeJournal.TimeZone</span>
                             </div>
                         }
@@ -159,6 +182,7 @@ else
     <script src="~/js/lexical-editor.bundle.js" asp-append-version="true"></script>
 }
 <script src="~/js/site.js" asp-append-version="true"></script>
+<script src="~/js/command-palette.js" asp-append-version="true"></script>
 @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

@@ -46,7 +46,7 @@
             </div>
             <span class="text-secondary">Revision @Model.Day.DailyJournal.Revision</span>
         </div>
-        <form method="post" asp-page-handler="SaveDailyJournal" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Url.Page("/Review", "AutosaveDailyJournal", new { journalId = Model.JournalId, date = dateText })">
+        <form id="daily-journal-editor" method="post" asp-page-handler="SaveDailyJournal" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Url.Page("/Review", "AutosaveDailyJournal", new { journalId = Model.JournalId, date = dateText })">
             @Html.AntiForgeryToken()
             <input type="hidden" name="expectedRevision" value="@Model.Day.DailyJournal.Revision" />
             <div class="tf-lexical-editor" data-lexical-editor data-max-length="64000" hidden>

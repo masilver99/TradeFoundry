@@ -52,7 +52,7 @@ else
         <a class="btn btn-outline-secondary" href="@($"/journal/{overview.Journal.Id:D}/settings")">Journal settings</a>
     </div>
 
-    <section class="row row-cards mb-3" aria-label="Journal metrics">
+    <section id="overview-metrics" class="row row-cards mb-3" aria-label="Journal metrics">
         <div class="col-sm-6 col-xl-2"><a class="card tf-card tf-metric tf-metric-account tf-account-summary-card d-block" href="@($"/journal/{overview.Journal.Id:D}/account")"><div class="card-body"><div class="tf-metric-label">Account balance</div><div class="tf-metric-value @(accountBalance.HasValue && accountBalance.Value < 0m ? "negative" : "positive")">@(accountBalance?.ToString("C2") ?? "—")</div><div class="tf-metric-note">@(accountTwr.HasValue ? $"{accountTwr.Value:+0.00;-0.00;0.00}% realized TWR · {accountProfit:C2} profit" : $"{accountProfit:C2} realized · TWR unavailable")</div><div class="tf-account-card-link">Open account ledger →</div></div></a></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric tf-metric-accent"><div class="card-body"><div class="tf-metric-label">Net P&amp;L</div><div class="tf-metric-value @(overview.NetPnl >= 0 ? "positive" : "negative")">@overview.NetPnl.ToString("C2")</div><div class="tf-metric-note">All imported trades</div></div></div></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Points</div><div class="tf-metric-value">@overview.Points.ToString("0.##")</div><div class="tf-metric-note">Direction-adjusted</div><div class="tf-metric-note">Fee-adjusted @overview.FeeAdjustedPoints.ToString("0.##") points</div></div></div></div>
@@ -63,7 +63,7 @@ else
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Fees</div><div class="tf-metric-value">@overview.Fees.ToString("C2")</div><div class="tf-metric-note">Exchange @overview.ExchangeFees.ToString("C2") · NFA @overview.NfaFees.ToString("C2") · Clearing @overview.ClearingFees.ToString("C2")<br /><span class="text-secondary">All-in overrides are included in total</span></div></div></div></div>
     </section>
 
-    <section class="row row-cards mb-3">
+    <section id="overview-charts" class="row row-cards mb-3">
         <div class="col-lg-6">
             <div class="card tf-card tf-chart-card">
                 <div class="card-header">

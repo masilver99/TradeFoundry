@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
 using TradeFoundry.Mcp;
@@ -42,6 +43,14 @@ if (desktopMode)
     builder.Configuration.AddEnvironmentVariables();
     builder.Configuration.AddCommandLine(applicationArgs);
     builder.WebHost.UseUrls(DesktopRuntime.DefaultUrl);
+}
+
+var dataProtectionKeysDirectory = builder.Configuration["DataProtection:KeysDirectory"];
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysDirectory))
+{
+    var fullKeysDirectory = Path.GetFullPath(dataProtectionKeysDirectory);
+    Directory.CreateDirectory(fullKeysDirectory);
+    builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(fullKeysDirectory));
 }
 
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));

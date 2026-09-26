@@ -10,6 +10,131 @@ namespace TradeFoundry.Tests;
 public sealed class TradeReviewTests
 {
     [Fact]
+    public void LexicalPlainTextExtractsReadableContentAndKeepsPlainTextEntriesSearchable()
+    {
+        var state = """{"root":{"children":[{"type":"paragraph","children":[{"type":"text","text":"Overnight ES breakout"}]},{"type":"paragraph","children":[{"type":"text","text":"Risk stays at 100%."}]}]}}""";
+
+        Assert.Equal("Overnight ES breakout Risk stays at 100%.", LexicalPlainText.Extract(state));
+        Assert.Equal("Older plain text stays searchable.", LexicalPlainText.Extract("Older plain text stays searchable."));
+    }
+
+    [Fact]
+    public void DailyJournalSearchIndexesLexicalTextBackfillsExistingRowsAndStaysJournalScoped()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var live = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var paper = database.CreateJournal("Paper", "paper", string.Empty, "UTC", "USD", "flat_to_flat");
+            var date = new DateOnly(2026, 9, 12);
+            var state = """{"root":{"children":[{"type":"paragraph","children":[{"type":"text","text":"Overnight ES breakout"}]},{"type":"paragraph","children":[{"type":"text","text":"Risk plan is 100% defined."}]}]}}""";
+
+            Assert.True(database.SaveDailyJournal(live.Id, date, state, 0).Saved);
+            Assert.True(database.SaveDailyJournal(paper.Id, date, "Paper-only breakout note.", 0).Saved);
+            Assert.Single(database.SearchDailyJournalEntries(live.Id, "breakout"));
+            Assert.Single(database.SearchDailyJournalEntries(live.Id, "100%"));
+            Assert.Empty(database.SearchDailyJournalEntries(live.Id, "paper-only"));
+            Assert.Single(database.SearchDailyJournalEntries(paper.Id, "paper-only"));
+
+            using (var connection = new SqliteConnection($"Data Source={database.DatabasePath}"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "UPDATE daily_review_journals SET search_text = NULL WHERE journal_id = $journal";
+                command.Parameters.AddWithValue("$journal", live.Id.ToString("D"));
+                command.ExecuteNonQuery();
+            }
+
+            var reopened = CreateDatabase(directory);
+            Assert.Single(reopened.SearchDailyJournalEntries(live.Id, "breakout"));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void TradeReviewNoteSearchMatchesLiteralWildcardsAndDoesNotCrossJournals()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var live = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var paper = database.CreateJournal("Paper", "paper", string.Empty, "UTC", "USD", "flat_to_flat");
+            ImportRoundTrip(database, live.Id);
+            var trade = Assert.Single(database.GetAllTrades(live.Id));
+            database.SaveTradeReview(live.Id, trade.ReviewKey, new TradeReviewPatch
+            {
+                ReviewNote = "EMA pullback confirmed; target was 100% planned.",
+                Setup = "Opening range",
+                TagsText = "trend, pullback",
+                ExpectedRevision = 0
+            });
+
+            var matches = Assert.Single(database.SearchTradeReviewNotes(live.Id, "ema pullback"));
+            Assert.Equal(trade.ReviewKey, matches.ReviewKey);
+            Assert.Contains("EMA pullback", matches.SearchText);
+            Assert.Single(database.SearchTradeReviewNotes(live.Id, "100%"));
+            Assert.Empty(database.SearchTradeReviewNotes(paper.Id, "ema"));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void PaletteNoteSearchAppliesRequestedAndHardResultLimits()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var firstDate = new DateOnly(2026, 1, 1);
+            for (var index = 0; index < 12; index++)
+                Assert.True(database.SaveDailyJournal(journal.Id, firstDate.AddDays(index), $"limit marker day {index}", 0).Saved);
+
+            var parsed = new ParsedImport
+            {
+                SourceType = TradeFoundryConstants.SierraFills,
+                SourceApplication = TradeFoundryConstants.SierraChart
+            };
+            var row = 1;
+            for (var index = 0; index < 12; index++)
+            {
+                var entry = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero).AddDays(index);
+                parsed.Records.Add(FillRecord($"entry-{index}", "Buy", 5000m, entry, row++));
+                parsed.Records.Add(FillRecord($"exit-{index}", "Sell", 5001m, entry.AddHours(1), row++));
+            }
+            database.CommitImport(journal.Id, "many-trades.csv", parsed, "flat_to_flat", "source");
+            foreach (var trade in database.GetAllTrades(journal.Id))
+            {
+                database.SaveTradeReview(journal.Id, trade.ReviewKey, new TradeReviewPatch
+                {
+                    ReviewNote = "limit marker trade",
+                    ExpectedRevision = 0
+                });
+            }
+
+            Assert.Equal(3, database.SearchDailyJournalEntries(journal.Id, "limit marker", 3).Count);
+            Assert.Equal(10, database.SearchDailyJournalEntries(journal.Id, "limit marker", 100).Count);
+            Assert.Equal(3, database.SearchTradeReviewNotes(journal.Id, "limit marker", 3).Count);
+            Assert.Equal(10, database.SearchTradeReviewNotes(journal.Id, "limit marker", 100).Count);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void MaeTargetsPersistPerJournalAndCanBeClearedWithoutTouchingAnotherJournal()
     {
         var directory = NewDirectory();

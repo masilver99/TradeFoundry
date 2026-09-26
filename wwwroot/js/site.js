@@ -683,6 +683,7 @@ function initializeDailyJournal() {
     return savePromise ? await savePromise : await save();
   };
   window.tradeFoundryFlushDailyJournal = flush;
+  window.tradeFoundryFlushPaletteNavigation = flush;
 
   input.addEventListener("input", () => schedule());
   input.addEventListener("blur", () => schedule(true));
@@ -1624,6 +1625,7 @@ function initializeReviewWorkspace() {
     const flushAttachmentCaptions = window.tradeFoundryFlushAttachmentCaptions;
     return flushAttachmentCaptions ? await flushAttachmentCaptions() : true;
   };
+  window.tradeFoundryFlushPaletteNavigation = flushContext;
 
   const activate = async (key, options = {}) => {
     if (!key) return true;

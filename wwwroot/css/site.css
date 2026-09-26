@@ -354,7 +354,8 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-chart-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin: 0 0 12px; }
 .tf-chart-section-heading-main { min-width: 0; }
 .tf-chart-section-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.tf-chart-section-heading h2 { margin: 3px 0 0; color: var(--tf-muted); font-size: 15px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.tf-chart-section-heading h2,
+.tf-chart-section-heading h3 { margin: 3px 0 0; color: var(--tf-muted); font-size: 15px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .tf-section-info-button { display: inline-grid; width: 16px; height: 16px; flex: 0 0 16px; place-items: center; margin-top: 3px; padding: 0; border: 1px solid var(--tf-muted); border-radius: 50%; background: transparent; color: var(--tf-muted); cursor: pointer; font: italic 600 10px/1 Georgia, serif; }
 .tf-section-info-button:hover, .tf-section-info-button:focus-visible, .tf-section-info-button[aria-expanded="true"] { border-color: var(--tf-blue); color: var(--tf-blue); outline: 0; }
 .tf-section-info-button:focus-visible { box-shadow: 0 0 0 2px rgba(var(--tf-blue-rgb), .2); }

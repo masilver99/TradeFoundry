@@ -163,9 +163,6 @@
                             <th scope="col">Avg / Trade</th>
                             <th scope="col">Win %</th>
                             <th scope="col">Profit Factor</th>
-                            <th scope="col">Exchange</th>
-                            <th scope="col">NFA</th>
-                            <th scope="col">Clearing / commission</th>
                             <th scope="col">Total fees</th>
                             <th scope="col">Avg Hold</th>
                             <th scope="col">Best Trade</th>
@@ -197,7 +194,7 @@
                                         }
                                         @if (periodRow.Level is "year" or "quarter" or "month")
                                         {
-                                            <small>@periodRow.StartDate@(periodRow.StartDate != periodRow.EndDate ? $" - {periodRow.EndDate}" : string.Empty)</small>
+                                            <small>@periodRow.DayCount.ToString("N0", CultureInfo.CurrentCulture) @(periodRow.DayCount == 1 ? "day with trades" : "days with trades")</small>
                                         }
                                     </div>
                                 </th>
@@ -209,9 +206,6 @@
                                 <td class="@(periodRow.AveragePnlPerTrade.HasValue ? PeriodTone(periodRow.AveragePnlPerTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.AveragePnlPerTrade)</td>
                                 <td>@FormatPeriodPercent(periodRow.WinRate)</td>
                                 <td>@FormatPeriodRatio(periodRow.ProfitFactor)</td>
-                                <td class="negative">@FormatPeriodFees(periodRow.ExchangeFees)</td>
-                                <td class="negative">@FormatPeriodFees(periodRow.NfaFees)</td>
-                                <td class="negative">@FormatPeriodFees(periodRow.ClearingFees)</td>
                                 <td class="negative">@FormatPeriodFees(periodRow.TotalFees)</td>
                                 <td>@FormatPeriodDuration(periodRow.AverageHoldSeconds)</td>
                                 <td class="@(periodRow.BestTrade.HasValue ? PeriodTone(periodRow.BestTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.BestTrade)</td>
@@ -300,9 +294,9 @@
                                             var tone = month.BreachCount > 0 ? "breach" : month.TargetEvaluatedTradeCount > 0 ? "within" : month.TargetConfiguredTradeCount > 0 ? "unavailable" : "unconfigured";
                                             var value = month.WorstMaePerContract.HasValue ? $"{month.WorstMaePerContract.Value.ToString("N2", CultureInfo.CurrentCulture)} {Model.PnlCalendarCurrency}" : "No MAE";
                                             var targetMeta = month.TargetConfiguredTradeCount > 0
-                                                ? $"{month.BreachCount} breaches · {month.TargetEvaluatedTradeCount}/{month.TargetConfiguredTradeCount} targets checked · {month.MaeObservedTradeCount}/{month.TradeCount} MAE"
+                                                ? $"{month.BreachCount} breaches · {month.MaeObservedTradeCount}/{month.TradeCount} MAE"
                                                 : $"{month.MaeObservedTradeCount}/{month.TradeCount} MAE recorded · no target";
-                                            <button type="button" class="tf-mae-month" data-mae-month="@month.Key" data-tone="@tone" aria-label="@month.Label: worst MAE @value per contract, @month.BreachCount breaches, @month.TradeCount trades, @month.MaeObservedTradeCount with MAE, @month.TargetEvaluatedTradeCount of @month.TargetConfiguredTradeCount target configured trades checked">
+                                            <button type="button" class="tf-mae-month" data-mae-month="@month.Key" data-tone="@tone" aria-label="@month.Label: worst MAE @value per contract, @month.BreachCount breaches, @month.TradeCount trades, @month.MaeObservedTradeCount with MAE">
                                                 <span class="tf-pnl-month-label">@month.Label</span>
                                                 <strong class="tf-mae-month-value">@value <small>/ contract</small></strong>
                                                 <small class="tf-mae-month-meta">@targetMeta</small>

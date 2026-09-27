@@ -39,12 +39,14 @@
     }
 
     <section class="card tf-card tf-daily-journal" aria-labelledby="daily-journal-heading">
-        <div class="card-header tf-daily-journal-heading">
-            <div>
-                <div class="tf-kicker">SELECTED DAY</div>
+        <div class="card-header tf-daily-journal-heading" role="button" tabindex="0" aria-controls="daily-journal-editor" aria-expanded="true" data-daily-journal-toggle>
+            <div class="tf-daily-journal-title">
                 <h2 id="daily-journal-heading" class="tf-card-title">Daily journal</h2>
             </div>
-            <span class="text-secondary">Revision @Model.Day.DailyJournal.Revision</span>
+            <div class="tf-daily-journal-heading-meta">
+                <span class="tf-daily-journal-bytes" data-daily-journal-bytes>0 bytes</span>
+                <span class="tf-daily-journal-toggle-icon" aria-hidden="true"></span>
+            </div>
         </div>
         <form id="daily-journal-editor" method="post" asp-page-handler="SaveDailyJournal" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Url.Page("/Review", "AutosaveDailyJournal", new { journalId = Model.JournalId, date = dateText })">
             @Html.AntiForgeryToken()
@@ -69,7 +71,7 @@
             <label id="daily-journal-label" class="visually-hidden" for="daily-journal-text">Daily journal</label>
             <textarea id="daily-journal-text" name="dailyJournalStateJson" rows="7" maxlength="64000" data-lexical-source hidden>@Model.DailyJournalStateJson</textarea>
             <div class="tf-daily-journal-actions">
-                <small>Private journal notes for @selectedDate.ToString("MMMM d, yyyy", CultureInfo.CurrentCulture). Markdown formatting is supported.</small>
+                <span class="text-secondary tf-daily-journal-revision" data-daily-journal-revision>Revision @Model.Day.DailyJournal.Revision</span>
                 <span class="tf-review-save-status" role="status" aria-live="polite" data-daily-journal-status>Saved</span>
             </div>
         </form>

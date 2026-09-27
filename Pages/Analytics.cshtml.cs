@@ -98,7 +98,7 @@ public class AnalyticsModel : PageModel
     public string ExitTypeChart => ChartRenderer.ExitTypeAnalysis(Trades);
     public string OrderExecutionChart => ChartRenderer.OrderExecution(OrderEvents);
 
-    public sealed record PnlCalendarDay(string Date, int Day, decimal NetPnl, int TradeCount, decimal Points, decimal? MaeCurrency);
+    public sealed record PnlCalendarDay(string Date, int Day, decimal NetPnl, int TradeCount, decimal Points, decimal? MaeCurrency, decimal? ProfitPercent);
 
     public sealed record PnlCalendarMonth(
         string Key,
@@ -202,6 +202,9 @@ public class AnalyticsModel : PageModel
     {
         if (Journal is null) return;
 
+        var startingEquity = Overview?.StartingEquity;
+        var hasStartingEquity = startingEquity is > 0m;
+
         var daily = DailyTradeAggregation.Build(Trades, Journal.TimeZone)
             .Where(day => day.CompletedTradeCount > 0)
             .ToDictionary(day => day.Date, day =>
@@ -210,7 +213,8 @@ public class AnalyticsModel : PageModel
                     NetPnl: day.RealizedNetPnl,
                     TradeCount: day.CompletedTradeCount,
                     Points: day.RealizedGrossPoints,
-                    MaeCurrency: day.RealizedMaeCurrency);
+                    MaeCurrency: day.RealizedMaeCurrency,
+                    ProfitPercent: hasStartingEquity ? day.RealizedNetPnl / startingEquity!.Value * 100m : (decimal?)null);
             });
 
         PnlCalendarMonths = daily.Keys
@@ -226,14 +230,15 @@ public class AnalyticsModel : PageModel
                         var date = new DateOnly(group.Key.Year, group.Key.Month, dayNumber);
                         var summary = daily.TryGetValue(date, out var value)
                             ? value
-                            : (NetPnl: 0m, TradeCount: 0, Points: 0m, MaeCurrency: (decimal?)null);
+                            : (NetPnl: 0m, TradeCount: 0, Points: 0m, MaeCurrency: (decimal?)null, ProfitPercent: (decimal?)null);
                         return new PnlCalendarDay(
                             date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                             dayNumber,
                             summary.NetPnl,
                             summary.TradeCount,
                             summary.Points,
-                            summary.MaeCurrency);
+                            summary.MaeCurrency,
+                            summary.ProfitPercent);
                     })
                     .ToArray();
 

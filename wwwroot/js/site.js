@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializePnlCalendar();
   initializeMaeCalendar();
   initializeDailyJournal();
+  initializeDailyJournalDisclosure();
   initializeReviewWorkspace();
   initializeReviewAttachmentPaste();
   initializeReviewAttachmentCaptions();
@@ -618,11 +619,21 @@ function initializeDailyJournal() {
   const form = document.querySelector("[data-daily-journal-form]");
   const input = form?.querySelector("[name=dailyJournalStateJson]");
   const status = form?.querySelector("[data-daily-journal-status]");
+  const revisionLabel = form?.querySelector("[data-daily-journal-revision]");
+  const root = form?.querySelector("[data-lexical-root]");
+  const byteCount = form?.closest(".tf-daily-journal")?.querySelector("[data-daily-journal-bytes]");
   if (!form || !input) return;
 
   let savedSnapshot = input.value;
   let timer = null;
   let savePromise = null;
+
+  const updateByteCount = () => {
+    if (!byteCount) return;
+    const text = root?.textContent || "";
+    const bytes = typeof TextEncoder === "function" ? new TextEncoder().encode(text).length : new Blob([text]).size;
+    byteCount.textContent = `${bytes.toLocaleString()} ${bytes === 1 ? "byte" : "bytes"}`;
+  };
 
   const setStatus = (text, type = "") => {
     if (!status) return;
@@ -653,7 +664,10 @@ function initializeDailyJournal() {
         throw new Error(payload.message || "The daily journal could not be saved.");
       }
       const revision = form.querySelector("input[name=expectedRevision]");
-      if (revision && payload.revision !== undefined) revision.value = payload.revision;
+      if (revision && payload.revision !== undefined) {
+        revision.value = payload.revision;
+        if (revisionLabel) revisionLabel.textContent = `Revision ${payload.revision}`;
+      }
       savedSnapshot = sentSnapshot;
       const dirty = input.value !== savedSnapshot;
       setStatus(dirty ? "Saving changes…" : "Saved", dirty ? "saving" : "saved");
@@ -685,7 +699,12 @@ function initializeDailyJournal() {
   window.tradeFoundryFlushDailyJournal = flush;
   window.tradeFoundryFlushPaletteNavigation = flush;
 
-  input.addEventListener("input", () => schedule());
+  updateByteCount();
+  window.requestAnimationFrame(updateByteCount);
+  input.addEventListener("input", () => {
+    updateByteCount();
+    schedule();
+  });
   input.addEventListener("blur", () => schedule(true));
   form.addEventListener("submit", event => {
     event.preventDefault();
@@ -716,6 +735,25 @@ function initializeDailyJournal() {
       event.preventDefault();
       event.returnValue = "";
     }
+  });
+}
+
+function initializeDailyJournalDisclosure() {
+  const toggle = document.querySelector("[data-daily-journal-toggle]");
+  const form = document.querySelector("[data-daily-journal-form]");
+  if (!toggle || !form) return;
+
+  const setExpanded = expanded => {
+    toggle.setAttribute("aria-expanded", String(expanded));
+    form.hidden = !expanded;
+  };
+  const toggleJournal = () => setExpanded(toggle.getAttribute("aria-expanded") !== "true");
+
+  toggle.addEventListener("click", toggleJournal);
+  toggle.addEventListener("keydown", event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggleJournal();
   });
 }
 
@@ -1168,7 +1206,7 @@ function initializePnlCalendar() {
     maeCurrencyFormat = new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: root.dataset.pnlCurrency || "USD",
-      maximumFractionDigits: 2,
+      maximumFractionDigits: 0,
       minimumFractionDigits: 0
     });
   } catch {
@@ -1181,9 +1219,14 @@ function initializePnlCalendar() {
     const formattedValue = currencyFormat ? currencyFormat.format(absoluteValue) : absoluteValue.toFixed(2);
     return numericValue < 0 ? `(${formattedValue})` : formattedValue;
   };
+  const formatProfitPercent = value => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return "—";
+    return `${numericValue > 0 ? "+" : ""}${numericValue.toFixed(2)}%`;
+  };
   const formatMae = value => {
     const numericValue = Number(value || 0);
-    return maeCurrencyFormat ? maeCurrencyFormat.format(numericValue) : `$${numericValue.toFixed(2)}`;
+    return maeCurrencyFormat ? maeCurrencyFormat.format(numericValue) : `$${numericValue.toFixed(0)}`;
   };
   const element = (tagName, className, textContent) => {
     const node = document.createElement(tagName);
@@ -1229,8 +1272,9 @@ function initializePnlCalendar() {
         dayNode.title = "Open Daybook for this date";
       }
       dayNode.dataset.tone = tone;
+      const profitPercent = day.profitPercent === null || day.profitPercent === undefined ? null : formatProfitPercent(day.profitPercent);
       dayNode.setAttribute("aria-label", day.tradeCount > 0
-        ? `${day.date}: ${formatPnl(day.netPnl)}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}, ${Number(day.points || 0).toFixed(2)} points${day.maeCurrency === null || day.maeCurrency === undefined ? "" : `, ${formatMae(day.maeCurrency)} MAE`}`
+        ? `${day.date}: ${formatPnl(day.netPnl)}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}, ${Number(day.points || 0).toFixed(2)} points${profitPercent === null ? ", profit percentage unavailable" : `, ${profitPercent} profit`}${day.maeCurrency === null || day.maeCurrency === undefined ? "" : `, ${formatMae(day.maeCurrency)} MAE`}`
         : `${day.date}: no completed trades`);
       if (day.tradeCount === 0) dayNode.classList.add("tf-pnl-day-no-trades");
       const footer = element("div", "tf-pnl-day-footer");
@@ -1247,7 +1291,8 @@ function initializePnlCalendar() {
       dayNode.append(
         element("span", "tf-pnl-day-number", String(day.day)),
         result,
-        footer
+        footer,
+        element("small", "tf-pnl-day-percent", day.tradeCount > 0 ? formatProfitPercent(day.profitPercent) : "—")
       );
       days.append(dayNode);
     });

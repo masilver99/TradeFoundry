@@ -1,0 +1,5 @@
+@model IReadOnlyList<TradeFoundry.Pages.DailyJournalCardViewModel>
+@foreach (var entry in Model)
+{
+    <partial name="_DailyJournalCard" model="entry" />
+}

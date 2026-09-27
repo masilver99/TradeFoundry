@@ -765,6 +765,13 @@ public sealed record TradeReviewSearchHit(
 
 public sealed record DailyJournalSearchHit(DateOnly Date, string SearchText);
 
+public sealed class DailyJournalEntriesPage
+{
+    public IReadOnlyList<DailyJournalEntry> Entries { get; init; } = Array.Empty<DailyJournalEntry>();
+    public bool HasMore { get; init; }
+    public DateOnly? NextBefore => HasMore && Entries.Count > 0 ? Entries[^1].Date : null;
+}
+
 public sealed class DailyJournalSaveResult
 {
     public bool Saved { get; init; }

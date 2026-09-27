@@ -948,6 +948,23 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-daily-journal-form textarea { width: 100%; min-height: 110px; resize: vertical; border: 1px solid var(--tf-line); border-radius: 4px; background: var(--tf-bg); color: var(--tf-ink); padding: 9px 10px; font-size: 12px; line-height: 1.5; }
 .tf-daily-journal-form textarea:focus { border-color: var(--tf-blue); outline: 0; box-shadow: 0 0 0 2px rgba(var(--tf-blue-rgb), .14); }
 .tf-daily-journal-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tf-daily-journal-form[hidden] { display: none; }
+.tf-daily-journal-page { display: grid; gap: 18px; min-width: 0; }
+.tf-daily-journal-page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.tf-daily-journal-page-actions { display: flex; align-items: flex-end; gap: 12px; }
+.tf-daily-journal-date-form { width: min(340px, 42vw); }
+.tf-daily-journal-entries, .tf-daily-journal-entry-list { display: grid; gap: 14px; min-width: 0; }
+.tf-daily-journal-entry { overflow: hidden; scroll-margin-top: 16px; }
+.tf-daily-journal-entry.is-today { border-color: rgba(var(--tf-blue-rgb), .5); }
+.tf-daily-journal-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-bottom: 1px solid var(--tf-line); }
+.tf-daily-journal-entry-date { min-width: 0; }
+.tf-daily-journal-entry-header .tf-kicker { margin-bottom: 4px; }
+.tf-daily-journal-entry-meta { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 12px; }
+.tf-daily-journal-preview { padding: 12px 16px; color: var(--tf-muted); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tf-daily-journal-preview p { margin: 0; }
+.tf-daily-journal-load-more { display: flex; justify-content: center; }
+.tf-daily-journal-load-status { min-height: 18px; color: var(--tf-muted); font-size: 11px; text-align: center; }
+.tf-daily-journal-sentinel { height: 1px; }
 
 .tf-broker-comparison { display: grid; gap: 18px; }
 .tf-broker-comparison-intro { margin-bottom: 0; }
@@ -1052,7 +1069,9 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
   .tf-review-image-preview { grid-template-columns: minmax(0, 1fr); }
   .tf-review-image-preview img { width: 100%; max-height: 180px; }
   .tf-daily-journal-actions { align-items: flex-start; flex-direction: column; }
-  .tf-daily-journal-actions .btn { width: 100%; }
+  .tf-daily-journal-page-header, .tf-daily-journal-page-actions { align-items: stretch; flex-direction: column; }
+  .tf-daily-journal-page-actions, .tf-daily-journal-date-form { width: 100%; }
+  .tf-daily-journal-entry-header { align-items: flex-start; }
   .tf-broker-comparison-intro { align-items: flex-start; flex-direction: column; gap: 12px; }
   .tf-broker-comparison-badge { width: 100%; min-width: 0; }
   .tf-card-header-split { align-items: flex-start; flex-direction: column; }

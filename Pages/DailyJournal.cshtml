@@ -1,0 +1,56 @@
+@page "/journal/{journalId:guid}/daily-journal"
+@model TradeFoundry.Pages.DailyJournalModel
+@using System.Globalization
+@{
+    ViewData["Title"] = "Daily Journal";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / JOURNAL";
+    ViewData["ActiveNav"] = "daily-journal";
+    ViewData["UsesLexical"] = true;
+    var todayText = Model.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+}
+
+<main class="tf-daily-journal-page" data-daily-journal-feed
+      data-older-url="@($"/journal/{Model.JournalId:D}/daily-journal?handler=Older")"
+      data-entry-url="@($"/journal/{Model.JournalId:D}/daily-journal?handler=Entry")"
+      data-before="@(Model.NextBefore?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty)"
+      data-has-more="@Model.HasMore.ToString().ToLowerInvariant()"
+      data-target-date="@(Model.Date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty)">
+    <header class="tf-daily-journal-page-header">
+        <div>
+            <h1 class="h2 mb-1">Daily Journal</h1>
+            <p class="text-secondary mb-0">Your notes, newest first. Older entries load as you scroll.</p>
+        </div>
+        <div class="tf-daily-journal-page-actions">
+            <form method="get" class="tf-daily-journal-date-form">
+                <input type="hidden" name="journalId" value="@Model.JournalId" />
+                <label for="daily-journal-date" class="form-label mb-1">Open or create a date</label>
+                <div class="input-group">
+                    <input id="daily-journal-date" class="form-control" type="date" name="date" value="@(Model.Date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? todayText)" />
+                    <button type="submit" class="btn btn-outline-secondary">Open date</button>
+                </div>
+            </form>
+            <a class="btn btn-outline-secondary" asp-page="/Review" asp-route-journalId="@Model.JournalId">Daybook Review</a>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@Model.ErrorMessage</div>
+    }
+
+    <section class="tf-daily-journal-entries" aria-label="Daily journal entries">
+        <partial name="_DailyJournalCard" model="Model.TodayCard" />
+        <div class="tf-daily-journal-entry-list" data-daily-journal-entry-list>
+            <partial name="_DailyJournalCards" model="Model.Entries" />
+        </div>
+    </section>
+
+    <div class="tf-daily-journal-load-status" data-daily-journal-load-status role="status" aria-live="polite"></div>
+    @if (Model.HasMore && Model.NextBefore.HasValue)
+    {
+        <div class="tf-daily-journal-load-more" data-daily-journal-load-more-wrapper>
+            <a class="btn btn-outline-secondary" data-daily-journal-load-more href="?before=@Model.NextBefore.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">Load older entries</a>
+        </div>
+    }
+    <div class="tf-daily-journal-sentinel" data-daily-journal-sentinel aria-hidden="true"></div>
+</main>

@@ -15,8 +15,11 @@ import {$getSelection, $isRangeSelection, createEditor, FORMAT_TEXT_COMMAND, RED
 
 const EDITOR_NODES = [HeadingNode, QuoteNode, ListNode, ListItemNode, LinkNode, CodeNode];
 
-export function initializeLexicalEditors() {
-  document.querySelectorAll("[data-lexical-editor]").forEach(initializeEditor);
+export function initializeLexicalEditors(scope = document) {
+  const containers = [];
+  if (scope instanceof Element && scope.matches("[data-lexical-editor]")) containers.push(scope);
+  scope.querySelectorAll?.("[data-lexical-editor]").forEach(container => containers.push(container));
+  containers.forEach(initializeEditor);
 }
 
 function initializeEditor(container) {

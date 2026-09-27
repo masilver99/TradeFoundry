@@ -52,6 +52,7 @@ public static class CommandPaletteCatalog
         Page("Indicators", "/indicators", "Metrics", "Statistics");
         Page("Broker Costs", "/broker-comparison", "Commissions", "Fees", "Broker comparison");
         Page("Daybook Review", "/review", "Daybook", "Daily review", "Journal notes", "Review");
+        Page("Daily Journal", "/daily-journal", "Journal entries", "Journal feed", "Daily notes");
         Page("Imports", "/imports", "Import data", "Import history");
         Page("Settings", "/settings", "Configuration", "Preferences");
 

@@ -28,7 +28,7 @@ function initializeCommandPalette() {
   let requestController = null;
   let requestRevision = 0;
   let restoreFocusOnClose = true;
-  const defaultTitles = new Set(["Overview", "Trade Ledger", "Daybook Review", "Imports", "Settings"]);
+  const defaultTitles = new Set(["Overview", "Trade Ledger", "Daily Journal", "Daybook Review", "Imports", "Settings"]);
   const shortcutLabel = trigger.querySelector("[data-command-shortcut]");
   if (shortcutLabel && /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)) {
     shortcutLabel.textContent = "⌘ K";

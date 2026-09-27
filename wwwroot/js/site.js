@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeMaeCalendar();
   initializeDailyJournal();
   initializeDailyJournalDisclosure();
+  initializeDailyJournalFeed();
   initializeReviewWorkspace();
   initializeReviewAttachmentPaste();
   initializeReviewAttachmentCaptions();
@@ -21,7 +22,14 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeSidebarResize();
   initializeSidebarVisibility();
   initializeImportDropzones();
-  window.TradeFoundryLexical?.initializeLexicalEditors();
+  const journalFeed = document.querySelector("[data-daily-journal-feed]");
+  if (journalFeed) {
+    journalFeed.querySelectorAll("[data-daily-journal-form]:not([hidden])").forEach(form => {
+      window.TradeFoundryLexical?.initializeLexicalEditors(form);
+    });
+  } else {
+    window.TradeFoundryLexical?.initializeLexicalEditors();
+  }
 
   const filter = document.querySelector("#trade-filter");
   const table = document.querySelector("#trade-table");
@@ -616,126 +624,318 @@ function initializeReviewAttachmentRemovals() {
 }
 
 function initializeDailyJournal() {
-  const form = document.querySelector("[data-daily-journal-form]");
-  const input = form?.querySelector("[name=dailyJournalStateJson]");
-  const status = form?.querySelector("[data-daily-journal-status]");
-  const revisionLabel = form?.querySelector("[data-daily-journal-revision]");
-  const root = form?.querySelector("[data-lexical-root]");
-  const byteCount = form?.closest(".tf-daily-journal")?.querySelector("[data-daily-journal-bytes]");
-  if (!form || !input) return;
+  const states = new WeakMap();
 
-  let savedSnapshot = input.value;
-  let timer = null;
-  let savePromise = null;
-
-  const updateByteCount = () => {
-    if (!byteCount) return;
-    const text = root?.textContent || "";
-    const bytes = typeof TextEncoder === "function" ? new TextEncoder().encode(text).length : new Blob([text]).size;
-    byteCount.textContent = `${bytes.toLocaleString()} ${bytes === 1 ? "byte" : "bytes"}`;
-  };
-
-  const setStatus = (text, type = "") => {
+  const setStatus = (form, text, type = "") => {
+    const status = form.querySelector("[data-daily-journal-status]");
     if (!status) return;
     status.textContent = text;
     status.classList.remove("is-saving", "is-error", "is-saved");
     if (type) status.classList.add(`is-${type}`);
   };
 
-  const save = () => {
-    if (savePromise) return savePromise;
-    if (input.value === savedSnapshot) return Promise.resolve(true);
-    const sentSnapshot = input.value;
-    savePromise = (async () => {
-      setStatus("Saving…", "saving");
-      const response = await fetch(form.dataset.autosaveUrl, {
-        method: "POST",
-        body: new FormData(form),
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-      });
-      let payload = {};
-      try { payload = await response.json(); } catch { /* fall through to the generic error */ }
-      if (!response.ok) {
-        if (response.status === 409 || payload.conflict) {
-          setStatus("Conflict · reload latest values", "error");
-          return false;
-        }
-        throw new Error(payload.message || "The daily journal could not be saved.");
-      }
-      const revision = form.querySelector("input[name=expectedRevision]");
-      if (revision && payload.revision !== undefined) {
-        revision.value = payload.revision;
-        if (revisionLabel) revisionLabel.textContent = `Revision ${payload.revision}`;
-      }
-      savedSnapshot = sentSnapshot;
-      const dirty = input.value !== savedSnapshot;
-      setStatus(dirty ? "Saving changes…" : "Saved", dirty ? "saving" : "saved");
-      if (dirty) window.setTimeout(save, 350);
-      return true;
-    })().catch(error => {
-      console.error("Daily journal autosave failed.", error);
-      setStatus(error.message || "Save failed", "error");
-      return false;
-    }).finally(() => {
-      savePromise = null;
-    });
-    return savePromise;
+  const updateByteCount = form => {
+    const root = form.querySelector("[data-lexical-root]");
+    const byteCount = form.closest("[data-daily-journal-entry]")?.querySelector("[data-daily-journal-bytes]");
+    if (!byteCount) return;
+    const text = root?.textContent || "";
+    const bytes = typeof TextEncoder === "function" ? new TextEncoder().encode(text).length : new Blob([text]).size;
+    byteCount.textContent = `${bytes.toLocaleString()} ${bytes === 1 ? "byte" : "bytes"}`;
   };
 
-  const schedule = (immediate = false) => {
-    clearTimeout(timer);
-    if (input.value === savedSnapshot) return Promise.resolve(true);
-    setStatus("Unsaved");
-    if (immediate) return save();
-    timer = window.setTimeout(save, 450);
-    return Promise.resolve(true);
+  const initializeForm = form => {
+    if (!form || states.has(form)) return;
+    const input = form.querySelector("[name=dailyJournalStateJson]");
+    if (!input) return;
+    const state = { savedSnapshot: input.value, timer: null, savePromise: null };
+    states.set(form, state);
+
+    const save = () => {
+      if (state.savePromise) return state.savePromise;
+      if (input.value === state.savedSnapshot) return Promise.resolve(true);
+      state.savePromise = (async () => {
+        while (input.value !== state.savedSnapshot) {
+          const sentSnapshot = input.value;
+          setStatus(form, "Saving…", "saving");
+          const response = await fetch(form.dataset.autosaveUrl, {
+            method: "POST",
+            body: new FormData(form),
+            credentials: "same-origin",
+            headers: { "X-Requested-With": "XMLHttpRequest" }
+          });
+          let payload = {};
+          try { payload = await response.json(); } catch { /* fall through to the generic error */ }
+          if (!response.ok) {
+            if (response.status === 409 || payload.conflict) {
+              setStatus(form, "Conflict · reload latest values", "error");
+              return false;
+            }
+            throw new Error(payload.message || "The daily journal could not be saved.");
+          }
+          const revision = form.querySelector("input[name=expectedRevision]");
+          const revisionLabel = form.closest("[data-daily-journal-entry]")?.querySelector("[data-daily-journal-revision]");
+          if (revision && payload.revision !== undefined) {
+            revision.value = payload.revision;
+            if (revisionLabel) revisionLabel.textContent = `Revision ${payload.revision}`;
+          }
+          state.savedSnapshot = sentSnapshot;
+        }
+        setStatus(form, "Saved", "saved");
+        return true;
+      })().catch(error => {
+        console.error("Daily journal autosave failed.", error);
+        setStatus(form, error.message || "Save failed", "error");
+        return false;
+      }).finally(() => {
+        state.savePromise = null;
+      });
+      return state.savePromise;
+    };
+
+    const schedule = (immediate = false) => {
+      clearTimeout(state.timer);
+      if (input.value === state.savedSnapshot) return Promise.resolve(true);
+      setStatus(form, "Unsaved");
+      if (immediate) return save();
+      state.timer = window.setTimeout(save, 450);
+      return Promise.resolve(true);
+    };
+
+    state.flush = async () => {
+      clearTimeout(state.timer);
+      if (state.savePromise && !await state.savePromise) return false;
+      return await save();
+    };
+
+    updateByteCount(form);
+    window.requestAnimationFrame(() => updateByteCount(form));
+    input.addEventListener("input", () => {
+      updateByteCount(form);
+      void schedule();
+    });
+    input.addEventListener("blur", () => void schedule(true));
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      void state.flush();
+    });
   };
+
+  window.tradeFoundryInitializeDailyJournalForm = initializeForm;
+  document.querySelectorAll("[data-daily-journal-form]").forEach(initializeForm);
 
   const flush = async () => {
-    clearTimeout(timer);
-    return savePromise ? await savePromise : await save();
+    const forms = [...document.querySelectorAll("[data-daily-journal-form]")];
+    for (const form of forms) {
+      initializeForm(form);
+      const state = states.get(form);
+      if (state?.flush && !await state.flush()) return false;
+    }
+    return true;
   };
   window.tradeFoundryFlushDailyJournal = flush;
   window.tradeFoundryFlushPaletteNavigation = flush;
 
-  updateByteCount();
-  window.requestAnimationFrame(updateByteCount);
-  input.addEventListener("input", () => {
-    updateByteCount();
-    schedule();
-  });
-  input.addEventListener("blur", () => schedule(true));
-  form.addEventListener("submit", event => {
-    event.preventDefault();
-    void schedule(true);
-  });
-
-  const shell = form.closest("[data-focus]");
-  const flushNavigation = event => {
-    const link = event.target.closest("a");
-    if (!link || !link.href) return;
-    const url = new URL(link.href, window.location.href);
-    if (url.origin !== window.location.origin) return;
-    event.preventDefault();
-    void flush().then(ok => { if (ok) window.location.href = link.href; });
-  };
-
-  if (!document.querySelector("[data-review-workspace]")) {
+  const reviewShell = document.querySelector("[data-focus]");
+  if (reviewShell && !document.querySelector("[data-review-workspace]")) {
     const dateForm = document.querySelector(".tf-review-date-form");
     dateForm?.addEventListener("submit", event => {
       event.preventDefault();
-      void flush().then(ok => { if (ok) dateForm.submit(); });
+      void flush().then(ok => { if (ok) window.HTMLFormElement.prototype.submit.call(dateForm); });
     });
-    shell?.addEventListener("click", flushNavigation);
+    reviewShell.addEventListener("click", event => {
+      const link = event.target.closest("a[href]");
+      if (!link || !link.href) return;
+      const url = new URL(link.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      event.preventDefault();
+      void flush().then(ok => { if (ok) window.location.assign(link.href); });
+    });
   }
 
-  window.addEventListener("beforeunload", event => {
-    if (input.value !== savedSnapshot) {
+  if (!window.tradeFoundryDailyJournalUnloadGuard) {
+    window.tradeFoundryDailyJournalUnloadGuard = true;
+    window.addEventListener("beforeunload", event => {
+      const dirty = [...document.querySelectorAll("[data-daily-journal-form]")].some(form => {
+        const input = form.querySelector("[name=dailyJournalStateJson]");
+        const state = states.get(form);
+        return input && state && (input.value !== state.savedSnapshot || state.savePromise);
+      });
+      if (!dirty) return;
       event.preventDefault();
       event.returnValue = "";
+    });
+  }
+}
+
+function initializeDailyJournalFeed() {
+  const feed = document.querySelector("[data-daily-journal-feed]");
+  if (!feed) return;
+  const list = feed.querySelector("[data-daily-journal-entry-list]");
+  const sentinel = feed.querySelector("[data-daily-journal-sentinel]");
+  const status = feed.querySelector("[data-daily-journal-load-status]");
+  const moreLink = feed.querySelector("[data-daily-journal-load-more]");
+  if (!list) return;
+
+  let loading = null;
+  let pauseAutomaticLoad = false;
+  const setStatus = text => { if (status) status.textContent = text; };
+  const setMoreVisible = visible => {
+    const wrapper = feed.querySelector("[data-daily-journal-load-more-wrapper]");
+    if (wrapper) wrapper.hidden = !visible;
+  };
+  const updateMoreLink = () => {
+    if (!moreLink) return;
+    const before = feed.dataset.before || "";
+    if (before) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("date");
+      url.searchParams.set("before", before);
+      url.hash = "";
+      moreLink.href = url.pathname + url.search;
+    }
+  };
+
+  const loadOlder = () => {
+    if (loading) return loading;
+    if (feed.dataset.hasMore !== "true" || !feed.dataset.before) return Promise.resolve(true);
+    loading = (async () => {
+      setStatus("Loading older entries…");
+      if (moreLink) moreLink.setAttribute("aria-disabled", "true");
+      const url = new URL(feed.dataset.olderUrl, window.location.href);
+      url.searchParams.set("before", feed.dataset.before);
+      const response = await fetch(url, { credentials: "same-origin", headers: { "X-Requested-With": "XMLHttpRequest" } });
+      if (!response.ok) throw new Error("Older entries could not be loaded.");
+      const template = document.createElement("template");
+      template.innerHTML = await response.text();
+      const cards = [...template.content.querySelectorAll("[data-daily-journal-entry]")];
+      cards.forEach(card => {
+        if (!list.querySelector(`[data-entry-date="${card.dataset.entryDate}"]`)) list.append(card);
+        const form = card.querySelector("[data-daily-journal-form]");
+        if (form) window.tradeFoundryInitializeDailyJournalForm?.(form);
+      });
+      feed.dataset.hasMore = response.headers.get("X-Daily-Journal-Has-More") === "true" ? "true" : "false";
+      feed.dataset.before = response.headers.get("X-Daily-Journal-Next-Before") || "";
+      pauseAutomaticLoad = false;
+      updateMoreLink();
+      if (feed.dataset.hasMore !== "true") {
+        setMoreVisible(false);
+        setStatus("You’re viewing the oldest journal entry.");
+      } else {
+        setMoreVisible(true);
+        setStatus("");
+      }
+      return true;
+    })().catch(error => {
+      console.error("Daily journal feed load failed.", error);
+      pauseAutomaticLoad = true;
+      setStatus(error.message || "Older entries could not be loaded.");
+      setMoreVisible(true);
+      return false;
+    }).finally(() => {
+      if (moreLink) moreLink.removeAttribute("aria-disabled");
+      loading = null;
+    });
+    return loading;
+  };
+
+  const openEntry = card => {
+    if (!card) return;
+    const form = card.querySelector("[data-daily-journal-form]");
+    if (!form) return;
+    if (form.hidden) {
+      form.hidden = false;
+      const preview = card.querySelector("[data-daily-journal-preview]");
+      if (preview) preview.hidden = true;
+      const editButton = card.querySelector("[data-daily-journal-edit]");
+      if (editButton) editButton.hidden = true;
+    }
+    window.TradeFoundryLexical?.initializeLexicalEditors(card);
+    const root = form.querySelector("[data-lexical-root]");
+    root?.focus();
+  };
+
+  feed.addEventListener("click", event => {
+    const editButton = event.target.closest("[data-daily-journal-edit]");
+    if (editButton) {
+      openEntry(editButton.closest("[data-daily-journal-entry]"));
+      return;
+    }
+    const link = event.target.closest("[data-daily-journal-load-more]");
+    if (link && feed.dataset.hasMore === "true") {
+      event.preventDefault();
+      pauseAutomaticLoad = false;
+      void loadOlder();
     }
   });
+
+  const dateForm = feed.querySelector(".tf-daily-journal-date-form");
+  dateForm?.addEventListener("submit", event => {
+    event.preventDefault();
+    void window.tradeFoundryFlushDailyJournal().then(ok => {
+      if (ok) window.HTMLFormElement.prototype.submit.call(dateForm);
+      else setStatus("Save your changes before opening another date.");
+    });
+  });
+
+  document.addEventListener("click", event => {
+    if (event.defaultPrevented) return;
+    const link = event.target.closest("a[href]");
+    if (!link || link.hasAttribute("data-daily-journal-load-more")) return;
+    const target = new URL(link.href, window.location.href);
+    if (target.origin !== window.location.origin || target.href === window.location.href) return;
+    event.preventDefault();
+    void window.tradeFoundryFlushDailyJournal().then(ok => {
+      if (ok) window.location.assign(target.href);
+      else setStatus("Save your changes before leaving the Daily Journal.");
+    });
+  });
+
+  const loadTarget = async date => {
+    const today = feed.querySelector('[data-daily-journal-today="true"]');
+    if (today?.dataset.entryDate === date) {
+      openEntry(today);
+      return;
+    }
+    while (feed.dataset.hasMore === "true") {
+      const loaded = [...list.querySelectorAll("[data-daily-journal-entry]")];
+      const oldest = loaded.at(-1)?.dataset.entryDate;
+      if (oldest && oldest <= date) break;
+      if (!await loadOlder()) return;
+    }
+
+    let card = list.querySelector(`[data-entry-date="${date}"]`);
+    if (!card) {
+      const url = new URL(feed.dataset.entryUrl, window.location.href);
+      url.searchParams.set("date", date);
+      const response = await fetch(url, { credentials: "same-origin", headers: { "X-Requested-With": "XMLHttpRequest" } });
+      if (!response.ok) {
+        setStatus("That journal date could not be opened.");
+        return;
+      }
+      const template = document.createElement("template");
+      template.innerHTML = await response.text();
+      card = template.content.querySelector("[data-daily-journal-entry]");
+      if (!card) return;
+      const existing = [...list.querySelectorAll("[data-daily-journal-entry]")];
+      const next = existing.find(item => item.dataset.entryDate < date);
+      list.insertBefore(card, next || null);
+      window.tradeFoundryInitializeDailyJournalForm?.(card.querySelector("[data-daily-journal-form]"));
+    }
+    openEntry(card);
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#daily-journal-${date}`);
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  if (moreLink) updateMoreLink();
+  if ("IntersectionObserver" in window && sentinel) {
+    const observer = new IntersectionObserver(entries => {
+      if (!pauseAutomaticLoad && entries.some(entry => entry.isIntersecting)) void loadOlder();
+    }, { rootMargin: "500px 0px" });
+    observer.observe(sentinel);
+  }
+
+  const targetDate = feed.dataset.targetDate;
+  if (targetDate) void loadTarget(targetDate);
 }
 
 function initializeDailyJournalDisclosure() {

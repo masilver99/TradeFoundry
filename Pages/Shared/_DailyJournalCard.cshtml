@@ -1,0 +1,62 @@
+@model TradeFoundry.Pages.DailyJournalCardViewModel
+@using System.Globalization
+@{
+    var dateKey = Model.Entry.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    var dateId = Model.Entry.Date.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+    var formId = $"daily-journal-editor-{dateId}";
+    var labelId = $"daily-journal-label-{dateId}";
+}
+<article id="daily-journal-@dateKey" class="card tf-card tf-daily-journal-entry @(Model.IsToday ? "is-today" : string.Empty)" data-daily-journal-entry data-entry-date="@dateKey" data-daily-journal-today="@Model.IsToday.ToString().ToLowerInvariant()" aria-labelledby="daily-journal-heading-@dateId">
+    <header class="tf-daily-journal-entry-header">
+        <div class="tf-daily-journal-entry-date">
+            @if (Model.IsToday)
+            {
+                <div class="tf-kicker">TODAY</div>
+            }
+            <h2 id="daily-journal-heading-@dateId" class="tf-card-title"><time datetime="@dateKey">@Model.Entry.Date.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)</time></h2>
+        </div>
+        <div class="tf-daily-journal-entry-meta">
+            @if (Model.OpenInitially)
+            {
+                <span class="tf-daily-journal-bytes" data-daily-journal-bytes>0 bytes</span>
+            }
+            @if (!Model.OpenInitially)
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-daily-journal-edit>Edit entry</button>
+            }
+        </div>
+    </header>
+    @if (!Model.OpenInitially)
+    {
+        <div class="tf-daily-journal-preview" data-daily-journal-preview>
+            <p>@(string.IsNullOrWhiteSpace(Model.Preview) ? "No journal entry for this date yet." : Model.Preview)</p>
+        </div>
+    }
+    <form id="@formId" method="post" action="@Model.SaveUrl" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Model.AutosaveUrl" hidden="@(Model.OpenInitially ? null : "hidden")">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="expectedRevision" value="@Model.Entry.Revision" />
+        <div class="tf-lexical-editor" data-lexical-editor data-max-length="64000" hidden>
+            <div class="tf-lexical-toolbar" role="toolbar" aria-label="Daily journal formatting">
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="italic" title="Italic" aria-label="Italic"><em>I</em></button>
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="heading" title="Heading" aria-label="Heading">H</button>
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="link" title="Link" aria-label="Link">↗</button>
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="unordered-list" title="Bullet list" aria-label="Bullet list">•</button>
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="ordered-list" title="Numbered list" aria-label="Numbered list">1.</button>
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="quote" title="Quote" aria-label="Quote">❯</button>
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="code" title="Inline code" aria-label="Inline code">&lt;/&gt;</button>
+                <span class="tf-lexical-toolbar-spacer"></span>
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="undo" title="Undo" aria-label="Undo">↶</button>
+                <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="redo" title="Redo" aria-label="Redo">↷</button>
+            </div>
+            <div class="tf-lexical-root" data-lexical-root contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="@labelId" data-placeholder="What happened today? Capture market context, your state of mind, and the lesson for tomorrow."></div>
+            <small class="tf-lexical-limit-status" data-lexical-limit-status aria-live="polite"></small>
+        </div>
+        <label id="@labelId" class="visually-hidden" for="@formId-text">Daily journal entry for @dateKey</label>
+        <textarea id="@formId-text" name="dailyJournalStateJson" rows="7" maxlength="64000" data-lexical-source hidden>@Model.Entry.Text</textarea>
+        <div class="tf-daily-journal-actions">
+            <span class="tf-daily-journal-revision" data-daily-journal-revision>Revision @Model.Entry.Revision</span>
+            <span class="tf-review-save-status" role="status" aria-live="polite" data-daily-journal-status>Saved</span>
+        </div>
+    </form>
+</article>

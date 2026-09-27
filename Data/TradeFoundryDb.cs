@@ -1477,6 +1477,30 @@ public sealed class TradeFoundryDb
             : new DailyJournalEntry { JournalId = journalId, Date = date };
     }
 
+    public DailyJournalEntriesPage GetDailyJournalEntries(Guid journalId, DateOnly excludeDate, DateOnly? beforeDate = null, int limit = 20)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var pageSize = Math.Clamp(limit, 1, 50);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var beforeFilter = beforeDate.HasValue ? " AND review_date < $before" : string.Empty;
+        command.CommandText = $"SELECT id, journal_id, review_date, revision, editor_state_json, search_text, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date <> $exclude AND TRIM(COALESCE(search_text, '')) <> ''{beforeFilter} ORDER BY review_date DESC LIMIT $limit";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$exclude", excludeDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        if (beforeDate.HasValue) command.Parameters.AddWithValue("$before", beforeDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$limit", pageSize + 1);
+
+        var entries = new List<DailyJournalEntry>(pageSize + 1);
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read()) entries.Add(ReadDailyJournal(reader));
+        }
+
+        var hasMore = entries.Count > pageSize;
+        if (hasMore) entries.RemoveAt(entries.Count - 1);
+        return new DailyJournalEntriesPage { Entries = entries, HasMore = hasMore };
+    }
+
     public DailyJournalSaveResult SaveDailyJournal(Guid journalId, DateOnly date, string? text, int expectedRevision, string action = "saved")
     {
         if (expectedRevision < 0) throw new ArgumentOutOfRangeException(nameof(expectedRevision));

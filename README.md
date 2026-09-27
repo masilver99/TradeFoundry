@@ -66,6 +66,8 @@ The script searches both standard Program Files locations. For a custom installa
 
 The installer is per-user and does not remove the selected data directory during uninstall. Re-running it reuses the previously selected data directory.
 
+The Forgejo Action in `.forgejo/workflows/windows-installer.yml` runs for pushes to `main` and `master` and can also be started manually. It requires a Windows runner registered with the `windows-latest` label. Download the `TradeFoundry-Windows-Installer` artifact from the completed workflow run.
+
 ## Run with Docker
 
 ```bash

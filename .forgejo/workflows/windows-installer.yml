@@ -1,0 +1,70 @@
+name: Windows installer
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-windows-installer:
+    # Register the Windows Forgejo runner with this label (or change it to the
+    # label used by the repository's Windows runner).
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: https://data.forgejo.org/actions/checkout@v6
+
+      - name: Set up .NET 10
+        uses: https://github.com/actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command choco.exe -ErrorAction SilentlyContinue)) {
+            throw 'Chocolatey is required on the Windows runner to install Inno Setup.'
+          }
+
+          choco install innosetup --yes --no-progress
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\windows'
+
+          if (Test-Path -LiteralPath $outputRoot) {
+            Remove-Item -LiteralPath $outputRoot -Recurse -Force
+          }
+
+          $isccPath = @(
+            (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source,
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 7\ISCC.exe')
+          ) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
+            Select-Object -First 1
+
+          if ([string]::IsNullOrWhiteSpace($isccPath)) {
+            throw 'Inno Setup compiler (ISCC.exe) was not found after installation.'
+          }
+
+          pwsh -NoProfile -File scripts\publish-windows.ps1 `
+            -Configuration Release `
+            -OutputRoot $outputRoot `
+            -InnoSetupPath $isccPath `
+            -CompileInstaller
+
+      - name: Upload installer artifact
+        uses: https://data.forgejo.org/actions/upload-artifact@v3.2.2-node20
+        with:
+          name: TradeFoundry-Windows-Installer-${{ github.run_number }}
+          path: artifacts/windows/installer/TradeFoundry-Setup.exe
+          if-no-files-found: error
+          retention-days: 30

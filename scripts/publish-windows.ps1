@@ -78,12 +78,14 @@ if ($CompileInstaller) {
     else {
         $candidateIsccPaths = [System.Collections.Generic.List[string]]::new()
 
-        foreach ($programFilesRoot in @(
-            [Environment]::GetEnvironmentVariable('ProgramFiles'),
-            [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
-        )) {
-            if (-not [string]::IsNullOrWhiteSpace($programFilesRoot)) {
-                $candidateIsccPaths.Add((Join-Path $programFilesRoot 'Inno Setup 7\ISCC.exe'))
+        foreach ($innoSetupVersion in @('7', '6')) {
+            foreach ($programFilesRoot in @(
+                [Environment]::GetEnvironmentVariable('ProgramFiles'),
+                [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+            )) {
+                if (-not [string]::IsNullOrWhiteSpace($programFilesRoot)) {
+                    $candidateIsccPaths.Add((Join-Path $programFilesRoot "Inno Setup $innoSetupVersion\ISCC.exe"))
+                }
             }
         }
 
@@ -97,7 +99,7 @@ if ($CompileInstaller) {
             Select-Object -First 1
 
         if ([string]::IsNullOrWhiteSpace($isccPath)) {
-            throw 'Inno Setup 7 was not found. Install it, add ISCC.exe to PATH, pass -InnoSetupPath, or run without -CompileInstaller.'
+            throw 'Inno Setup 6 or 7 was not found. Install it, add ISCC.exe to PATH, pass -InnoSetupPath, or run without -CompileInstaller.'
         }
     }
 

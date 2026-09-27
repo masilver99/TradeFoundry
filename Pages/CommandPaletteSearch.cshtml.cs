@@ -48,10 +48,10 @@ public sealed class CommandPaletteSearchModel : PageModel
             var date = hit.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             results.Add(new CommandPaletteRemoteResult(
                 "Daybook entries",
-                $"Daybook · {hit.Date.ToString("MMM d, yyyy", CultureInfo.InvariantCulture)}",
+                $"Daily Journal · {hit.Date.ToString("MMM d, yyyy", CultureInfo.InvariantCulture)}",
                 "Daily journal note",
                 Snippet(hit.SearchText, query),
-                $"/journal/{journalId:D}/review?date={date}#daily-journal-editor"));
+                $"/journal/{journalId:D}/daily-journal?date={date}#daily-journal-{date}"));
         }
 
         return new JsonResult(new { results });

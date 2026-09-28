@@ -5,6 +5,29 @@ namespace TradeFoundry.Core;
 
 public static class LexicalPlainText
 {
+    public static string ExtractVisibleText(string? serializedState)
+    {
+        if (string.IsNullOrWhiteSpace(serializedState)) return string.Empty;
+
+        try
+        {
+            using var document = JsonDocument.Parse(serializedState);
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("root", out var root))
+            {
+                var text = new StringBuilder();
+                AppendVisibleText(root, text);
+                return text.ToString();
+            }
+        }
+        catch (JsonException)
+        {
+            // Legacy plain-text entries do not have a Lexical state tree.
+        }
+
+        return Normalize(serializedState);
+    }
+
     public static string Extract(string? serializedState)
     {
         if (string.IsNullOrWhiteSpace(serializedState)) return string.Empty;
@@ -55,6 +78,22 @@ public static class LexicalPlainText
         if (isBlock && text.Length > 0) AppendNewline(text);
         foreach (var child in children.EnumerateArray()) AppendNode(child, text);
         if (isBlock) AppendNewline(text);
+    }
+
+    private static void AppendVisibleText(JsonElement node, StringBuilder text)
+    {
+        if (node.ValueKind != JsonValueKind.Object) return;
+        if (node.TryGetProperty("type", out var typeElement)
+            && string.Equals(typeElement.GetString(), "text", StringComparison.Ordinal)
+            && node.TryGetProperty("text", out var textElement)
+            && textElement.ValueKind == JsonValueKind.String)
+        {
+            text.Append(textElement.GetString());
+            return;
+        }
+
+        if (!node.TryGetProperty("children", out var children) || children.ValueKind != JsonValueKind.Array) return;
+        foreach (var child in children.EnumerateArray()) AppendVisibleText(child, text);
     }
 
     private static void AppendNewline(StringBuilder text)

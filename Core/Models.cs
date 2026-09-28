@@ -772,6 +772,19 @@ public sealed class DailyJournalEntriesPage
     public DateOnly? NextBefore => HasMore && Entries.Count > 0 ? Entries[^1].Date : null;
 }
 
+public sealed class DailyJournalFeedDay
+{
+    public DailyJournalEntry Entry { get; init; } = new();
+    public DailyTradeSummary? Trading { get; init; }
+}
+
+public sealed class DailyJournalFeedPage
+{
+    public IReadOnlyList<DailyJournalFeedDay> Days { get; init; } = Array.Empty<DailyJournalFeedDay>();
+    public bool HasMore { get; init; }
+    public DateOnly? NextBefore => HasMore && Days.Count > 0 ? Days[^1].Entry.Date : null;
+}
+
 public sealed class DailyJournalSaveResult
 {
     public bool Saved { get; init; }

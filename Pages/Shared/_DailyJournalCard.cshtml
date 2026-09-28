@@ -4,34 +4,39 @@
     var dateKey = Model.Entry.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     var dateId = Model.Entry.Date.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
     var formId = $"daily-journal-editor-{dateId}";
+    var previewId = $"daily-journal-preview-{dateId}";
     var labelId = $"daily-journal-label-{dateId}";
 }
-<article id="daily-journal-@dateKey" class="card tf-card tf-daily-journal-entry @(Model.IsToday ? "is-today" : string.Empty)" data-daily-journal-entry data-entry-date="@dateKey" data-daily-journal-today="@Model.IsToday.ToString().ToLowerInvariant()" aria-labelledby="daily-journal-heading-@dateId">
+<article id="daily-journal-@dateKey" class="card tf-card tf-daily-journal-entry @(Model.IsToday ? "is-today" : string.Empty)" data-daily-journal-entry data-entry-date="@dateKey" data-daily-journal-today="@Model.IsToday.ToString().ToLowerInvariant()" data-has-journal-text="@Model.HasJournalText.ToString().ToLowerInvariant()" aria-labelledby="daily-journal-heading-@dateId">
     <header class="tf-daily-journal-entry-header">
-        <div class="tf-daily-journal-entry-date">
-            @if (Model.IsToday)
-            {
-                <div class="tf-kicker">TODAY</div>
-            }
-            <h2 id="daily-journal-heading-@dateId" class="tf-card-title"><time datetime="@dateKey">@Model.Entry.Date.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)</time></h2>
-        </div>
-        <div class="tf-daily-journal-entry-meta">
-            @if (Model.OpenInitially)
-            {
-                <span class="tf-daily-journal-bytes" data-daily-journal-bytes>0 bytes</span>
-            }
-            @if (!Model.OpenInitially)
-            {
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-daily-journal-edit>Edit entry</button>
-            }
-        </div>
+        <button type="button" class="tf-daily-journal-entry-toggle" data-daily-journal-toggle aria-controls="@formId @previewId" aria-expanded="@Model.OpenInitially.ToString().ToLowerInvariant()">
+            <span class="tf-daily-journal-entry-summary" data-daily-journal-entry-summary>
+                @if (Model.HasJournalText)
+                {
+                    <span class="tf-daily-journal-entry-check" data-daily-journal-entry-check aria-hidden="true">✓</span>
+                }
+                <span class="tf-daily-journal-entry-date">
+                    @if (Model.IsToday)
+                    {
+                        <span class="tf-kicker">TODAY</span>
+                    }
+                    <span id="daily-journal-heading-@dateId" class="tf-card-title" role="heading" aria-level="2"><time datetime="@dateKey">@Model.Entry.Date.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)</time></span>
+                </span>
+                <span class="tf-daily-journal-day-stats">@Model.TradeCount.ToString("N0") @(Model.TradeCount == 1 ? "trade" : "trades") · @Model.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</span>
+            </span>
+            <span class="tf-daily-journal-entry-meta">
+                <span class="tf-daily-journal-bytes" data-daily-journal-bytes>@Model.TextBytes.ToString("N0", CultureInfo.CurrentCulture) @(Model.TextBytes == 1 ? "byte" : "bytes")</span>
+                <span class="tf-daily-journal-toggle-icon" aria-hidden="true"></span>
+            </span>
+        </button>
+        @if (Model.TradeCount > 0)
+        {
+            <button type="button" class="btn btn-sm btn-outline-secondary tf-daily-journal-chart-trigger" data-daily-journal-chart data-daily-journal-chart-url="@Model.ChartUrl" aria-haspopup="dialog" aria-label="Open chart for @Model.Entry.Date.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)">Chart</button>
+        }
     </header>
-    @if (!Model.OpenInitially)
-    {
-        <div class="tf-daily-journal-preview" data-daily-journal-preview>
-            <p>@(string.IsNullOrWhiteSpace(Model.Preview) ? "No journal entry for this date yet." : Model.Preview)</p>
-        </div>
-    }
+    <div id="@previewId" class="tf-daily-journal-preview" data-daily-journal-preview hidden="@(Model.OpenInitially || !Model.HasJournalText ? "hidden" : null)">
+        <p>@Model.Preview</p>
+    </div>
     <form id="@formId" method="post" action="@Model.SaveUrl" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Model.AutosaveUrl" hidden="@(Model.OpenInitially ? null : "hidden")">
         @Html.AntiForgeryToken()
         <input type="hidden" name="expectedRevision" value="@Model.Entry.Revision" />

@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeDailyJournal();
   initializeDailyJournalDisclosure();
   initializeDailyJournalFeed();
+  initializeDailyJournalChartDialog();
   initializeReviewWorkspace();
   initializeReviewAttachmentPaste();
   initializeReviewAttachmentCaptions();
@@ -636,11 +637,54 @@ function initializeDailyJournal() {
 
   const updateByteCount = form => {
     const root = form.querySelector("[data-lexical-root]");
+    const editor = form.querySelector("[data-lexical-editor]");
+    if (!root || editor?.dataset.lexicalInitialized !== "true") return;
     const byteCount = form.closest("[data-daily-journal-entry]")?.querySelector("[data-daily-journal-bytes]");
     if (!byteCount) return;
-    const text = root?.textContent || "";
+    const text = root.textContent || "";
     const bytes = typeof TextEncoder === "function" ? new TextEncoder().encode(text).length : new Blob([text]).size;
     byteCount.textContent = `${bytes.toLocaleString()} ${bytes === 1 ? "byte" : "bytes"}`;
+  };
+
+  const updateJournalIndicator = form => {
+    const root = form.querySelector("[data-lexical-root]");
+    const editor = form.querySelector("[data-lexical-editor]");
+    const card = form.closest("[data-daily-journal-entry]");
+    const summary = card?.querySelector("[data-daily-journal-entry-summary]");
+    if (!root || editor?.dataset.lexicalInitialized !== "true" || !card || !summary) return;
+    const hasText = Boolean(root.textContent?.trim());
+    card.dataset.hasJournalText = String(hasText);
+    const check = summary.querySelector("[data-daily-journal-entry-check]");
+    if (hasText && !check) {
+      const indicator = document.createElement("span");
+      indicator.className = "tf-daily-journal-entry-check";
+      indicator.dataset.dailyJournalEntryCheck = "";
+      indicator.setAttribute("aria-hidden", "true");
+      indicator.textContent = "✓";
+      summary.prepend(indicator);
+    } else if (!hasText) {
+      check?.remove();
+    }
+  };
+
+  const updateJournalPreview = form => {
+    const root = form.querySelector("[data-lexical-root]");
+    const editor = form.querySelector("[data-lexical-editor]");
+    const card = form.closest("[data-daily-journal-entry]");
+    const preview = card?.querySelector("[data-daily-journal-preview]");
+    const paragraph = preview?.querySelector("p");
+    const toggle = card?.querySelector("[data-daily-journal-toggle]");
+    if (!root || editor?.dataset.lexicalInitialized !== "true" || !card || !preview || !paragraph) return;
+    const text = (root.innerText || root.textContent || "").trim();
+    const hasText = Boolean(text);
+    paragraph.textContent = text.length > 360 ? `${text.slice(0, 357).trimEnd()}…` : text;
+    preview.hidden = !hasText || toggle?.getAttribute("aria-expanded") === "true";
+  };
+
+  const updateEntryDisplay = form => {
+    updateByteCount(form);
+    updateJournalIndicator(form);
+    updateJournalPreview(form);
   };
 
   const initializeForm = form => {
@@ -707,10 +751,10 @@ function initializeDailyJournal() {
       return await save();
     };
 
-    updateByteCount(form);
-    window.requestAnimationFrame(() => updateByteCount(form));
+    updateEntryDisplay(form);
+    window.requestAnimationFrame(() => updateEntryDisplay(form));
     input.addEventListener("input", () => {
-      updateByteCount(form);
+      updateEntryDisplay(form);
       void schedule();
     });
     input.addEventListener("blur", () => void schedule(true));
@@ -721,6 +765,7 @@ function initializeDailyJournal() {
   };
 
   window.tradeFoundryInitializeDailyJournalForm = initializeForm;
+  window.tradeFoundryUpdateDailyJournalByteCount = updateEntryDisplay;
   document.querySelectorAll("[data-daily-journal-form]").forEach(initializeForm);
 
   const flush = async () => {
@@ -799,7 +844,7 @@ function initializeDailyJournalFeed() {
     if (loading) return loading;
     if (feed.dataset.hasMore !== "true" || !feed.dataset.before) return Promise.resolve(true);
     loading = (async () => {
-      setStatus("Loading older entries…");
+      setStatus("Loading older days…");
       if (moreLink) moreLink.setAttribute("aria-disabled", "true");
       const url = new URL(feed.dataset.olderUrl, window.location.href);
       url.searchParams.set("before", feed.dataset.before);
@@ -819,7 +864,7 @@ function initializeDailyJournalFeed() {
       updateMoreLink();
       if (feed.dataset.hasMore !== "true") {
         setMoreVisible(false);
-        setStatus("You’re viewing the oldest journal entry.");
+      setStatus("You’re viewing the oldest journal day.");
       } else {
         setMoreVisible(true);
         setStatus("");
@@ -828,7 +873,7 @@ function initializeDailyJournalFeed() {
     })().catch(error => {
       console.error("Daily journal feed load failed.", error);
       pauseAutomaticLoad = true;
-      setStatus(error.message || "Older entries could not be loaded.");
+      setStatus(error.message || "Older journal days could not be loaded.");
       setMoreVisible(true);
       return false;
     }).finally(() => {
@@ -843,23 +888,15 @@ function initializeDailyJournalFeed() {
     const form = card.querySelector("[data-daily-journal-form]");
     if (!form) return;
     if (form.hidden) {
-      form.hidden = false;
-      const preview = card.querySelector("[data-daily-journal-preview]");
-      if (preview) preview.hidden = true;
-      const editButton = card.querySelector("[data-daily-journal-edit]");
-      if (editButton) editButton.hidden = true;
+      card.querySelector("[data-daily-journal-toggle]")?.click();
     }
     window.TradeFoundryLexical?.initializeLexicalEditors(card);
+    window.tradeFoundryUpdateDailyJournalByteCount?.(form);
     const root = form.querySelector("[data-lexical-root]");
     root?.focus();
   };
 
   feed.addEventListener("click", event => {
-    const editButton = event.target.closest("[data-daily-journal-edit]");
-    if (editButton) {
-      openEntry(editButton.closest("[data-daily-journal-entry]"));
-      return;
-    }
     const link = event.target.closest("[data-daily-journal-load-more]");
     if (link && feed.dataset.hasMore === "true") {
       event.preventDefault();
@@ -939,21 +976,168 @@ function initializeDailyJournalFeed() {
 }
 
 function initializeDailyJournalDisclosure() {
-  const toggle = document.querySelector("[data-daily-journal-toggle]");
-  const form = document.querySelector("[data-daily-journal-form]");
-  if (!toggle || !form) return;
-
-  const setExpanded = expanded => {
+  const setExpanded = (toggle, expanded) => {
+    const controls = (toggle.getAttribute("aria-controls") || "").split(/\s+/).filter(Boolean);
+    const controlledElements = controls.map(id => document.getElementById(id)).filter(Boolean);
+    const form = controlledElements.find(element => element.matches("[data-daily-journal-form]"));
+    const preview = controlledElements.find(element => element.matches("[data-daily-journal-preview]"));
+    if (!form) return;
     toggle.setAttribute("aria-expanded", String(expanded));
     form.hidden = !expanded;
+    if (preview) preview.hidden = expanded || toggle.closest("[data-daily-journal-entry]")?.dataset.hasJournalText !== "true";
+    if (expanded) {
+      window.TradeFoundryLexical?.initializeLexicalEditors(form);
+      window.tradeFoundryInitializeDailyJournalForm?.(form);
+      window.tradeFoundryUpdateDailyJournalByteCount?.(form);
+    }
   };
-  const toggleJournal = () => setExpanded(toggle.getAttribute("aria-expanded") !== "true");
 
-  toggle.addEventListener("click", toggleJournal);
-  toggle.addEventListener("keydown", event => {
+  document.addEventListener("click", event => {
+    const toggle = event.target.closest("[data-daily-journal-toggle]");
+    if (toggle) setExpanded(toggle, toggle.getAttribute("aria-expanded") !== "true");
+  });
+  document.addEventListener("keydown", event => {
     if (event.key !== "Enter" && event.key !== " ") return;
+    const toggle = event.target.closest("[data-daily-journal-toggle]");
+    if (!toggle || toggle.tagName === "BUTTON") return;
     event.preventDefault();
-    toggleJournal();
+    setExpanded(toggle, toggle.getAttribute("aria-expanded") !== "true");
+  });
+}
+
+function initializeDailyJournalChartDialog() {
+  const dialog = document.querySelector("[data-daily-journal-chart-dialog]");
+  const dateLabel = dialog?.querySelector("[data-daily-journal-chart-date]");
+  const selector = dialog?.querySelector("[data-daily-journal-chart-selector]");
+  const tradeSelect = dialog?.querySelector("[data-daily-journal-chart-trade]");
+  const status = dialog?.querySelector("[data-daily-journal-chart-status]");
+  const host = dialog?.querySelector("[data-daily-journal-chart-host]");
+  if (!dialog || !dateLabel || !selector || !tradeSelect || !status || !host) return;
+
+  let activeDate = "";
+  let activeRecords = [];
+  let requestVersion = 0;
+
+  const appendCard = index => {
+    const record = activeRecords[index];
+    if (!record) return;
+    host.replaceChildren(record.card);
+    status.textContent = "";
+    void loadReviewChart(record.chart);
+  };
+
+  const buildChartCard = trade => {
+    const card = document.createElement("section");
+    card.className = "card tf-card tf-chart-card tf-review-chart-card tf-daily-journal-modal-chart";
+    card.dataset.reviewChartCard = "";
+
+    const header = document.createElement("div");
+    header.className = "card-header tf-daily-journal-modal-chart-header";
+    const heading = document.createElement("h3");
+    heading.className = "tf-card-title";
+    heading.textContent = trade.label;
+    const summary = document.createElement("span");
+    summary.className = "text-secondary";
+    summary.dataset.lightweightSummary = "";
+    summary.textContent = "Loading chart…";
+    header.append(heading, summary);
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+    const shell = document.createElement("div");
+    shell.className = "tf-lightweight-chart-shell";
+    const chart = document.createElement("div");
+    chart.className = "tf-lightweight-chart";
+    chart.dataset.reviewChart = "";
+    chart.dataset.reviewChartUrl = trade.chartUrl;
+    chart.setAttribute("role", "img");
+    chart.setAttribute("aria-label", `Price action for ${trade.label}`);
+    const empty = document.createElement("div");
+    empty.className = "chart-empty";
+    empty.dataset.reviewChartEmpty = "";
+    empty.hidden = true;
+    empty.setAttribute("role", "status");
+    const chartStatus = document.createElement("div");
+    chartStatus.className = "tf-lightweight-chart-status";
+    chartStatus.dataset.lightweightStatus = "";
+    chartStatus.setAttribute("role", "status");
+    chartStatus.setAttribute("aria-live", "polite");
+    chartStatus.textContent = "Loading chart…";
+    shell.append(chart, empty, chartStatus);
+
+    const attribution = document.createElement("p");
+    attribution.className = "tf-chart-attribution mb-0";
+    attribution.dataset.lightweightAttribution = "";
+    attribution.hidden = true;
+    attribution.innerHTML = 'TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">https://www.tradingview.com/</a>';
+    const availability = document.createElement("p");
+    availability.className = "tf-chart-note";
+    availability.dataset.lightweightAvailabilityNote = "";
+    availability.hidden = true;
+
+    body.append(shell, attribution, availability);
+    card.append(header, body);
+    return { card, chart };
+  };
+
+  const loadDay = async button => {
+    const date = button.closest("[data-daily-journal-entry]")?.dataset.entryDate || "";
+    if (!date) return;
+    const version = ++requestVersion;
+    if (!dialog.open) dialog.showModal();
+    dateLabel.textContent = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+    if (date === activeDate && activeRecords.length > 0) {
+      appendCard(Number(tradeSelect.value) || 0);
+      return;
+    }
+
+    activeDate = date;
+    activeRecords = [];
+    selector.hidden = true;
+    tradeSelect.replaceChildren();
+    host.replaceChildren();
+    status.textContent = "Loading the day’s charts…";
+
+    try {
+      const url = new URL(button.dataset.dailyJournalChartUrl, window.location.href);
+      const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("The charts for this day could not be loaded.");
+      const result = await response.json();
+      if (version !== requestVersion) return;
+      const trades = Array.isArray(result.trades) ? result.trades : [];
+      activeRecords = trades.map(trade => ({ ...trade, ...buildChartCard(trade) }));
+      if (!activeRecords.length) {
+        status.textContent = "No trade charts are available for this day.";
+        return;
+      }
+
+      selector.hidden = activeRecords.length < 2;
+      activeRecords.forEach((trade, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = trade.label;
+        tradeSelect.append(option);
+      });
+      tradeSelect.value = "0";
+      appendCard(0);
+    } catch (error) {
+      if (version !== requestVersion) return;
+      activeDate = "";
+      status.textContent = error.message || "The charts for this day could not be loaded.";
+    }
+  };
+
+  document.addEventListener("click", event => {
+    const trigger = event.target.closest("[data-daily-journal-chart]");
+    if (!trigger) return;
+    event.preventDefault();
+    void loadDay(trigger);
+  });
+  tradeSelect.addEventListener("change", () => appendCard(Number(tradeSelect.value)));
+  dialog.querySelector("[data-daily-journal-chart-close]")?.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", event => {
+    if (event.target === dialog) dialog.close();
   });
 }
 

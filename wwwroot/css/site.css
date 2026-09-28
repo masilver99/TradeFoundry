@@ -956,15 +956,38 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-daily-journal-entries, .tf-daily-journal-entry-list { display: grid; gap: 14px; min-width: 0; }
 .tf-daily-journal-entry { overflow: hidden; scroll-margin-top: 16px; }
 .tf-daily-journal-entry.is-today { border-color: rgba(var(--tf-blue-rgb), .5); }
-.tf-daily-journal-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-bottom: 1px solid var(--tf-line); }
-.tf-daily-journal-entry-date { min-width: 0; }
-.tf-daily-journal-entry-header .tf-kicker { margin-bottom: 4px; }
-.tf-daily-journal-entry-meta { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 12px; }
+.tf-daily-journal-entry-header { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--tf-line); }
+.tf-daily-journal-entry-toggle { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 3px 0; border: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; text-align: left; cursor: pointer; }
+.tf-daily-journal-entry-toggle:hover .tf-card-title { color: var(--tf-blue); }
+.tf-daily-journal-entry-toggle:focus-visible { outline: 2px solid var(--tf-blue); outline-offset: 3px; border-radius: 3px; }
+.tf-daily-journal-entry-summary { display: flex; min-width: 0; align-items: center; gap: 12px; }
+.tf-daily-journal-entry-date { display: grid; flex: 0 0 auto; min-width: 0; gap: 3px; }
+.tf-daily-journal-entry-date .tf-kicker { margin: 0; }
+.tf-daily-journal-entry-date .tf-card-title { margin: 0; }
+.tf-daily-journal-entry-check { display: inline-grid; width: 22px; height: 22px; flex: 0 0 22px; place-items: center; border: 1px solid #2ea043; border-radius: 50%; background: #238636; color: #fff; font-size: 14px; font-weight: 700; line-height: 1; }
+.tf-daily-journal-day-stats { color: var(--tf-muted); font-size: 11px; white-space: nowrap; }
+.tf-daily-journal-entry-meta { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 10px; }
+.tf-daily-journal-toggle-icon { width: 8px; height: 8px; flex: 0 0 8px; margin: 0 2px 3px 1px; border-right: 1px solid var(--tf-muted); border-bottom: 1px solid var(--tf-muted); transform: rotate(45deg); transition: transform .15s ease, border-color .15s ease; }
+.tf-daily-journal-entry-toggle[aria-expanded="true"] .tf-daily-journal-toggle-icon { margin-bottom: 0; transform: rotate(225deg); }
+.tf-daily-journal-entry-toggle:hover .tf-daily-journal-toggle-icon, .tf-daily-journal-entry-toggle:focus-visible .tf-daily-journal-toggle-icon { border-color: var(--tf-blue); }
+.tf-daily-journal-chart-trigger { flex: 0 0 auto; }
 .tf-daily-journal-preview { padding: 12px 16px; color: var(--tf-muted); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tf-daily-journal-preview p { margin: 0; }
 .tf-daily-journal-load-more { display: flex; justify-content: center; }
 .tf-daily-journal-load-status { min-height: 18px; color: var(--tf-muted); font-size: 11px; text-align: center; }
 .tf-daily-journal-sentinel { height: 1px; }
+.tf-daily-journal-chart-dialog { width: min(1100px, calc(100vw - 28px)); max-width: none; max-height: calc(100dvh - 28px); margin: auto; padding: 0; overflow: auto; border: 1px solid var(--tf-line-strong); border-radius: 10px; background: var(--tf-surface); color: var(--tf-ink); box-shadow: 0 24px 90px rgba(0, 0, 0, .62); }
+.tf-daily-journal-chart-dialog::backdrop { background: rgba(1, 4, 9, .72); backdrop-filter: blur(3px); }
+.tf-daily-journal-chart-dialog-content { display: grid; gap: 14px; padding: 18px; }
+.tf-daily-journal-chart-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.tf-daily-journal-chart-dialog-header .tf-card-title { margin: 0 0 3px; }
+.tf-daily-journal-chart-selector { width: min(380px, 100%); }
+.tf-daily-journal-chart-status { color: var(--tf-muted); font-size: 12px; }
+.tf-daily-journal-chart-host:empty { display: none; }
+.tf-daily-journal-modal-chart { margin: 0; }
+.tf-daily-journal-modal-chart-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.tf-daily-journal-modal-chart .tf-lightweight-chart { height: min(500px, 56vh); min-height: 260px; }
+.tf-daily-journal-modal-chart .card-body { padding: 14px 16px; }
 
 .tf-broker-comparison { display: grid; gap: 18px; }
 .tf-broker-comparison-intro { margin-bottom: 0; }
@@ -1071,7 +1094,14 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
   .tf-daily-journal-actions { align-items: flex-start; flex-direction: column; }
   .tf-daily-journal-page-header, .tf-daily-journal-page-actions { align-items: stretch; flex-direction: column; }
   .tf-daily-journal-page-actions, .tf-daily-journal-date-form { width: 100%; }
-  .tf-daily-journal-entry-header { align-items: flex-start; }
+  .tf-daily-journal-entry-header { align-items: flex-start; flex-wrap: wrap; }
+  .tf-daily-journal-entry-toggle { flex-basis: 100%; align-items: flex-start; }
+  .tf-daily-journal-entry-summary { flex-wrap: wrap; row-gap: 5px; }
+  .tf-daily-journal-day-stats { white-space: normal; }
+  .tf-daily-journal-entry-meta, .tf-daily-journal-chart-trigger { margin-left: auto; }
+  .tf-daily-journal-chart-dialog-content { gap: 12px; padding: 12px; }
+  .tf-daily-journal-modal-chart-header { align-items: flex-start; flex-direction: column; }
+  .tf-daily-journal-modal-chart .tf-lightweight-chart { height: min(360px, 48vh); min-height: 230px; }
   .tf-broker-comparison-intro { align-items: flex-start; flex-direction: column; gap: 12px; }
   .tf-broker-comparison-badge { width: 100%; min-width: 0; }
   .tf-card-header-split { align-items: flex-start; flex-direction: column; }

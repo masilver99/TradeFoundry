@@ -1,9 +1,11 @@
 using System.Globalization;
+using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
+using TradeFoundry.Services;
 
 namespace TradeFoundry.Pages;
 
@@ -26,6 +28,8 @@ public sealed class DailyJournalModel : PageModel
     public bool HasMore { get; private set; }
     public DateOnly? NextBefore { get; private set; }
     public string? ErrorMessage { get; private set; }
+    private IReadOnlyList<DailyTradeSummary> TradeDays { get; set; } = Array.Empty<DailyTradeSummary>();
+    private IReadOnlyDictionary<DateOnly, DailyTradeSummary> TradeDaysByDate { get; set; } = new Dictionary<DateOnly, DailyTradeSummary>();
 
     public IActionResult OnGet()
     {
@@ -36,16 +40,33 @@ public sealed class DailyJournalModel : PageModel
     public IActionResult OnGetOlder(DateOnly before)
     {
         if (!LoadJournal()) return NotFound();
-        var page = _database.GetDailyJournalEntries(JournalId, Today, before, PageSize);
+        var page = BuildEntriesPage(before);
         Response.Headers["X-Daily-Journal-Has-More"] = page.HasMore ? "true" : "false";
         Response.Headers["X-Daily-Journal-Next-Before"] = page.NextBefore?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
-        return Partial("_DailyJournalCards", ToCards(page.Entries));
+        return Partial("_DailyJournalCards", ToCards(page.Days));
     }
 
     public IActionResult OnGetEntry(DateOnly date)
     {
         if (!LoadJournal()) return NotFound();
-        return Partial("_DailyJournalCard", BuildCard(_database.GetDailyJournal(JournalId, date), date == Today, false));
+        return Partial("_DailyJournalCard", BuildCard(_database.GetDailyJournal(JournalId, date), date == Today, false, TradeDaysByDate.GetValueOrDefault(date)));
+    }
+
+    public IActionResult OnGetDayChart(DateOnly date)
+    {
+        if (!LoadJournal()) return NotFound();
+        if (!TradeDaysByDate.TryGetValue(date, out var day) || day.TotalTradeCount == 0) return NotFound();
+
+        var trades = day.CompletedTrades.Concat(day.OpenTrades)
+            .OrderBy(trade => trade.EntryUtc)
+            .ThenBy(trade => trade.Sequence)
+            .Select(trade => new
+            {
+                label = $"{trade.Symbol} · {trade.Direction} · {trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture)}",
+                chartUrl = $"/journal/{JournalId:D}/review?reviewKey={Uri.EscapeDataString(trade.ReviewKey)}"
+            })
+            .ToArray();
+        return new JsonResult(new { date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), trades });
     }
 
     public IActionResult OnPostAutosave(DateOnly date, string? dailyJournalStateJson, int expectedRevision)
@@ -113,9 +134,11 @@ public sealed class DailyJournalModel : PageModel
     {
         if (!LoadJournal()) return false;
         var entryDate = Date ?? Today;
-        var page = _database.GetDailyJournalEntries(JournalId, Today, Before, PageSize);
-        TodayCard = BuildCard(_database.GetDailyJournal(JournalId, Today), true, true);
-        Entries = ToCards(page.Entries, entryDate);
+        var page = BuildEntriesPage(Before);
+        var todayEntry = _database.GetDailyJournal(JournalId, Today);
+        var todayHasText = !string.IsNullOrWhiteSpace(LexicalPlainText.Extract(todayEntry.Text));
+        TodayCard = BuildCard(todayEntry, true, todayHasText || entryDate == Today, TradeDaysByDate.GetValueOrDefault(Today));
+        Entries = ToCards(page.Days, entryDate);
         HasMore = page.HasMore;
         NextBefore = page.NextBefore;
         return true;
@@ -127,15 +150,24 @@ public sealed class DailyJournalModel : PageModel
         if (journal is null) return false;
         Journal = journal;
         Today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneCatalog.Resolve(journal.TimeZone)).DateTime);
+        TradeDays = DailyTradeAggregation.Build(_database.GetAllTrades(JournalId), journal.TimeZone);
+        TradeDaysByDate = TradeDays.ToDictionary(day => day.Date);
         return true;
     }
 
-    private IReadOnlyList<DailyJournalCardViewModel> ToCards(IReadOnlyList<DailyJournalEntry> entries, DateOnly? openDate = null) =>
-        entries.Select(entry => BuildCard(entry, false, entry.Date == openDate)).ToArray();
+    private DailyJournalFeedPage BuildEntriesPage(DateOnly? beforeDate)
+    {
+        var journalPage = _database.GetDailyJournalEntries(JournalId, Today, beforeDate, PageSize + 1);
+        return DailyJournalFeedBuilder.Build(JournalId, Today, beforeDate, PageSize, TradeDays, journalPage.Entries);
+    }
 
-    private DailyJournalCardViewModel BuildCard(DailyJournalEntry entry, bool isToday, bool openInitially)
+    private IReadOnlyList<DailyJournalCardViewModel> ToCards(IReadOnlyList<DailyJournalFeedDay> days, DateOnly? openDate = null) =>
+        days.Select(day => BuildCard(day.Entry, false, day.Entry.Date == openDate, day.Trading)).ToArray();
+
+    private DailyJournalCardViewModel BuildCard(DailyJournalEntry entry, bool isToday, bool openInitially, DailyTradeSummary? trading)
     {
         var plainText = LexicalPlainText.Extract(entry.Text);
+        var editorText = LexicalPlainText.ExtractVisibleText(entry.Text);
         var preview = plainText.Length > 360 ? plainText[..357].TrimEnd() + "…" : plainText;
         var dateText = entry.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var queryDate = Uri.EscapeDataString(dateText);
@@ -146,7 +178,12 @@ public sealed class DailyJournalModel : PageModel
             Entry = entry,
             IsToday = isToday,
             OpenInitially = openInitially,
+            HasJournalText = !string.IsNullOrWhiteSpace(plainText),
             Preview = preview,
+            TextBytes = Encoding.UTF8.GetByteCount(editorText),
+            TradeCount = trading?.TotalTradeCount ?? 0,
+            RealizedNetPnl = trading?.RealizedNetPnl ?? 0m,
+            ChartUrl = $"{page}?handler=DayChart&date={queryDate}",
             SaveUrl = $"{page}?handler=Save&date={queryDate}",
             AutosaveUrl = $"{page}?handler=Autosave&date={queryDate}"
         };
@@ -159,7 +196,12 @@ public sealed class DailyJournalCardViewModel
     public DailyJournalEntry Entry { get; init; } = new();
     public bool IsToday { get; init; }
     public bool OpenInitially { get; init; }
+    public bool HasJournalText { get; init; }
     public string Preview { get; init; } = string.Empty;
+    public int TextBytes { get; init; }
+    public int TradeCount { get; init; }
+    public decimal RealizedNetPnl { get; init; }
+    public string ChartUrl { get; init; } = string.Empty;
     public string SaveUrl { get; init; } = string.Empty;
     public string AutosaveUrl { get; init; } = string.Empty;
 }

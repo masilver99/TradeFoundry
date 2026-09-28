@@ -15,6 +15,7 @@ public sealed class TradeReviewTests
         var state = """{"root":{"children":[{"type":"paragraph","children":[{"type":"text","text":"Overnight ES breakout"}]},{"type":"paragraph","children":[{"type":"text","text":"Risk stays at 100%."}]}]}}""";
 
         Assert.Equal("Overnight ES breakout Risk stays at 100%.", LexicalPlainText.Extract(state));
+        Assert.Equal("Overnight ES breakoutRisk stays at 100%.", LexicalPlainText.ExtractVisibleText(state));
         Assert.Equal("Older plain text stays searchable.", LexicalPlainText.Extract("Older plain text stays searchable."));
     }
 
@@ -190,6 +191,75 @@ public sealed class TradeReviewTests
         Assert.Equal(new DateOnly(2026, 9, 11), days[1].Date);
         Assert.Single(days[1].OpenTrades);
         Assert.Equal(12m, days[0].RealizedNetPnl);
+    }
+
+    [Fact]
+    public void DailyJournalFeedMergesTradingDaysWithJournalOnlyDaysAndPagesInDateOrder()
+    {
+        var journalId = Guid.NewGuid();
+        var today = new DateOnly(2026, 10, 10);
+        var tradeDays = new[]
+        {
+            new DailyTradeSummary
+            {
+                Date = new DateOnly(2026, 10, 9),
+                CompletedTrades = new[] { new Trade { NetPnl = 125.50m, Status = "closed" } }
+            },
+            new DailyTradeSummary
+            {
+                Date = new DateOnly(2026, 10, 7),
+                OpenTrades = new[] { new Trade { Status = "open" } }
+            },
+            new DailyTradeSummary
+            {
+                Date = new DateOnly(2026, 10, 5),
+                CompletedTrades = new[] { new Trade { NetPnl = -25m, Status = "closed" } }
+            }
+        };
+        var journalEntries = new[]
+        {
+            new DailyJournalEntry { JournalId = journalId, Date = new DateOnly(2026, 10, 8), Text = "A journal-only day." },
+            new DailyJournalEntry { JournalId = journalId, Date = new DateOnly(2026, 10, 7), Text = "Trade day note." },
+            new DailyJournalEntry { JournalId = journalId, Date = new DateOnly(2026, 10, 1), Text = "An older journal-only day." }
+        };
+
+        var firstPage = DailyJournalFeedBuilder.Build(journalId, today, null, 2, tradeDays, journalEntries);
+        Assert.Collection(firstPage.Days,
+            day =>
+            {
+                Assert.Equal(new DateOnly(2026, 10, 9), day.Entry.Date);
+                Assert.Equal(1, day.Trading?.TotalTradeCount);
+                Assert.Equal(125.50m, day.Trading?.RealizedNetPnl);
+                Assert.Empty(day.Entry.Text);
+            },
+            day =>
+            {
+                Assert.Equal(new DateOnly(2026, 10, 8), day.Entry.Date);
+                Assert.Null(day.Trading);
+                Assert.Equal("A journal-only day.", day.Entry.Text);
+            });
+        Assert.True(firstPage.HasMore);
+        Assert.Equal(new DateOnly(2026, 10, 8), firstPage.NextBefore);
+
+        var secondPage = DailyJournalFeedBuilder.Build(journalId, today, firstPage.NextBefore, 2, tradeDays, journalEntries);
+        Assert.Collection(secondPage.Days,
+            day =>
+            {
+                Assert.Equal(new DateOnly(2026, 10, 7), day.Entry.Date);
+                Assert.Equal("Trade day note.", day.Entry.Text);
+                Assert.Equal(1, day.Trading?.TotalTradeCount);
+                Assert.Equal(0m, day.Trading?.RealizedNetPnl);
+            },
+            day =>
+            {
+                Assert.Equal(new DateOnly(2026, 10, 5), day.Entry.Date);
+                Assert.Equal(-25m, day.Trading?.RealizedNetPnl);
+            });
+        Assert.True(secondPage.HasMore);
+
+        var lastPage = DailyJournalFeedBuilder.Build(journalId, today, secondPage.NextBefore, 2, tradeDays, journalEntries);
+        Assert.Equal(new DateOnly(2026, 10, 1), Assert.Single(lastPage.Days).Entry.Date);
+        Assert.False(lastPage.HasMore);
     }
 
     [Fact]

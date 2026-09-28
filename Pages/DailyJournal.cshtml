@@ -6,6 +6,7 @@
     ViewData["PageKicker"] = "TRADEFOUNDRY / JOURNAL";
     ViewData["ActiveNav"] = "daily-journal";
     ViewData["UsesLexical"] = true;
+    ViewData["UsesLightweightCharts"] = true;
     var todayText = Model.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 }
 
@@ -18,7 +19,7 @@
     <header class="tf-daily-journal-page-header">
         <div>
             <h1 class="h2 mb-1">Daily Journal</h1>
-            <p class="text-secondary mb-0">Your notes, newest first. Older entries load as you scroll.</p>
+            <p class="text-secondary mb-0">Your trading days and journal entries, newest first. Older days load as you scroll.</p>
         </div>
         <div class="tf-daily-journal-page-actions">
             <form method="get" class="tf-daily-journal-date-form">
@@ -49,8 +50,26 @@
     @if (Model.HasMore && Model.NextBefore.HasValue)
     {
         <div class="tf-daily-journal-load-more" data-daily-journal-load-more-wrapper>
-            <a class="btn btn-outline-secondary" data-daily-journal-load-more href="?before=@Model.NextBefore.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">Load older entries</a>
+            <a class="btn btn-outline-secondary" data-daily-journal-load-more href="?before=@Model.NextBefore.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">Load older days</a>
         </div>
     }
     <div class="tf-daily-journal-sentinel" data-daily-journal-sentinel aria-hidden="true"></div>
 </main>
+
+<dialog class="tf-daily-journal-chart-dialog" data-daily-journal-chart-dialog aria-labelledby="daily-journal-chart-title">
+    <div class="tf-daily-journal-chart-dialog-content">
+        <header class="tf-daily-journal-chart-dialog-header">
+            <div>
+                <h2 id="daily-journal-chart-title" class="tf-card-title">Daily chart</h2>
+                <p class="text-secondary mb-0" data-daily-journal-chart-date></p>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-daily-journal-chart-close>Close</button>
+        </header>
+        <div class="tf-daily-journal-chart-selector" data-daily-journal-chart-selector hidden>
+            <label class="form-label mb-1" for="daily-journal-chart-trade">Trade</label>
+            <select id="daily-journal-chart-trade" class="form-select" data-daily-journal-chart-trade></select>
+        </div>
+        <div class="tf-daily-journal-chart-status" data-daily-journal-chart-status role="status" aria-live="polite">Choose a day to load its chart.</div>
+        <div class="tf-daily-journal-chart-host" data-daily-journal-chart-host></div>
+    </div>
+</dialog>

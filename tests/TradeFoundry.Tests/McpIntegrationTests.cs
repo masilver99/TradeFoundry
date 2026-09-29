@@ -170,7 +170,7 @@ public sealed class McpIntegrationTests
             Assert.Equal("read write", writer.Token.Scopes);
             var evidenceCountsBefore = EvidenceCounts(database);
             var analysis = new JournalAnalysisService(database, settings);
-            server = new McpHostedService(settings, database, analysis, tokenService, loggerFactory);
+            server = new McpHostedService(settings, database, analysis, new MarketProbabilityService(database), tokenService, loggerFactory);
             await server.StartAsync(CancellationToken.None);
 
             using (var http = new HttpClient())
@@ -204,16 +204,18 @@ public sealed class McpIntegrationTests
             }, loggerFactory);
             await using var writerClient = await McpClient.CreateAsync(writerTransport, loggerFactory: loggerFactory);
             var tools = await client.ListToolsAsync(cancellationToken: CancellationToken.None);
-            Assert.Equal(9, tools.Count);
+            Assert.Equal(11, tools.Count);
             Assert.All(tools, tool =>
             {
                 Assert.True(tool.ProtocolTool.Annotations?.ReadOnlyHint);
                 Assert.False(tool.ProtocolTool.Annotations?.OpenWorldHint);
             });
             var writerTools = await writerClient.ListToolsAsync(cancellationToken: CancellationToken.None);
-            Assert.Equal(11, writerTools.Count);
+            Assert.Equal(13, writerTools.Count);
             Assert.All(writerTools.Where(tool => tool.Name is "create_broker_fee_profile" or "update_broker_fee_profile"), tool => Assert.False(tool.ProtocolTool.Annotations?.ReadOnlyHint));
             Assert.Contains("\"review_key\"", tools.Single(tool => tool.Name == "get_trade_detail").ProtocolTool.InputSchema.GetRawText(), StringComparison.Ordinal);
+            Assert.Contains(tools, tool => tool.Name == "get_market_type_probabilities");
+            Assert.Contains(tools, tool => tool.Name == "get_market_days");
 
             var prompts = await client.ListPromptsAsync(cancellationToken: CancellationToken.None);
             Assert.Equal(["review_day", "review_period", "review_trade"], prompts.Select(prompt => prompt.Name).Order());
@@ -268,6 +270,10 @@ public sealed class McpIntegrationTests
             await AssertToolSucceeds(client, "get_trade_price_context", Arguments(("journal_id", journal.Id), ("review_key", reviewKey)));
             await AssertToolSucceeds(client, "get_trading_day", Arguments(("journal_id", journal.Id), ("date", "2026-09-09")));
             await AssertToolSucceeds(client, "analyze_trades", Arguments(("journal_id", journal.Id), ("group_by", "session")));
+            var marketProbabilities = await AssertToolSucceeds(client, "get_market_type_probabilities", Arguments(("journal_id", journal.Id)));
+            Assert.Equal(0, marketProbabilities.GetProperty("sample_size").GetInt32());
+            var marketDays = await AssertToolSucceeds(client, "get_market_days", Arguments(("journal_id", journal.Id), ("limit", 10)));
+            Assert.Equal(0, marketDays.GetProperty("total_matches").GetInt32());
             var quality = await AssertToolSucceeds(client, "get_data_quality", Arguments(("journal_id", journal.Id)));
             var warningCheck = quality.GetProperty("checks").EnumerateArray().Single(check => check.GetProperty("key").GetString() == "import_warning_batches");
             Assert.Equal(1, warningCheck.GetProperty("count").GetInt32());
@@ -304,7 +310,7 @@ public sealed class McpIntegrationTests
             var settings = Options.Create(new McpOptions { Enabled = true, Url = $"http://127.0.0.1:{port}", RequestsPerMinute = 10 });
             var tokenService = new McpTokenService(database);
             var created = tokenService.Create("Rate test", [journal.Id]);
-            server = new McpHostedService(settings, database, new JournalAnalysisService(database, settings), tokenService, loggerFactory);
+            server = new McpHostedService(settings, database, new JournalAnalysisService(database, settings), new MarketProbabilityService(database), tokenService, loggerFactory);
             await server.StartAsync(CancellationToken.None);
 
             using var http = new HttpClient();

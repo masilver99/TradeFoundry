@@ -8,6 +8,8 @@ using TradeFoundry.Services;
 namespace TradeFoundry.Pages;
 
 [Authorize]
+[RequestSizeLimit(256L * 1024 * 1024)]
+[RequestFormLimits(MultipartBodyLengthLimit = 256L * 1024 * 1024)]
 public class ImportsModel : PageModel
 {
     private readonly TradeFoundryDb _database;

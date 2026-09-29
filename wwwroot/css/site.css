@@ -704,6 +704,16 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-lexical-root a { color: var(--tf-blue); }
 .tf-lexical-limit-status { display: block; min-height: 0; padding: 0 12px; color: var(--tf-red); font-size: 11px; }
 .tf-lexical-limit-status:not(:empty) { padding-bottom: 8px; }
+.tf-lexical-image-status { display: block; min-height: 1em; padding: 0 12px 8px; color: var(--tf-muted); font-size: 10px; }
+.tf-lexical-image-node { position: relative; width: fit-content; max-width: 100%; margin: 10px 0; padding: 0; }
+.tf-lexical-image-node img { display: block; width: auto; max-width: min(100%, 1200px); max-height: min(80vh, 800px); border: 1px solid var(--tf-line); border-radius: 5px; background: var(--tf-bg); object-fit: contain; }
+.tf-lexical-image-remove { position: absolute; top: 7px; right: 7px; display: grid; width: 27px; height: 27px; padding: 0; place-items: center; border: 1px solid var(--tf-line-strong); border-radius: 50%; background: rgba(13, 17, 23, .88); color: var(--tf-ink); font-size: 20px; line-height: 1; cursor: pointer; }
+.tf-lexical-image-remove:hover, .tf-lexical-image-remove:focus-visible { border-color: var(--tf-red); background: var(--tf-red); color: #fff; outline: 2px solid var(--tf-red); outline-offset: 2px; }
+.tf-lexical-image-resize { position: absolute; right: 4px; bottom: 4px; display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 1px solid var(--tf-line-strong); border-radius: 4px; background: rgba(13, 17, 23, .88); color: var(--tf-ink); font-size: 17px; line-height: 1; cursor: nwse-resize; touch-action: none; user-select: none; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.tf-lexical-image-node:hover .tf-lexical-image-resize,
+.tf-lexical-image-node:focus-within .tf-lexical-image-resize,
+.tf-lexical-image-node.is-selected .tf-lexical-image-resize { opacity: 1; pointer-events: auto; }
+.tf-lexical-image-resize:hover, .tf-lexical-image-resize:focus-visible { border-color: var(--tf-blue); background: var(--tf-blue); color: var(--tf-bg); outline: 2px solid var(--tf-blue); outline-offset: 2px; }
 
 @media (min-width: 992px) {
   .tf-app .tf-sidebar { position: fixed; top: 0; bottom: 0; left: 0; z-index: 1030; width: var(--tf-sidebar-width); min-width: 180px; max-width: min(360px, 40vw); }

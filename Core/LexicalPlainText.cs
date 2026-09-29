@@ -72,6 +72,17 @@ public static class LexicalPlainText
             return;
         }
 
+        if (string.Equals(type, "daily-journal-image", StringComparison.Ordinal))
+        {
+            if (text.Length > 0) AppendNewline(text);
+            var altText = node.TryGetProperty("altText", out var altElement) && altElement.ValueKind == JsonValueKind.String
+                ? altElement.GetString()?.Trim()
+                : null;
+            text.Append(string.IsNullOrWhiteSpace(altText) ? "[Image]" : $"[Image: {altText}]");
+            AppendNewline(text);
+            return;
+        }
+
         if (!node.TryGetProperty("children", out var children) || children.ValueKind != JsonValueKind.Array) return;
 
         var isBlock = type is "paragraph" or "heading" or "quote" or "listitem" or "code";

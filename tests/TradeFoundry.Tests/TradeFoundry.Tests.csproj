@@ -20,6 +20,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove=".codex-build\**" />
+    <EmbeddedResource Remove=".codex-build\**" />
+    <Content Remove=".codex-build\**" />
+    <None Remove=".codex-build\**" />
     <None Include="..\..\Pages\Analytics.cshtml" Link="Pages\Analytics.cshtml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

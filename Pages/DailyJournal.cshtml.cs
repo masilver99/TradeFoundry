@@ -10,12 +10,18 @@ using TradeFoundry.Services;
 namespace TradeFoundry.Pages;
 
 [Authorize]
+[RequestFormLimits(MultipartBodyLengthLimit = 12 * 1024 * 1024)]
 public sealed class DailyJournalModel : PageModel
 {
     private const int PageSize = 20;
     private readonly TradeFoundryDb _database;
+    private readonly DailyJournalImageService _images;
 
-    public DailyJournalModel(TradeFoundryDb database) => _database = database;
+    public DailyJournalModel(TradeFoundryDb database, DailyJournalImageService images)
+    {
+        _database = database;
+        _images = images;
+    }
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
     [BindProperty(SupportsGet = true)] public DateOnly? Date { get; set; }
@@ -67,6 +73,51 @@ public sealed class DailyJournalModel : PageModel
             })
             .ToArray();
         return new JsonResult(new { date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), trades });
+    }
+
+    public async Task<IActionResult> OnPostUploadImageAsync(DateOnly date, IFormFile? image, CancellationToken cancellationToken)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        if (image is not { Length: > 0 })
+        {
+            Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            return new JsonResult(new { saved = false, message = "Choose or paste an image first." });
+        }
+
+        try
+        {
+            await using var content = image.OpenReadStream();
+            var saved = await _images.SaveAsync(JournalId, date, content, image.FileName, image.ContentType, image.Length, cancellationToken);
+            var imageUrl = $"/journal/{JournalId:D}/daily-journal?handler=Image&date={Uri.EscapeDataString(date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}&imageId={saved.Id:D}";
+            return new JsonResult(new
+            {
+                saved = true,
+                image = new { id = saved.Id, src = imageUrl, altText = saved.OriginalFileName, fileName = saved.OriginalFileName, length = saved.Length }
+            });
+        }
+        catch (InvalidOperationException exception)
+        {
+            Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            return new JsonResult(new { saved = false, message = exception.Message });
+        }
+    }
+
+    public IActionResult OnGetImage(DateOnly date, Guid imageId)
+    {
+        try
+        {
+            var image = _images.Get(JournalId, date, imageId);
+            if (image is null) return NotFound();
+            var path = _images.GetPath(JournalId, image);
+            if (path is null) return NotFound();
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
+            Response.Headers.CacheControl = "private, max-age=31536000, immutable";
+            return PhysicalFile(path, image.ContentType);
+        }
+        catch (InvalidOperationException)
+        {
+            return NotFound();
+        }
     }
 
     public IActionResult OnPostAutosave(DateOnly date, string? dailyJournalStateJson, int expectedRevision)
@@ -184,6 +235,7 @@ public sealed class DailyJournalModel : PageModel
             TradeCount = trading?.TotalTradeCount ?? 0,
             RealizedNetPnl = trading?.RealizedNetPnl ?? 0m,
             ChartUrl = $"{page}?handler=DayChart&date={queryDate}",
+            ImageUploadUrl = $"{page}?handler=UploadImage&date={queryDate}",
             SaveUrl = $"{page}?handler=Save&date={queryDate}",
             AutosaveUrl = $"{page}?handler=Autosave&date={queryDate}"
         };
@@ -202,6 +254,7 @@ public sealed class DailyJournalCardViewModel
     public int TradeCount { get; init; }
     public decimal RealizedNetPnl { get; init; }
     public string ChartUrl { get; init; } = string.Empty;
+    public string ImageUploadUrl { get; init; } = string.Empty;
     public string SaveUrl { get; init; } = string.Empty;
     public string AutosaveUrl { get; init; } = string.Empty;
 }

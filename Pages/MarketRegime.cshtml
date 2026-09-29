@@ -1,0 +1,192 @@
+@page "/journal/{journalId:guid}/market-regime"
+@model TradeFoundry.Pages.MarketRegimeModel
+@using TradeFoundry.Services
+@{
+    ViewData["Title"] = "Market Regime";
+    ViewData["PageKicker"] = "ANALYSIS / HISTORICAL PROBABILITY";
+    ViewData["ActiveNav"] = "market-regime";
+}
+
+<div class="tf-page-intro d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+    <div>
+        <p class="text-secondary mb-1">Deterministic ES/MES session classifications and historical distributions.</p>
+        <p class="text-secondary small mb-0">Raw percentages describe the observed cohort. Adjusted percentages shrink small cohorts toward a broader prior.</p>
+    </div>
+    <span class="badge bg-blue-lt">Sample: @Model.Result.SampleSize sessions</span>
+</div>
+
+<section class="card tf-card mb-4" aria-labelledby="market-regime-filters">
+    <div class="card-header"><h3 class="card-title" id="market-regime-filters">Filters</h3></div>
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <input type="hidden" name="journalId" value="@Model.JournalId" />
+            <div class="col-12 col-sm-6 col-lg-2">
+                <label class="form-label" for="market-symbol">Population</label>
+                <select class="form-select" id="market-symbol" name="Symbol">
+                    @foreach (var symbol in Model.Symbols)
+                    {
+                        <option value="@symbol" selected="@(string.Equals(Model.Symbol, symbol, StringComparison.OrdinalIgnoreCase))">@symbol</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2">
+                <label class="form-label" for="market-month">Month</label>
+                <select class="form-select" id="market-month" name="Month">
+                    <option value="">All</option>
+                    @for (var month = 1; month <= 12; month++)
+                    {
+                        <option value="@month" selected="@(Model.Month == month)">@System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetAbbreviatedMonthName(month)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2">
+                <label class="form-label" for="market-day">Day</label>
+                <select class="form-select" id="market-day" name="DayOfWeek">
+                    <option value="">All</option>
+                    @foreach (var day in Enum.GetValues<DayOfWeek>())
+                    {
+                        <option value="@day" selected="@(string.Equals(Model.DayOfWeekFilter, day.ToString(), StringComparison.OrdinalIgnoreCase))">@day</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2">
+                <label class="form-label" for="market-volatility">Volatility</label>
+                <select class="form-select" id="market-volatility" name="VolatilityRegime">
+                    <option value="">All</option>
+                    @foreach (var regime in Model.VolatilityRegimes)
+                    {
+                        <option value="@regime" selected="@(string.Equals(Model.VolatilityRegime, regime.ToString(), StringComparison.OrdinalIgnoreCase))">@regime</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2">
+                <label class="form-label" for="market-overnight">Overnight</label>
+                <select class="form-select" id="market-overnight" name="OvernightDirection">
+                    <option value="">All</option>
+                    @foreach (var direction in Model.Directions)
+                    {
+                        <option value="@direction" selected="@(string.Equals(Model.OvernightDirection, direction.ToString(), StringComparison.OrdinalIgnoreCase))">@direction</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2">
+                <label class="form-label" for="market-gap">Gap</label>
+                <select class="form-select" id="market-gap" name="GapDirection">
+                    <option value="">All</option>
+                    @foreach (var direction in Model.Directions)
+                    {
+                        <option value="@direction" selected="@(string.Equals(Model.GapDirection, direction.ToString(), StringComparison.OrdinalIgnoreCase))">@direction</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2"><label class="form-label" for="market-start">Start date</label><input class="form-control" id="market-start" name="StartDate" type="date" value="@Model.StartDate" /></div>
+            <div class="col-6 col-sm-3 col-lg-2"><label class="form-label" for="market-end">End date</label><input class="form-control" id="market-end" name="EndDate" type="date" value="@Model.EndDate" /></div>
+            <div class="col-6 col-sm-3 col-lg-2"><label class="form-label" for="market-as-of">As of (exclusive)</label><input class="form-control" id="market-as-of" name="AsOfDate" type="date" value="@Model.AsOfDate" /></div>
+            <div class="col-6 col-sm-3 col-lg-2"><label class="form-label" for="market-range-greater">RTH range &gt;</label><input class="form-control" id="market-range-greater" name="RangeGreaterThanPoints" type="number" step="0.01" min="0" value="@Model.RangeGreaterThanPoints" /></div>
+            <div class="col-6 col-sm-3 col-lg-2"><label class="form-label" for="market-normalized-greater">Normalized range &gt;</label><input class="form-control" id="market-normalized-greater" name="NormalizedRangeGreaterThan" type="number" step="0.01" min="0" value="@Model.NormalizedRangeGreaterThan" /></div>
+            <div class="col-auto"><button class="btn btn-primary" type="submit">Apply filters</button></div>
+            <div class="col-auto"><a class="btn btn-outline-secondary" href="/journal/@Model.JournalId.ToString("D")/market-regime">Clear</a></div>
+        </form>
+    </div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="alert alert-danger" role="alert">@Model.ErrorMessage</div>
+}
+
+@if (Model.Result.DataQualityWarnings.Count > 0)
+{
+    <div class="alert alert-warning" role="status">
+        @foreach (var warning in Model.Result.DataQualityWarnings)
+        {
+            <div>@warning</div>
+        }
+    </div>
+}
+
+<div class="row g-4">
+    <div class="col-12 col-xl-7">
+        <section class="card tf-card h-100" aria-labelledby="market-types-heading">
+            <div class="card-header d-flex justify-content-between align-items-center"><h3 class="card-title" id="market-types-heading">Market type</h3><span class="text-secondary small">@Model.Result.FilterDescription</span></div>
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table">
+                    <thead><tr><th>Type</th><th>Count</th><th>Raw</th><th>Adjusted</th><th>Baseline</th><th>Δ adj-base</th><th>95% interval</th></tr></thead>
+                    <tbody>
+                    @foreach (var estimate in Model.Result.MarketTypes)
+                    {
+                        <tr><td><strong>@estimate.Outcome</strong></td><td>@estimate.Count / @estimate.SampleSize</td><td>@Model.FormatProbability(estimate.RawProbability)</td><td>@Model.FormatProbability(estimate.AdjustedProbability)</td><td>@Model.FormatProbability(estimate.BaselineProbability)</td><td>@Model.FormatProbability(estimate.DifferenceFromBaseline)</td><td>@Model.FormatProbability(estimate.ConfidenceInterval.Lower) – @Model.FormatProbability(estimate.ConfidenceInterval.Upper)</td></tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer text-secondary small">Prior: @Model.Result.ShrinkagePriorScope · @Model.Result.ShrinkagePriorSampleSize sessions · classifier @Model.Result.ClassifierVersion</div>
+        </section>
+    </div>
+    <div class="col-12 col-xl-5">
+        <section class="card tf-card h-100" aria-labelledby="market-direction-heading">
+            <div class="card-header"><h3 class="card-title" id="market-direction-heading">Direction</h3></div>
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table">
+                    <thead><tr><th>Direction</th><th>Raw</th><th>Adjusted</th><th>Baseline</th><th>Δ adj-base</th></tr></thead>
+                    <tbody>
+                    @foreach (var estimate in Model.Result.Directions)
+                    {
+                        <tr><td>@estimate.Outcome</td><td>@Model.FormatProbability(estimate.RawProbability)</td><td>@Model.FormatProbability(estimate.AdjustedProbability)</td><td>@Model.FormatProbability(estimate.BaselineProbability)</td><td>@Model.FormatProbability(estimate.DifferenceFromBaseline)</td></tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-body border-top">
+                <h4 class="h4">Direction given trend</h4>
+                <p class="text-secondary small">@Model.Result.DirectionGivenTrend.Condition · N=@Model.Result.DirectionGivenTrend.TrendSampleSize</p>
+                @foreach (var estimate in Model.Result.DirectionGivenTrend.Directions)
+                {
+                    <div class="d-flex justify-content-between small mb-2"><span>@estimate.Outcome</span><span>@Model.FormatProbability(estimate.RawProbability) raw / @Model.FormatProbability(estimate.AdjustedProbability) adjusted</span></div>
+                }
+            </div>
+        </section>
+    </div>
+</div>
+
+<section class="card tf-card mt-4" aria-labelledby="range-heading">
+    <div class="card-header"><h3 class="card-title" id="range-heading">Range distribution</h3></div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table">
+            <thead><tr><th>Measure</th><th>RTH points</th><th>ATR-normalized</th></tr></thead>
+            <tbody>
+            @foreach (var measure in new[] { ("Sample", "SampleSize"), ("Mean", "Mean"), ("Median", "Median"), ("Std. deviation", "StandardDeviation"), ("10th percentile", "P10"), ("25th percentile", "P25"), ("50th percentile", "P50"), ("75th percentile", "P75"), ("90th percentile", "P90") })
+            {
+                <tr>
+                    <td>@measure.Item1</td>
+                    @if (measure.Item2 == "SampleSize")
+                    {
+                        <td>@Model.Result.RthRange.SampleSize</td><td>@Model.Result.NormalizedRange.SampleSize</td>
+                    }
+                    else
+                    {
+                        var rthValue = typeof(RangeDistribution).GetProperty(measure.Item2)?.GetValue(Model.Result.RthRange) as decimal?;
+                        var normalizedValue = typeof(RangeDistribution).GetProperty(measure.Item2)?.GetValue(Model.Result.NormalizedRange) as decimal?;
+                        <td>@Model.FormatNumber(rthValue)</td><td>@Model.FormatNumber(normalizedValue)</td>
+                    }
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    @if (Model.Result.ThresholdProbabilities.Count > 0)
+    {
+        <div class="card-footer"><strong>Threshold probabilities</strong><div class="table-responsive mt-2"><table class="table table-sm mb-0"><thead><tr><th>Metric</th><th>Event</th><th>Raw</th><th>Baseline</th><th>95% interval</th></tr></thead><tbody>@foreach (var threshold in Model.Result.ThresholdProbabilities){<tr><td>@threshold.Metric</td><td>@threshold.Operator @Model.FormatNumber(threshold.Threshold)</td><td>@Model.FormatProbability(threshold.RawProbability)</td><td>@Model.FormatProbability(threshold.BaselineProbability)</td><td>@Model.FormatProbability(threshold.ConfidenceInterval.Lower) – @Model.FormatProbability(threshold.ConfidenceInterval.Upper)</td></tr>}</tbody></table></div></div>
+    }
+</section>
+
+<section class="card tf-card mt-4" aria-labelledby="market-baseline-heading">
+    <div class="card-header"><h3 class="card-title" id="market-baseline-heading">Baseline comparison</h3></div>
+    <div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>Scope</th><th>N</th><th>Strong trend</th><th>Weak trend</th><th>Range</th></tr></thead><tbody>@foreach (var baseline in Model.Result.Baselines){<tr><td>@baseline.Scope</td><td>@baseline.SampleSize</td><td>@Model.FormatProbability(baseline.MarketTypes.SingleOrDefault(item => item.Outcome == nameof(MarketType.StrongTrend))?.RawProbability)</td><td>@Model.FormatProbability(baseline.MarketTypes.SingleOrDefault(item => item.Outcome == nameof(MarketType.WeakTrend))?.RawProbability)</td><td>@Model.FormatProbability(baseline.MarketTypes.SingleOrDefault(item => item.Outcome == nameof(MarketType.Range))?.RawProbability)</td></tr>}</tbody></table></div>
+    <div class="card-footer text-secondary small">@Model.Result.SessionDefinition</div>
+</section>
+
+<section class="card tf-card mt-4" aria-labelledby="market-days-heading">
+    <div class="card-header d-flex justify-content-between align-items-center"><h3 class="card-title" id="market-days-heading">Classified sessions</h3><span class="text-secondary small">Showing @Model.RecentDays.Days.Count of @Model.RecentDays.TotalMatches</span></div>
+    <div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>Date</th><th>Type</th><th>Direction</th><th>Volatility</th><th>RTH range</th><th>Normalized</th><th>Overnight</th><th>Gap</th><th>Efficiency</th></tr></thead><tbody>@foreach (var day in Model.RecentDays.Days){<tr><td>@day.TradeDate</td><td>@day.MarketType</td><td>@day.Direction</td><td>@day.VolatilityRegime</td><td>@Model.FormatNumber(day.RthRangePoints)</td><td>@Model.FormatNumber(day.NormalizedRange)</td><td>@day.OvernightDirection / @Model.FormatNumber(day.OvernightRange)</td><td>@day.GapDirection / @Model.FormatNumber(day.GapFromPriorRthClose)</td><td>@Model.FormatNumber(day.DirectionalEfficiency)</td></tr>}</tbody></table></div>
+</section>

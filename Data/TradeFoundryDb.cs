@@ -35,6 +35,7 @@ public sealed class TradeFoundryDb
     private const string AccountTransactionColumns = "id, journal_id, transaction_type, effective_utc, amount, note, revision, created_utc, updated_utc, deleted_utc";
     private const string AccountTransactionHistoryColumns = "id, journal_id, transaction_id, revision, action, before_json, after_json, created_utc";
     private const string BrokerFeeProfileColumns = "id, journal_id, name, instrument, notes, commission_per_contract_side, exchange_per_contract_side, nfa_fee_per_contract_side, clearing_per_contract_side, platform_monthly, data_monthly, other_monthly, revision, created_utc, updated_utc";
+    private const string MarketFeatureColumns = "feature_version, source_interval, symbol, trade_date, open, high, low, close, rth_range_points, atr20, normalized_range, open_to_close_points, directional_efficiency, path_efficiency, close_location, vwap_crossings, percent_session_above_vwap, percent_session_below_vwap, percent_higher_highs, percent_higher_lows, percent_lower_highs, percent_lower_lows, maximum_favorable_directional_excursion, maximum_countertrend_excursion, overnight_high, overnight_low, overnight_range, overnight_direction, gap_from_prior_rth_close, gap_direction, volatility_measure_points, direction, rth_bar_count, overnight_bar_count, updated_utc";
     private readonly string _connectionString;
     private readonly string _databasePath;
 
@@ -112,6 +113,8 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_trade_review_attachments_trade ON trade_review_attachments(journal_id, review_key, created_utc DESC)",
             "CREATE TABLE IF NOT EXISTS daily_review_journals (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, editor_state_json TEXT NOT NULL DEFAULT '', search_text TEXT NULL, updated_utc TEXT NULL, UNIQUE(journal_id, review_date))",
             "CREATE INDEX IF NOT EXISTS ix_daily_review_journals_journal_date ON daily_review_journals(journal_id, review_date)",
+            "CREATE TABLE IF NOT EXISTS daily_journal_images (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, storage_key TEXT NOT NULL, original_file_name TEXT NOT NULL, content_type TEXT NOT NULL, length INTEGER NOT NULL, created_utc TEXT NOT NULL, UNIQUE(journal_id, review_date, storage_key))",
+            "CREATE INDEX IF NOT EXISTS ix_daily_journal_images_date ON daily_journal_images(journal_id, review_date, created_utc)",
             "CREATE TABLE IF NOT EXISTS daily_review_journal_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_date TEXT NOT NULL, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', reason TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_daily_review_journal_history_date ON daily_review_journal_history(journal_id, review_date, revision DESC)",
             "CREATE TABLE IF NOT EXISTS order_events (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, order_action_source TEXT NOT NULL DEFAULT '', event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', symbol TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', internal_order_id TEXT NOT NULL DEFAULT '', service_order_id TEXT NOT NULL DEFAULT '', parent_order_id TEXT NOT NULL DEFAULT '', exchange_order_id TEXT NOT NULL DEFAULT '', fill_execution_id TEXT NOT NULL DEFAULT '', order_type TEXT NOT NULL DEFAULT '', order_status TEXT NOT NULL DEFAULT '', side TEXT NOT NULL DEFAULT '', open_close TEXT NOT NULL DEFAULT '', price TEXT NULL, price2 TEXT NULL, quantity INTEGER NULL, filled_quantity INTEGER NULL, fill_price TEXT NULL, position_quantity INTEGER NULL, note TEXT NOT NULL DEFAULT '', client_order_id TEXT NOT NULL DEFAULT '', time_in_force TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', is_automated INTEGER NULL, fees TEXT NOT NULL DEFAULT '0', row_number INTEGER NOT NULL, instrument TEXT NOT NULL DEFAULT '', UNIQUE(journal_id, source_type, source_key))",
@@ -138,6 +141,10 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_bars_series_time ON bars(series_id, event_utc)",
             "CREATE TABLE IF NOT EXISTS bar_imports (import_batch_id TEXT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE, bar_id TEXT NOT NULL REFERENCES bars(id) ON DELETE CASCADE, PRIMARY KEY(import_batch_id, bar_id))",
             "CREATE INDEX IF NOT EXISTS ix_bar_imports_bar ON bar_imports(bar_id)",
+            "CREATE TABLE IF NOT EXISTS market_day_features (feature_version TEXT NOT NULL, source_interval TEXT NOT NULL, symbol TEXT NOT NULL, trade_date TEXT NOT NULL, open TEXT NOT NULL, high TEXT NOT NULL, low TEXT NOT NULL, close TEXT NOT NULL, rth_range_points TEXT NOT NULL, atr20 TEXT NULL, normalized_range TEXT NULL, open_to_close_points TEXT NOT NULL, directional_efficiency TEXT NOT NULL, path_efficiency TEXT NOT NULL, close_location TEXT NULL, vwap_crossings INTEGER NOT NULL, percent_session_above_vwap TEXT NULL, percent_session_below_vwap TEXT NULL, percent_higher_highs TEXT NULL, percent_higher_lows TEXT NULL, percent_lower_highs TEXT NULL, percent_lower_lows TEXT NULL, maximum_favorable_directional_excursion TEXT NULL, maximum_countertrend_excursion TEXT NULL, overnight_high TEXT NULL, overnight_low TEXT NULL, overnight_range TEXT NULL, overnight_direction TEXT NOT NULL, gap_from_prior_rth_close TEXT NULL, gap_direction TEXT NOT NULL, volatility_measure_points TEXT NULL, direction TEXT NOT NULL, rth_bar_count INTEGER NOT NULL, overnight_bar_count INTEGER NOT NULL, updated_utc TEXT NOT NULL, PRIMARY KEY(feature_version, source_interval, symbol, trade_date))",
+            "CREATE INDEX IF NOT EXISTS ix_market_day_features_symbol_date ON market_day_features(symbol, feature_version, source_interval, trade_date)",
+            "CREATE TABLE IF NOT EXISTS market_feature_dirty_ranges (id TEXT PRIMARY KEY, symbol TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL, created_utc TEXT NOT NULL, UNIQUE(symbol, start_date, end_date))",
+            "CREATE INDEX IF NOT EXISTS ix_market_feature_dirty_ranges_symbol_date ON market_feature_dirty_ranges(symbol, start_date, end_date)",
             "CREATE TABLE IF NOT EXISTS mcp_access_tokens (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES app_users(id), name TEXT NOT NULL, token_prefix TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, scopes TEXT NOT NULL DEFAULT 'read', created_utc TEXT NOT NULL, last_used_utc TEXT NULL, revoked_utc TEXT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_mcp_access_tokens_owner ON mcp_access_tokens(owner_user_id, revoked_utc, created_utc)",
             "CREATE TABLE IF NOT EXISTS mcp_token_journals (token_id TEXT NOT NULL REFERENCES mcp_access_tokens(id) ON DELETE CASCADE, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, PRIMARY KEY(token_id, journal_id))",
@@ -1477,6 +1484,49 @@ public sealed class TradeFoundryDb
             : new DailyJournalEntry { JournalId = journalId, Date = date };
     }
 
+    public DailyJournalImage AddDailyJournalImage(Guid journalId, DateOnly date, string storageKey, string originalFileName, string contentType, long length)
+    {
+        if (string.IsNullOrWhiteSpace(storageKey)) throw new ArgumentException("A storage key is required.", nameof(storageKey));
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var image = new DailyJournalImage
+        {
+            Id = Guid.NewGuid(),
+            JournalId = journalId,
+            Date = date,
+            StorageKey = storageKey,
+            OriginalFileName = originalFileName,
+            ContentType = contentType,
+            Length = length,
+            CreatedUtc = DateTimeOffset.UtcNow
+        };
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO daily_journal_images (id, journal_id, review_date, storage_key, original_file_name, content_type, length, created_utc) VALUES ($id, $journal, $date, $storageKey, $fileName, $contentType, $length, $created)";
+        command.Parameters.AddWithValue("$id", image.Id.ToString("D"));
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$storageKey", image.StorageKey);
+        command.Parameters.AddWithValue("$fileName", image.OriginalFileName);
+        command.Parameters.AddWithValue("$contentType", image.ContentType);
+        command.Parameters.AddWithValue("$length", image.Length);
+        command.Parameters.AddWithValue("$created", image.CreatedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+        return image;
+    }
+
+    public DailyJournalImage? GetDailyJournalImage(Guid journalId, DateOnly date, Guid imageId)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, journal_id, review_date, storage_key, original_file_name, content_type, length, created_utc FROM daily_journal_images WHERE id = $id AND journal_id = $journal AND review_date = $date";
+        command.Parameters.AddWithValue("$id", imageId.ToString("D"));
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadDailyJournalImage(reader) : null;
+    }
+
     public DailyJournalEntriesPage GetDailyJournalEntries(Guid journalId, DateOnly excludeDate, DateOnly? beforeDate = null, int limit = 20)
     {
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
@@ -2107,6 +2157,169 @@ public sealed class TradeFoundryDb
         return reader.Read() ? ReadTrade(reader) : null;
     }
 
+    public IReadOnlyList<PersistedMarketDayFeature> GetMarketDayFeatureRows(string symbol, string sourceInterval, string featureVersion, DateOnly? startDate = null, DateOnly? endDate = null)
+    {
+        var normalizedSymbol = InstrumentCatalog.ExtractRoot(symbol);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var predicates = new List<string>
+        {
+            "symbol = $symbol",
+            "source_interval = $interval",
+            "feature_version = $version"
+        };
+        command.Parameters.AddWithValue("$symbol", normalizedSymbol);
+        command.Parameters.AddWithValue("$interval", sourceInterval);
+        command.Parameters.AddWithValue("$version", featureVersion);
+        if (startDate.HasValue)
+        {
+            predicates.Add("trade_date >= $start");
+            command.Parameters.AddWithValue("$start", startDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        }
+        if (endDate.HasValue)
+        {
+            predicates.Add("trade_date <= $end");
+            command.Parameters.AddWithValue("$end", endDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        }
+        command.CommandText = $"SELECT {MarketFeatureColumns} FROM market_day_features WHERE {string.Join(" AND ", predicates)} ORDER BY trade_date";
+        using var reader = command.ExecuteReader();
+        var rows = new List<PersistedMarketDayFeature>();
+        while (reader.Read()) rows.Add(ReadMarketDayFeature(reader));
+        return rows;
+    }
+
+    public void ReplaceMarketDayFeatureRows(string symbol, string sourceInterval, string featureVersion, DateOnly startDate, DateOnly endDate, IEnumerable<PersistedMarketDayFeature> rows)
+    {
+        if (startDate > endDate) throw new ArgumentException("The feature replacement start date must not be later than its end date.");
+        var normalizedSymbol = InstrumentCatalog.ExtractRoot(symbol);
+        var selected = rows
+            .Where(row => row.TradeDate >= startDate && row.TradeDate <= endDate)
+            .ToArray();
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using (var delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = "DELETE FROM market_day_features WHERE feature_version = $version AND source_interval = $interval AND symbol = $symbol AND trade_date >= $start AND trade_date <= $end";
+            delete.Parameters.AddWithValue("$version", featureVersion);
+            delete.Parameters.AddWithValue("$interval", sourceInterval);
+            delete.Parameters.AddWithValue("$symbol", normalizedSymbol);
+            delete.Parameters.AddWithValue("$start", startDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            delete.Parameters.AddWithValue("$end", endDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            delete.ExecuteNonQuery();
+        }
+
+        const string insertSql = "INSERT INTO market_day_features (feature_version, source_interval, symbol, trade_date, open, high, low, close, rth_range_points, atr20, normalized_range, open_to_close_points, directional_efficiency, path_efficiency, close_location, vwap_crossings, percent_session_above_vwap, percent_session_below_vwap, percent_higher_highs, percent_higher_lows, percent_lower_highs, percent_lower_lows, maximum_favorable_directional_excursion, maximum_countertrend_excursion, overnight_high, overnight_low, overnight_range, overnight_direction, gap_from_prior_rth_close, gap_direction, volatility_measure_points, direction, rth_bar_count, overnight_bar_count, updated_utc) VALUES ($version, $interval, $symbol, $date, $open, $high, $low, $close, $range, $atr, $normalized, $openClose, $efficiency, $path, $location, $crossings, $above, $below, $higherHighs, $higherLows, $lowerHighs, $lowerLows, $favorable, $countertrend, $overnightHigh, $overnightLow, $overnightRange, $overnightDirection, $gap, $gapDirection, $volatility, $direction, $rthBars, $overnightBars, $updated) ON CONFLICT(feature_version, source_interval, symbol, trade_date) DO UPDATE SET open = excluded.open, high = excluded.high, low = excluded.low, close = excluded.close, rth_range_points = excluded.rth_range_points, atr20 = excluded.atr20, normalized_range = excluded.normalized_range, open_to_close_points = excluded.open_to_close_points, directional_efficiency = excluded.directional_efficiency, path_efficiency = excluded.path_efficiency, close_location = excluded.close_location, vwap_crossings = excluded.vwap_crossings, percent_session_above_vwap = excluded.percent_session_above_vwap, percent_session_below_vwap = excluded.percent_session_below_vwap, percent_higher_highs = excluded.percent_higher_highs, percent_higher_lows = excluded.percent_higher_lows, percent_lower_highs = excluded.percent_lower_highs, percent_lower_lows = excluded.percent_lower_lows, maximum_favorable_directional_excursion = excluded.maximum_favorable_directional_excursion, maximum_countertrend_excursion = excluded.maximum_countertrend_excursion, overnight_high = excluded.overnight_high, overnight_low = excluded.overnight_low, overnight_range = excluded.overnight_range, overnight_direction = excluded.overnight_direction, gap_from_prior_rth_close = excluded.gap_from_prior_rth_close, gap_direction = excluded.gap_direction, volatility_measure_points = excluded.volatility_measure_points, direction = excluded.direction, rth_bar_count = excluded.rth_bar_count, overnight_bar_count = excluded.overnight_bar_count, updated_utc = excluded.updated_utc";
+        foreach (var row in selected)
+        {
+            using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = insertSql;
+            insert.Parameters.AddWithValue("$version", featureVersion);
+            insert.Parameters.AddWithValue("$interval", sourceInterval);
+            insert.Parameters.AddWithValue("$symbol", normalizedSymbol);
+            insert.Parameters.AddWithValue("$date", row.TradeDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            insert.Parameters.AddWithValue("$open", NumberFormat.Decimal(row.Open));
+            insert.Parameters.AddWithValue("$high", NumberFormat.Decimal(row.High));
+            insert.Parameters.AddWithValue("$low", NumberFormat.Decimal(row.Low));
+            insert.Parameters.AddWithValue("$close", NumberFormat.Decimal(row.Close));
+            insert.Parameters.AddWithValue("$range", NumberFormat.Decimal(row.RthRangePoints));
+            AddNullable(insert, "$atr", row.Atr20);
+            AddNullable(insert, "$normalized", row.NormalizedRange);
+            insert.Parameters.AddWithValue("$openClose", NumberFormat.Decimal(row.OpenToClosePoints));
+            insert.Parameters.AddWithValue("$efficiency", NumberFormat.Decimal(row.DirectionalEfficiency));
+            insert.Parameters.AddWithValue("$path", NumberFormat.Decimal(row.PathEfficiency));
+            AddNullable(insert, "$location", row.CloseLocation);
+            insert.Parameters.AddWithValue("$crossings", row.VwapCrossings);
+            AddNullable(insert, "$above", row.PercentSessionAboveVwap);
+            AddNullable(insert, "$below", row.PercentSessionBelowVwap);
+            AddNullable(insert, "$higherHighs", row.PercentHigherHighs);
+            AddNullable(insert, "$higherLows", row.PercentHigherLows);
+            AddNullable(insert, "$lowerHighs", row.PercentLowerHighs);
+            AddNullable(insert, "$lowerLows", row.PercentLowerLows);
+            AddNullable(insert, "$favorable", row.MaximumFavorableDirectionalExcursion);
+            AddNullable(insert, "$countertrend", row.MaximumCountertrendExcursion);
+            AddNullable(insert, "$overnightHigh", row.OvernightHigh);
+            AddNullable(insert, "$overnightLow", row.OvernightLow);
+            AddNullable(insert, "$overnightRange", row.OvernightRange);
+            insert.Parameters.AddWithValue("$overnightDirection", row.OvernightDirection);
+            AddNullable(insert, "$gap", row.GapFromPriorRthClose);
+            insert.Parameters.AddWithValue("$gapDirection", row.GapDirection);
+            AddNullable(insert, "$volatility", row.VolatilityMeasurePoints);
+            insert.Parameters.AddWithValue("$direction", row.Direction);
+            insert.Parameters.AddWithValue("$rthBars", row.RthBarCount);
+            insert.Parameters.AddWithValue("$overnightBars", row.OvernightBarCount);
+            insert.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            insert.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
+    public IReadOnlyList<MarketFeatureDirtyRange> GetMarketFeatureDirtyRanges(string? symbol = null)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT symbol, start_date, end_date FROM market_feature_dirty_ranges" + (string.IsNullOrWhiteSpace(symbol) ? string.Empty : " WHERE symbol = $symbol") + " ORDER BY symbol, start_date";
+        if (!string.IsNullOrWhiteSpace(symbol)) command.Parameters.AddWithValue("$symbol", InstrumentCatalog.ExtractRoot(symbol));
+        using var reader = command.ExecuteReader();
+        var ranges = new List<MarketFeatureDirtyRange>();
+        while (reader.Read())
+        {
+            if (DateOnly.TryParseExact(reader.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var start) &&
+                DateOnly.TryParseExact(reader.GetString(2), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var end))
+                ranges.Add(new MarketFeatureDirtyRange { Symbol = reader.GetString(0), StartDate = start, EndDate = end });
+        }
+        return ranges;
+    }
+
+    public void MarkMarketFeatureDirty(IEnumerable<MarketFeatureDirtyRange> ranges)
+    {
+        ArgumentNullException.ThrowIfNull(ranges);
+        var normalized = ranges
+            .Where(range => !string.IsNullOrWhiteSpace(range.Symbol) && range.StartDate <= range.EndDate)
+            .GroupBy(range => InstrumentCatalog.ExtractRoot(range.Symbol), StringComparer.OrdinalIgnoreCase)
+            .Select(group => new MarketFeatureDirtyRange
+            {
+                Symbol = group.Key,
+                StartDate = group.Min(range => range.StartDate),
+                EndDate = group.Max(range => range.EndDate)
+            })
+            .ToArray();
+        if (normalized.Length == 0) return;
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        foreach (var range in normalized)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "INSERT INTO market_feature_dirty_ranges (id, symbol, start_date, end_date, created_utc) VALUES ($id, $symbol, $start, $end, $created) ON CONFLICT(symbol, start_date, end_date) DO NOTHING";
+            command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            command.Parameters.AddWithValue("$symbol", range.Symbol);
+            command.Parameters.AddWithValue("$start", range.StartDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$end", range.EndDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            command.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
+    public void ClearMarketFeatureDirtyRanges(string symbol, DateOnly startDate, DateOnly endDate)
+    {
+        if (startDate > endDate) return;
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        // Import invalidation is widened by a day on either side because the
+        // source timestamp is UTC while session assignment is local-time.
+        // Allow that small boundary padding to be cleared after a successful
+        // rebuild without dropping a genuinely later dirty range.
+        command.CommandText = "DELETE FROM market_feature_dirty_ranges WHERE symbol = $symbol AND start_date <= $end AND end_date >= $start AND end_date <= $clearEnd";
+        command.Parameters.AddWithValue("$symbol", InstrumentCatalog.ExtractRoot(symbol));
+        command.Parameters.AddWithValue("$start", startDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$end", endDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$clearEnd", endDate.AddDays(2).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
     public IReadOnlyList<Bar> GetBarsForTrade(Guid journalId, string symbol, DateTimeOffset start, DateTimeOffset end, string interval = "source")
     {
         var normalizedSymbol = InstrumentCatalog.ExtractRoot(symbol);
@@ -2460,6 +2673,21 @@ public sealed class TradeFoundryDb
         return present.Length == 0 ? null : checked(present.Sum());
     }
 
+    private static void AddMarketFeatureDirtyRange(IDictionary<string, (DateOnly Start, DateOnly End)> ranges, BarDraft bar)
+    {
+        var symbol = InstrumentCatalog.ExtractRoot(bar.Symbol);
+        if (string.IsNullOrWhiteSpace(symbol)) return;
+        var utcDate = DateOnly.FromDateTime(bar.EventUtc.UtcDateTime.Date);
+        var range = (utcDate.AddDays(-1), utcDate.AddDays(1));
+        if (ranges.TryGetValue(symbol, out var existing))
+            ranges[symbol] = (existing.Start < range.Item1 ? existing.Start : range.Item1, existing.End > range.Item2 ? existing.End : range.Item2);
+        else
+            ranges[symbol] = range;
+    }
+
+    private static IReadOnlyList<MarketFeatureDirtyRange> ToMarketFeatureDirtyRanges(IReadOnlyDictionary<string, (DateOnly Start, DateOnly End)> ranges) =>
+        ranges.Select(item => new MarketFeatureDirtyRange { Symbol = item.Key, StartDate = item.Value.Start, EndDate = item.Value.End }).ToArray();
+
     public ImportResult CommitImport(Guid journalId, string fileName, ParsedImport parsed, string groupingPolicy, string interval, string? sourceTimeZone = null, WatchedImportRequest? watchedImport = null)
     {
         var batchId = Guid.NewGuid();
@@ -2468,6 +2696,10 @@ public sealed class TradeFoundryDb
         var duplicateRows = 0;
         var insertedFills = 0;
         var insertedOrderEvents = 0;
+        var dirtyBySymbol = new Dictionary<string, (DateOnly Start, DateOnly End)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var record in parsed.Records)
+            if (record.Bar is not null)
+                AddMarketFeatureDirtyRange(dirtyBySymbol, record.Bar);
         var messages = new List<string>(parsed.Warnings);
         if (!string.IsNullOrWhiteSpace(sourceTimeZone))
             messages.Add($"Source timezone: {TimeZoneCatalog.CanonicalId(sourceTimeZone)}.");
@@ -2547,6 +2779,7 @@ public sealed class TradeFoundryDb
 
         if (insertedFills > 0 || insertedOrderEvents > 0)
             RebuildFlatTrades(journalId, groupingPolicy);
+        MarkMarketFeatureDirty(ToMarketFeatureDirtyRanges(dirtyBySymbol));
 
         var batchResult = GetImport(batchId) ?? throw new InvalidOperationException("The import batch could not be read after commit.");
         return new ImportResult
@@ -2554,6 +2787,201 @@ public sealed class TradeFoundryDb
             Batch = batchResult,
             Warnings = parsed.Warnings,
             ResolvedBarInterval = parsed.ResolvedBarInterval,
+            ResolvedTimeZone = TimeZoneCatalog.CanonicalId(sourceTimeZone)
+        };
+    }
+
+    public ImportResult CommitStreamingBarImport(Guid journalId, string fileName, IEnumerable<ParsedRecord> records, string interval, string sourceTimeZone, Func<IReadOnlyList<string>> getWarnings, CancellationToken cancellationToken = default)
+    {
+        var batchId = Guid.NewGuid();
+        var importedUtc = DateTimeOffset.UtcNow;
+        var newRows = 0;
+        var duplicateRows = 0;
+        var totalRows = 0;
+        var dirtyBySymbol = new Dictionary<string, (DateOnly Start, DateOnly End)>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<string> warnings = Array.Empty<string>();
+        var sourceType = TradeFoundryConstants.SierraOhlcBars;
+        var sourceApplication = TradeFoundryConstants.SierraChart;
+
+        using (var connection = OpenConnection())
+        using (var transaction = connection.BeginTransaction())
+        {
+            using (var batch = connection.CreateCommand())
+            {
+                batch.Transaction = transaction;
+                batch.CommandText = "INSERT INTO import_batches (id, journal_id, file_name, source_application, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message) VALUES ($id, $journal, $file, $application, $source, $utc, 0, 0, 0, 'completed', '')";
+                batch.Parameters.AddWithValue("$id", batchId.ToString("D"));
+                batch.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+                batch.Parameters.AddWithValue("$file", fileName);
+                batch.Parameters.AddWithValue("$application", sourceApplication);
+                batch.Parameters.AddWithValue("$source", sourceType);
+                batch.Parameters.AddWithValue("$utc", importedUtc.ToString("O", CultureInfo.InvariantCulture));
+                batch.ExecuteNonQuery();
+            }
+
+            using var raw = connection.CreateCommand();
+            raw.Transaction = transaction;
+            raw.CommandText = "INSERT OR IGNORE INTO raw_records (id, journal_id, import_batch_id, source_type, source_key, row_number, payload_json, status) VALUES ($id, $journal, $batch, $source, $key, $row, $payload, 'new')";
+            raw.Parameters.Add("$id", SqliteType.Text);
+            raw.Parameters.Add("$journal", SqliteType.Text);
+            raw.Parameters.Add("$batch", SqliteType.Text);
+            raw.Parameters.Add("$source", SqliteType.Text);
+            raw.Parameters.Add("$key", SqliteType.Text);
+            raw.Parameters.Add("$row", SqliteType.Integer);
+            raw.Parameters.Add("$payload", SqliteType.Text);
+            raw.Prepare();
+
+            using var findSeries = connection.CreateCommand();
+            findSeries.Transaction = transaction;
+            findSeries.CommandText = "SELECT id FROM bar_series WHERE symbol = $symbol AND interval = $interval ORDER BY created_utc, id LIMIT 1";
+            findSeries.Parameters.Add("$symbol", SqliteType.Text);
+            findSeries.Parameters.Add("$interval", SqliteType.Text);
+            findSeries.Prepare();
+
+            using var insertSeries = connection.CreateCommand();
+            insertSeries.Transaction = transaction;
+            insertSeries.CommandText = "INSERT INTO bar_series (id, symbol, interval, series_key, created_utc) VALUES ($id, $symbol, $interval, $key, $created)";
+            insertSeries.Parameters.Add("$id", SqliteType.Text);
+            insertSeries.Parameters.Add("$symbol", SqliteType.Text);
+            insertSeries.Parameters.Add("$interval", SqliteType.Text);
+            insertSeries.Parameters.Add("$key", SqliteType.Text);
+            insertSeries.Parameters.Add("$created", SqliteType.Text);
+            insertSeries.Prepare();
+
+            using var linkSeries = connection.CreateCommand();
+            linkSeries.Transaction = transaction;
+            linkSeries.CommandText = "INSERT OR IGNORE INTO journal_bar_series (journal_id, series_id) VALUES ($journal, $series)";
+            linkSeries.Parameters.Add("$journal", SqliteType.Text);
+            linkSeries.Parameters.Add("$series", SqliteType.Text);
+            linkSeries.Prepare();
+
+            using var insertBar = connection.CreateCommand();
+            insertBar.Transaction = transaction;
+            insertBar.CommandText = "INSERT OR IGNORE INTO bars (id, series_id, import_batch_id, event_utc, open, high, low, close, volume, number_of_trades, bid_volume, ask_volume) VALUES ($id, $series, $batch, $event, $open, $high, $low, $close, $volume, $numberOfTrades, $bidVolume, $askVolume)";
+            insertBar.Parameters.Add("$id", SqliteType.Text);
+            insertBar.Parameters.Add("$series", SqliteType.Text);
+            insertBar.Parameters.Add("$batch", SqliteType.Text);
+            insertBar.Parameters.Add("$event", SqliteType.Text);
+            insertBar.Parameters.Add("$open", SqliteType.Text);
+            insertBar.Parameters.Add("$high", SqliteType.Text);
+            insertBar.Parameters.Add("$low", SqliteType.Text);
+            insertBar.Parameters.Add("$close", SqliteType.Text);
+            insertBar.Parameters.Add("$volume", SqliteType.Integer);
+            insertBar.Parameters.Add("$numberOfTrades", SqliteType.Integer);
+            insertBar.Parameters.Add("$bidVolume", SqliteType.Integer);
+            insertBar.Parameters.Add("$askVolume", SqliteType.Integer);
+            insertBar.Prepare();
+
+            using var findExistingBar = connection.CreateCommand();
+            findExistingBar.Transaction = transaction;
+            findExistingBar.CommandText = "SELECT id FROM bars WHERE series_id = $series AND event_utc = $event";
+            findExistingBar.Parameters.Add("$series", SqliteType.Text);
+            findExistingBar.Parameters.Add("$event", SqliteType.Text);
+            findExistingBar.Prepare();
+
+            using var linkBarImport = connection.CreateCommand();
+            linkBarImport.Transaction = transaction;
+            linkBarImport.CommandText = "INSERT OR IGNORE INTO bar_imports (import_batch_id, bar_id) VALUES ($batch, $bar)";
+            linkBarImport.Parameters.Add("$batch", SqliteType.Text);
+            linkBarImport.Parameters.Add("$bar", SqliteType.Text);
+            linkBarImport.Prepare();
+
+            var seriesIds = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var record in records)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                totalRows++;
+                raw.Parameters["$id"].Value = Guid.NewGuid().ToString("D");
+                raw.Parameters["$journal"].Value = journalId.ToString("D");
+                raw.Parameters["$batch"].Value = batchId.ToString("D");
+                raw.Parameters["$source"].Value = record.SourceType;
+                raw.Parameters["$key"].Value = record.SourceKey;
+                raw.Parameters["$row"].Value = record.RowNumber;
+                raw.Parameters["$payload"].Value = record.PayloadJson;
+                if (raw.ExecuteNonQuery() == 0)
+                {
+                    duplicateRows++;
+                    continue;
+                }
+
+                newRows++;
+                var bar = record.Bar;
+                if (bar is null) continue;
+                AddMarketFeatureDirtyRange(dirtyBySymbol, bar);
+
+                var seriesKey = $"{bar.Symbol}\u001f{bar.Interval}";
+                if (!seriesIds.TryGetValue(seriesKey, out var seriesId))
+                {
+                    findSeries.Parameters["$symbol"].Value = bar.Symbol;
+                    findSeries.Parameters["$interval"].Value = bar.Interval;
+                    seriesId = findSeries.ExecuteScalar() as string ?? string.Empty;
+                    if (string.IsNullOrEmpty(seriesId))
+                    {
+                        seriesId = Guid.NewGuid().ToString("D");
+                        insertSeries.Parameters["$id"].Value = seriesId;
+                        insertSeries.Parameters["$symbol"].Value = bar.Symbol;
+                        insertSeries.Parameters["$interval"].Value = bar.Interval;
+                        insertSeries.Parameters["$key"].Value = seriesKey;
+                        insertSeries.Parameters["$created"].Value = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+                        insertSeries.ExecuteNonQuery();
+                    }
+
+                    linkSeries.Parameters["$journal"].Value = journalId.ToString("D");
+                    linkSeries.Parameters["$series"].Value = seriesId;
+                    linkSeries.ExecuteNonQuery();
+                    seriesIds.Add(seriesKey, seriesId);
+                }
+
+                var eventText = bar.EventUtc.ToString("O", CultureInfo.InvariantCulture);
+                var barId = Guid.NewGuid().ToString("D");
+                insertBar.Parameters["$id"].Value = barId;
+                insertBar.Parameters["$series"].Value = seriesId;
+                insertBar.Parameters["$batch"].Value = batchId.ToString("D");
+                insertBar.Parameters["$event"].Value = eventText;
+                insertBar.Parameters["$open"].Value = NumberFormat.Decimal(bar.Open);
+                insertBar.Parameters["$high"].Value = NumberFormat.Decimal(bar.High);
+                insertBar.Parameters["$low"].Value = NumberFormat.Decimal(bar.Low);
+                insertBar.Parameters["$close"].Value = NumberFormat.Decimal(bar.Close);
+                insertBar.Parameters["$volume"].Value = bar.Volume.HasValue ? bar.Volume.Value : DBNull.Value;
+                insertBar.Parameters["$numberOfTrades"].Value = bar.NumberOfTrades.HasValue ? bar.NumberOfTrades.Value : DBNull.Value;
+                insertBar.Parameters["$bidVolume"].Value = bar.BidVolume.HasValue ? bar.BidVolume.Value : DBNull.Value;
+                insertBar.Parameters["$askVolume"].Value = bar.AskVolume.HasValue ? bar.AskVolume.Value : DBNull.Value;
+                if (insertBar.ExecuteNonQuery() == 0)
+                {
+                    findExistingBar.Parameters["$series"].Value = seriesId;
+                    findExistingBar.Parameters["$event"].Value = eventText;
+                    barId = findExistingBar.ExecuteScalar() as string ?? throw new InvalidOperationException("The existing bar could not be resolved after deduplication.");
+                }
+
+                linkBarImport.Parameters["$batch"].Value = batchId.ToString("D");
+                linkBarImport.Parameters["$bar"].Value = barId;
+                linkBarImport.ExecuteNonQuery();
+            }
+
+            warnings = getWarnings();
+            var messages = warnings.ToList();
+            messages.Add($"Source timezone: {TimeZoneCatalog.CanonicalId(sourceTimeZone)}.");
+            using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText = "UPDATE import_batches SET total_rows = $total, new_rows = $new, duplicate_rows = $duplicates, message = $message WHERE id = $id";
+                update.Parameters.AddWithValue("$total", totalRows);
+                update.Parameters.AddWithValue("$new", newRows);
+                update.Parameters.AddWithValue("$duplicates", duplicateRows);
+                update.Parameters.AddWithValue("$message", string.Join(" ", messages));
+                update.Parameters.AddWithValue("$id", batchId.ToString("D"));
+                update.ExecuteNonQuery();
+            }
+            transaction.Commit();
+        }
+
+        MarkMarketFeatureDirty(ToMarketFeatureDirtyRanges(dirtyBySymbol));
+        var batchResult = GetImport(batchId) ?? throw new InvalidOperationException("The import batch could not be read after commit.");
+        return new ImportResult
+        {
+            Batch = batchResult,
+            Warnings = warnings,
+            ResolvedBarInterval = interval,
             ResolvedTimeZone = TimeZoneCatalog.CanonicalId(sourceTimeZone)
         };
     }
@@ -3742,6 +4170,18 @@ public sealed class TradeFoundryDb
         CreatedUtc = ParseDate(reader.GetString(8))
     };
 
+    private static DailyJournalImage ReadDailyJournalImage(SqliteDataReader reader) => new()
+    {
+        Id = Guid.Parse(reader.GetString(0)),
+        JournalId = Guid.Parse(reader.GetString(1)),
+        Date = DateOnly.Parse(reader.GetString(2), CultureInfo.InvariantCulture),
+        StorageKey = reader.GetString(3),
+        OriginalFileName = reader.GetString(4),
+        ContentType = reader.GetString(5),
+        Length = reader.GetInt64(6),
+        CreatedUtc = ParseDate(reader.GetString(7))
+    };
+
     private static DailyJournalEntry ReadDailyJournal(SqliteDataReader reader) => new()
     {
         JournalId = Guid.Parse(reader.GetString(1)),
@@ -3990,6 +4430,44 @@ public sealed class TradeFoundryDb
     private static Trade ReadTrade(SqliteDataReader reader) => new()
     {
         Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), GroupingPolicy = reader.GetString(5), Sequence = reader.GetInt32(6), Symbol = reader.GetString(7), Account = reader.GetString(8), Direction = reader.GetString(9), EntryUtc = ParseDate(reader.GetString(10)), ExitUtc = reader.IsDBNull(11) ? null : ParseDate(reader.GetString(11)), EntryPrice = ParseDecimal(reader.GetString(12)), ExitPrice = reader.IsDBNull(13) ? null : ParseDecimal(reader.GetString(13)), Quantity = reader.GetInt32(14), ClosedQuantity = reader.GetInt32(15), GrossPoints = ParseDecimal(reader.GetString(16)), AveragePoints = ParseDecimal(reader.GetString(17)), GrossPnl = ParseDecimal(reader.GetString(18)), ExchangeFees = ParseDecimal(reader.GetString(19)), NfaFees = ParseDecimal(reader.GetString(20)), ClearingFees = ParseDecimal(reader.GetString(21)), Fees = ParseDecimal(reader.GetString(22)), NetPnl = ParseDecimal(reader.GetString(23)), MaePoints = reader.IsDBNull(24) ? null : ParseDecimal(reader.GetString(24)), MfePoints = reader.IsDBNull(25) ? null : ParseDecimal(reader.GetString(25)), PointValue = ParseDecimal(reader.GetString(26)), TickSize = ParseDecimal(reader.GetString(27)), InitialStopPrice = NullableDecimal(reader, 28), InitialTargetPrice = NullableDecimal(reader, 29), InitialRiskPoints = NullableDecimal(reader, 30), InitialRiskCurrency = NullableDecimal(reader, 31), RMultiple = NullableDecimal(reader, 32), ExitType = reader.GetString(33), EntryOrderPrice = NullableDecimal(reader, 34), ExitOrderPrice = NullableDecimal(reader, 35), EntryChasePoints = NullableDecimal(reader, 36), ExitChasePoints = NullableDecimal(reader, 37), Status = reader.GetString(38), Note = reader.GetString(39), Instrument = string.IsNullOrWhiteSpace(reader.GetString(40)) ? InstrumentCatalog.ExtractRoot(reader.GetString(7)) : reader.GetString(40), ReviewKey = reader.GetString(41), HasReviewNotes = Convert.ToInt32(reader.GetValue(42), CultureInfo.InvariantCulture) != 0, HasReviewImages = Convert.ToInt32(reader.GetValue(43), CultureInfo.InvariantCulture) != 0, SourceTimeframe = reader.GetString(44)
+    };
+
+    private static PersistedMarketDayFeature ReadMarketDayFeature(SqliteDataReader reader) => new()
+    {
+        FeatureVersion = reader.GetString(0),
+        SourceInterval = reader.GetString(1),
+        Symbol = reader.GetString(2),
+        TradeDate = DateOnly.ParseExact(reader.GetString(3), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+        Open = ParseDecimal(reader.GetString(4)),
+        High = ParseDecimal(reader.GetString(5)),
+        Low = ParseDecimal(reader.GetString(6)),
+        Close = ParseDecimal(reader.GetString(7)),
+        RthRangePoints = ParseDecimal(reader.GetString(8)),
+        Atr20 = NullableDecimal(reader, 9),
+        NormalizedRange = NullableDecimal(reader, 10),
+        OpenToClosePoints = ParseDecimal(reader.GetString(11)),
+        DirectionalEfficiency = ParseDecimal(reader.GetString(12)),
+        PathEfficiency = ParseDecimal(reader.GetString(13)),
+        CloseLocation = NullableDecimal(reader, 14),
+        VwapCrossings = reader.GetInt32(15),
+        PercentSessionAboveVwap = NullableDecimal(reader, 16),
+        PercentSessionBelowVwap = NullableDecimal(reader, 17),
+        PercentHigherHighs = NullableDecimal(reader, 18),
+        PercentHigherLows = NullableDecimal(reader, 19),
+        PercentLowerHighs = NullableDecimal(reader, 20),
+        PercentLowerLows = NullableDecimal(reader, 21),
+        MaximumFavorableDirectionalExcursion = NullableDecimal(reader, 22),
+        MaximumCountertrendExcursion = NullableDecimal(reader, 23),
+        OvernightHigh = NullableDecimal(reader, 24),
+        OvernightLow = NullableDecimal(reader, 25),
+        OvernightRange = NullableDecimal(reader, 26),
+        OvernightDirection = reader.GetString(27),
+        GapFromPriorRthClose = NullableDecimal(reader, 28),
+        GapDirection = reader.GetString(29),
+        VolatilityMeasurePoints = NullableDecimal(reader, 30),
+        Direction = reader.GetString(31),
+        RthBarCount = reader.GetInt32(32),
+        OvernightBarCount = reader.GetInt32(33)
     };
 
     private static Bar ReadBar(SqliteDataReader reader) => new()

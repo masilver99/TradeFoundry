@@ -12,7 +12,11 @@ namespace TradeFoundry.Mcp;
 
 [McpServerToolType]
 [Authorize(Policy = McpAuthentication.Policy)]
-public sealed class TradeFoundryMcpTools(JournalAnalysisService analysis, TradeFoundryDb database, ILogger<TradeFoundryMcpTools> logger)
+public sealed class TradeFoundryMcpTools(
+    JournalAnalysisService analysis,
+    TradeFoundryDb database,
+    MarketProbabilityService marketProbability,
+    ILogger<TradeFoundryMcpTools> logger)
 {
     [McpServerTool(Name = "list_broker_fee_profiles", Title = "List broker fee profiles", ReadOnly = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("Lists saved user-managed broker fee profiles for a journal. Profiles can be scoped to an instrument or apply to all instruments; they are the editable inputs used by the broker cost comparison page.")]
@@ -155,6 +159,34 @@ public sealed class TradeFoundryMcpTools(JournalAnalysisService analysis, TradeF
         return RunAsync("get_data_quality", RequireTokenId(user), journal_id, () => analysis.GetDataQualityAsync(journal_id, filter, cancellationToken));
     }
 
+    [McpServerTool(Name = "get_market_type_probabilities", Title = "Get market type probabilities", ReadOnly = true, OpenWorld = false, UseStructuredContent = true)]
+    [Description("Returns deterministic historical ES/MES market-day type, direction, volatility, and RTH-range statistics. Filters are applied inside TradeFoundry; raw and Bayesian-shrunk probabilities, baselines, and uncertainty intervals are returned separately. AsOfDate is exclusive to prevent look-ahead.")]
+    public McpMarketProbabilityResponse GetMarketTypeProbabilities(RequestContext<CallToolRequestParams> context, Guid journal_id, MarketProbabilityFilterInput? filter = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var user = RequireUser(context);
+        EnsureJournalAccess(user, journal_id);
+        return Run("get_market_type_probabilities", RequireTokenId(user), journal_id, () =>
+        {
+            var query = ToMarketProbabilityQuery(filter);
+            return ToMcpMarketProbability(journal_id, query, marketProbability.GetProbabilities(journal_id, query));
+        });
+    }
+
+    [McpServerTool(Name = "get_market_days", Title = "Get classified market days", ReadOnly = true, OpenWorld = false, UseStructuredContent = true)]
+    [Description("Returns bounded, paginated deterministic daily ES/MES observations and classifications from stored intraday OHLC bars. The same calendar, volatility, overnight, gap, date-window, and exclusive AsOfDate filters are supported.")]
+    public McpMarketDaysResponse GetMarketDays(RequestContext<CallToolRequestParams> context, Guid journal_id, MarketProbabilityFilterInput? filter = null, int limit = 100, string? cursor = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var user = RequireUser(context);
+        EnsureJournalAccess(user, journal_id);
+        return Run("get_market_days", RequireTokenId(user), journal_id, () =>
+        {
+            var query = ToMarketProbabilityQuery(filter);
+            return ToMcpMarketDays(journal_id, query, marketProbability.GetMarketDays(journal_id, query, limit, cursor));
+        });
+    }
+
     private T Run<T>(string tool, Guid tokenId, Guid? journalId, Func<T> action)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -256,6 +288,214 @@ public sealed class TradeFoundryMcpTools(JournalAnalysisService analysis, TradeF
         Profile = profile is null ? null : ToMcpProfile(profile)
     };
 
+    private static MarketProbabilityQuery ToMarketProbabilityQuery(MarketProbabilityFilterInput? input)
+    {
+        input ??= new MarketProbabilityFilterInput();
+        return new MarketProbabilityQuery
+        {
+            Symbol = string.IsNullOrWhiteSpace(input.Symbol) ? null : input.Symbol.Trim(),
+            Month = input.Month,
+            DayOfWeek = ParseDayOfWeek(input.DayOfWeek),
+            StartDate = ParseMarketDate(input.StartDate, nameof(input.StartDate)),
+            EndDate = ParseMarketDate(input.EndDate, nameof(input.EndDate)),
+            AsOfDate = ParseMarketDate(input.AsOfDate, nameof(input.AsOfDate)),
+            VolatilityRegime = ParseEnum<VolatilityRegime>(input.VolatilityRegime, nameof(input.VolatilityRegime)),
+            OvernightDirection = ParseDirection(input.OvernightDirection, nameof(input.OvernightDirection)),
+            GapDirection = ParseDirection(input.GapDirection, nameof(input.GapDirection)),
+            RangeGreaterThanPoints = input.RangeGreaterThanPoints,
+            RangeLessThanPoints = input.RangeLessThanPoints,
+            NormalizedRangeGreaterThan = input.NormalizedRangeGreaterThan,
+            NormalizedRangeLessThan = input.NormalizedRangeLessThan
+        };
+    }
+
+    private static DateOnly? ParseMarketDate(string? value, string name)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return DateOnly.TryParseExact(value.Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date)
+            ? date
+            : throw new ArgumentException($"{name} must use YYYY-MM-DD format.");
+    }
+
+    private static DayOfWeek? ParseDayOfWeek(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return Enum.TryParse<DayOfWeek>(value.Trim(), ignoreCase: true, out var day)
+            ? day
+            : throw new ArgumentException("day_of_week must be a valid day such as Tuesday.");
+    }
+
+    private static MarketDirection? ParseDirection(string? value, string name)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.Trim().Equals("unknown", StringComparison.OrdinalIgnoreCase) || value.Trim().Equals("none", StringComparison.OrdinalIgnoreCase))
+            return MarketDirection.Neutral;
+        return ParseEnum<MarketDirection>(value, name);
+    }
+
+    private static T? ParseEnum<T>(string? value, string name) where T : struct, Enum
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return Enum.TryParse<T>(value.Trim(), ignoreCase: true, out var parsed)
+            ? parsed
+            : throw new ArgumentException($"{name} is invalid.");
+    }
+
+    private static McpMarketProbabilityResponse ToMcpMarketProbability(Guid journalId, MarketProbabilityQuery query, MarketProbabilityQueryResult result) => new()
+    {
+        JournalId = journalId.ToString("D"),
+        PopulationSymbol = result.PopulationSymbol,
+        AppliedFilters = ToMcpFilter(query),
+        FilterDescription = result.FilterDescription,
+        SampleSize = result.SampleSize,
+        AvailableObservationCount = result.AvailableObservationCount,
+        ClassifierVersion = result.ClassifierVersion,
+        SessionDefinition = result.SessionDefinition,
+        MarketTypes = result.MarketTypes.Select(ToMcpEstimate).ToArray(),
+        Directions = result.Directions.Select(ToMcpEstimate).ToArray(),
+        DirectionGivenTrend = new McpConditionalDirection
+        {
+            Condition = result.DirectionGivenTrend.Condition,
+            TrendSampleSize = result.DirectionGivenTrend.TrendSampleSize,
+            Directions = result.DirectionGivenTrend.Directions.Select(ToMcpEstimate).ToArray()
+        },
+        RthRange = ToMcpRange(result.RthRange),
+        NormalizedRange = ToMcpRange(result.NormalizedRange),
+        ThresholdProbabilities = result.ThresholdProbabilities.Select(ToMcpThreshold).ToArray(),
+        Baselines = result.Baselines.Select(ToMcpBaseline).ToArray(),
+        ShrinkagePriorScope = result.ShrinkagePriorScope,
+        ShrinkagePriorSampleSize = result.ShrinkagePriorSampleSize,
+        DataQualityWarnings = result.DataQualityWarnings,
+        AppPath = $"/journal/{journalId:D}/market-regime"
+    };
+
+    private static McpMarketDaysResponse ToMcpMarketDays(Guid journalId, MarketProbabilityQuery query, MarketDaysResult result) => new()
+    {
+        JournalId = journalId.ToString("D"),
+        PopulationSymbol = result.PopulationSymbol,
+        AppliedFilters = ToMcpFilter(query),
+        TotalMatches = result.TotalMatches,
+        Truncated = result.Truncated,
+        NextCursor = result.NextCursor,
+        DataQualityWarnings = result.DataQualityWarnings,
+        Days = result.Days.Select(day => new McpMarketDay(
+            day.TradeDate.ToString("yyyy-MM-dd"),
+            day.Symbol,
+            day.DayOfWeek.ToString(),
+            day.Month,
+            day.Year,
+            day.Open,
+            day.High,
+            day.Low,
+            day.Close,
+            day.RthRangePoints,
+            day.Atr20,
+            day.NormalizedRange,
+            day.OpenToClosePoints,
+            day.DirectionalEfficiency,
+            day.PathEfficiency,
+            day.CloseLocation,
+            day.VwapCrossings,
+            day.PercentSessionAboveVwap,
+            day.PercentSessionBelowVwap,
+            day.PercentHigherHighs,
+            day.PercentHigherLows,
+            day.PercentLowerHighs,
+            day.PercentLowerLows,
+            day.MaximumFavorableDirectionalExcursion,
+            day.MaximumCountertrendExcursion,
+            day.OvernightHigh,
+            day.OvernightLow,
+            day.OvernightRange,
+            day.OvernightDirection.ToString(),
+            day.GapFromPriorRthClose,
+            day.GapDirection.ToString(),
+            day.VolatilityMeasurePoints,
+            day.VolatilityRegime.ToString(),
+            day.MarketType.ToString(),
+            day.Direction.ToString(),
+            day.ClassifierVersion,
+            day.RthBarCount,
+            day.OvernightBarCount)).ToArray(),
+        AppPath = $"/journal/{journalId:D}/market-regime"
+    };
+
+    private static McpMarketProbabilityFilter ToMcpFilter(MarketProbabilityQuery query) => new(
+        query.Symbol,
+        query.Month,
+        query.DayOfWeek?.ToString(),
+        query.StartDate?.ToString("yyyy-MM-dd"),
+        query.EndDate?.ToString("yyyy-MM-dd"),
+        query.AsOfDate?.ToString("yyyy-MM-dd"),
+        query.VolatilityRegime?.ToString(),
+        query.OvernightDirection?.ToString(),
+        query.GapDirection?.ToString(),
+        query.RangeGreaterThanPoints,
+        query.RangeLessThanPoints,
+        query.NormalizedRangeGreaterThan,
+        query.NormalizedRangeLessThan);
+
+    private static McpProbabilityEstimate ToMcpEstimate(ProbabilityEstimate estimate) => new()
+    {
+        Outcome = estimate.Outcome,
+        Count = estimate.Count,
+        SampleSize = estimate.SampleSize,
+        RawProbability = estimate.RawProbability,
+        AdjustedProbability = estimate.AdjustedProbability,
+        BaselineProbability = estimate.BaselineProbability,
+        DifferenceFromBaseline = estimate.DifferenceFromBaseline,
+        ConfidenceInterval = ToMcpInterval(estimate.ConfidenceInterval),
+        CredibleInterval = ToMcpInterval(estimate.CredibleInterval),
+        ShrinkagePriorScope = estimate.ShrinkagePriorScope,
+        ShrinkagePriorSampleSize = estimate.ShrinkagePriorSampleSize,
+        ShrinkagePriorProbability = estimate.ShrinkagePriorProbability
+    };
+
+    private static McpProbabilityInterval ToMcpInterval(ProbabilityInterval interval) => new(interval.Lower, interval.Upper, interval.Method);
+
+    private static McpRangeDistribution ToMcpRange(RangeDistribution range) => new()
+    {
+        SampleSize = range.SampleSize,
+        Mean = range.Mean,
+        Median = range.Median,
+        StandardDeviation = range.StandardDeviation,
+        P10 = range.P10,
+        P25 = range.P25,
+        P50 = range.P50,
+        P75 = range.P75,
+        P90 = range.P90
+    };
+
+    private static McpThresholdProbability ToMcpThreshold(ThresholdProbability threshold) => new()
+    {
+        Metric = threshold.Metric,
+        Operator = threshold.Operator,
+        Threshold = threshold.Threshold,
+        Count = threshold.Count,
+        SampleSize = threshold.SampleSize,
+        RawProbability = threshold.RawProbability,
+        BaselineProbability = threshold.BaselineProbability,
+        DifferenceFromBaseline = threshold.DifferenceFromBaseline,
+        ConfidenceInterval = ToMcpInterval(threshold.ConfidenceInterval)
+    };
+
+    private static McpMarketProbabilityBaseline ToMcpBaseline(MarketProbabilityBaseline baseline) => new()
+    {
+        Scope = baseline.Scope,
+        SampleSize = baseline.SampleSize,
+        MarketTypes = baseline.MarketTypes.Select(ToMcpBaselineProbability).ToArray(),
+        Directions = baseline.Directions.Select(ToMcpBaselineProbability).ToArray(),
+        DirectionsGivenTrend = baseline.DirectionsGivenTrend.Select(ToMcpBaselineProbability).ToArray()
+    };
+
+    private static McpBaselineProbability ToMcpBaselineProbability(BaselineProbability probability) => new()
+    {
+        Outcome = probability.Outcome,
+        Count = probability.Count,
+        SampleSize = probability.SampleSize,
+        RawProbability = probability.RawProbability
+    };
+
     private static string BrokerComparisonPath(Guid journalId, string? instrument) =>
         $"/journal/{journalId:D}/broker-comparison" + (string.IsNullOrWhiteSpace(instrument) ? string.Empty : $"?instrument={Uri.EscapeDataString(instrument)}");
 
@@ -269,6 +509,8 @@ public sealed class TradeFoundryMcpTools(JournalAnalysisService analysis, TradeF
         McpTradingDayResponse response => response.OpenedTrades.Count + response.ClosedTrades.Count,
         McpTradeAnalysisResponse response => response.Cohorts.Count,
         McpDataQualityResponse response => response.TradeCount,
+        McpMarketProbabilityResponse response => response.SampleSize,
+        McpMarketDaysResponse response => response.Days.Count,
         McpBrokerFeeProfileListResponse response => response.Profiles.Count,
         McpBrokerFeeProfileMutationResponse response => response.Profile is null ? 0 : 1,
         _ => 0

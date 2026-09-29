@@ -40,7 +40,7 @@
     <form id="@formId" method="post" action="@Model.SaveUrl" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Model.AutosaveUrl" hidden="@(Model.OpenInitially ? null : "hidden")">
         @Html.AntiForgeryToken()
         <input type="hidden" name="expectedRevision" value="@Model.Entry.Revision" />
-        <div class="tf-lexical-editor" data-lexical-editor data-max-length="64000" hidden>
+        <div class="tf-lexical-editor" data-lexical-editor data-max-length="64000" data-image-upload-url="@Model.ImageUploadUrl" hidden>
             <div class="tf-lexical-toolbar" role="toolbar" aria-label="Daily journal formatting">
                 <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>
                 <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="italic" title="Italic" aria-label="Italic"><em>I</em></button>
@@ -56,6 +56,7 @@
             </div>
             <div class="tf-lexical-root" data-lexical-root contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="@labelId" data-placeholder="What happened today? Capture market context, your state of mind, and the lesson for tomorrow."></div>
             <small class="tf-lexical-limit-status" data-lexical-limit-status aria-live="polite"></small>
+            <small class="tf-lexical-image-status" data-lexical-image-status role="status" aria-live="polite">Paste a PNG, JPEG, or WebP image into the journal; images can be up to 10 MB.</small>
         </div>
         <label id="@labelId" class="visually-hidden" for="@formId-text">Daily journal entry for @dateKey</label>
         <textarea id="@formId-text" name="dailyJournalStateJson" rows="7" maxlength="64000" data-lexical-source hidden>@Model.Entry.Text</textarea>

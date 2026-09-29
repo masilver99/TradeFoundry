@@ -59,9 +59,14 @@ builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
 builder.Services.AddSingleton<TradeFoundryDb>();
 builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<ImportFolderMonitor>();
+builder.Services.AddSingleton<MarketDayFeatureCacheService>();
+builder.Services.AddSingleton<MarketProbabilityService>(services => new MarketProbabilityService(
+    services.GetRequiredService<TradeFoundryDb>(),
+    services.GetRequiredService<MarketDayFeatureCacheService>()));
 builder.Services.AddSingleton<McpTokenService>();
 builder.Services.AddSingleton<JournalAnalysisService>();
 builder.Services.AddSingleton<TradeReviewService>();
+builder.Services.AddSingleton<DailyJournalImageService>();
 builder.Services.AddSingleton<AccountLedgerService>();
 builder.Services.AddHostedService<McpHostedService>();
 builder.Services.AddHostedService<ImportFolderMonitor>(services => services.GetRequiredService<ImportFolderMonitor>());

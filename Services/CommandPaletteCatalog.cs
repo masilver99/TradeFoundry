@@ -60,6 +60,7 @@ public static class CommandPaletteCatalog
         Section("History", "/analytics", "history", "Calendar", "Period summary");
         Section("Period Breakdown", "/analytics", "period-breakdown", "Day of week", "Entry hour");
         Section("Performance", "/analytics", "performance", "Equity", "Returns");
+        Page("Market Regime", "/market-regime", "Historical probability", "Market type", "ES", "MES", "Volatility regime");
         Section("Risk & Stability", "/analytics", "risk", "Risk", "Drawdown");
         Section("Edge Persistence", "/analytics", "edge-persistence", "Edge", "Consistency");
         Section("Trade Quality", "/analytics", "trade-quality", "MFE", "MAE", "Excursion");

@@ -635,13 +635,29 @@ function initializeDailyJournal() {
     if (type) status.classList.add(`is-${type}`);
   };
 
+  const getDailyJournalText = (root, includeImageLabels = false) => {
+    const textRoot = root.cloneNode(true);
+    for (const figure of textRoot.querySelectorAll(".tf-lexical-image-node")) {
+      if (!includeImageLabels) {
+        figure.remove();
+        continue;
+      }
+
+      const alt = figure.querySelector("img")?.alt?.trim();
+      figure.replaceWith(document.createTextNode(alt ? `[Image: ${alt}]` : "[Image]"));
+    }
+    return includeImageLabels
+      ? (textRoot.innerText || textRoot.textContent || "").replace(/\s+/g, " ").trim()
+      : (textRoot.textContent || "");
+  };
+
   const updateByteCount = form => {
     const root = form.querySelector("[data-lexical-root]");
     const editor = form.querySelector("[data-lexical-editor]");
     if (!root || editor?.dataset.lexicalInitialized !== "true") return;
     const byteCount = form.closest("[data-daily-journal-entry]")?.querySelector("[data-daily-journal-bytes]");
     if (!byteCount) return;
-    const text = root.textContent || "";
+    const text = getDailyJournalText(root);
     const bytes = typeof TextEncoder === "function" ? new TextEncoder().encode(text).length : new Blob([text]).size;
     byteCount.textContent = `${bytes.toLocaleString()} ${bytes === 1 ? "byte" : "bytes"}`;
   };
@@ -652,7 +668,7 @@ function initializeDailyJournal() {
     const card = form.closest("[data-daily-journal-entry]");
     const summary = card?.querySelector("[data-daily-journal-entry-summary]");
     if (!root || editor?.dataset.lexicalInitialized !== "true" || !card || !summary) return;
-    const hasText = Boolean(root.textContent?.trim());
+    const hasText = Boolean(getDailyJournalText(root, true).trim());
     card.dataset.hasJournalText = String(hasText);
     const check = summary.querySelector("[data-daily-journal-entry-check]");
     if (hasText && !check) {
@@ -675,7 +691,7 @@ function initializeDailyJournal() {
     const paragraph = preview?.querySelector("p");
     const toggle = card?.querySelector("[data-daily-journal-toggle]");
     if (!root || editor?.dataset.lexicalInitialized !== "true" || !card || !preview || !paragraph) return;
-    const text = (root.innerText || root.textContent || "").trim();
+    const text = getDailyJournalText(root, true).trim();
     const hasText = Boolean(text);
     paragraph.textContent = text.length > 360 ? `${text.slice(0, 357).trimEnd()}…` : text;
     preview.hidden = !hasText || toggle?.getAttribute("aria-expanded") === "true";

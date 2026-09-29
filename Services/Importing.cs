@@ -17,10 +17,94 @@ public sealed class ImportService
 
     public async Task<ImportResult> ImportAsync(Guid journalId, string fileName, Stream content, string requestedType, string groupingPolicy, string interval, CancellationToken cancellationToken = default, string benchmarkSymbol = "SPY", string barSymbol = "", string? timeZone = null)
     {
+        if (IsSierraBarsRequest(requestedType))
+            return ImportSierraBars(journalId, fileName, content, interval, barSymbol, timeZone, cancellationToken);
+
         using var memory = new MemoryStream();
         await content.CopyToAsync(memory, cancellationToken);
         var text = Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF');
         return ImportText(journalId, fileName, text, requestedType, groupingPolicy, interval, benchmarkSymbol, barSymbol, timeZone);
+    }
+
+    private ImportResult ImportSierraBars(Guid journalId, string fileName, Stream content, string interval, string barSymbol, string? timeZone, CancellationToken cancellationToken)
+    {
+        var journal = _database.GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var journalTimeZone = TimeZoneCatalog.CanonicalId(journal.TimeZone);
+        var requestedTimeZone = string.IsNullOrWhiteSpace(timeZone) ? TimeZoneCatalog.Auto : TimeZoneCatalog.CanonicalId(timeZone);
+        var importTimeZone = TimeZoneCatalog.IsAuto(requestedTimeZone) ? journalTimeZone : requestedTimeZone;
+        if (!TimeZoneCatalog.TryResolve(importTimeZone, out _))
+            throw new FormatException("Choose a supported source timezone for the OHLC timestamps.");
+
+        barSymbol = NormalizeBarSymbol(barSymbol);
+        if (string.IsNullOrWhiteSpace(barSymbol))
+            throw new FormatException("Enter the CME symbol/root for these bars, such as MES.");
+
+        using var reader = new StreamReader(content, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024 * 1024, leaveOpen: true);
+        var rowNumber = 0;
+        string? headerLine = null;
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            rowNumber++;
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            headerLine = line;
+            break;
+        }
+        if (headerLine is null)
+            throw new FormatException("The file is empty.");
+
+        var delimiter = ChooseDelimiter(headerLine);
+        var headers = ParseDelimitedLine(headerLine, delimiter).Select(NormalizeHeader).ToArray();
+        bool Has(params string[] names) => names.Any(headers.Contains);
+        if (!(Has("date") || Has("datetime", "timestamp", "date-time", "dateandtime")) ||
+            !Has("open") || !Has("high") || !Has("low") || !Has("close", "last"))
+        {
+            throw new FormatException("The file must include Date and Time (or DateTime), Open, High, Low, and Last/Close columns.");
+        }
+
+        var bufferedLines = new List<(string Line, int Number)>(32);
+        var firstRows = new List<(Dictionary<string, string> Row, int Number)>(32);
+        while (bufferedLines.Count < 32 && (line = reader.ReadLine()) is not null)
+        {
+            rowNumber++;
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            bufferedLines.Add((line, rowNumber));
+            firstRows.Add((CreateRow(line, headers, delimiter), rowNumber));
+        }
+
+        var resolvedInterval = ResolveBarInterval(interval, firstRows, headers, importTimeZone, required: true);
+        var warnings = new List<string>();
+        var omittedWarnings = 0;
+        const int maximumDetailedWarnings = 100;
+        void AddWarning(string warning)
+        {
+            if (warnings.Count < maximumDetailedWarnings) warnings.Add(warning);
+            else omittedWarnings++;
+        }
+        IReadOnlyList<string> GetWarnings()
+        {
+            if (omittedWarnings == 0) return warnings;
+            return warnings.Append($"{omittedWarnings:N0} additional OHLC warning(s) were omitted from the import summary; affected source rows remain in provenance.").ToArray();
+        }
+
+        IEnumerable<ParsedRecord> ReadRecords()
+        {
+            foreach (var buffered in bufferedLines)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return ParseBarRow(CreateRow(buffered.Line, headers, delimiter), buffered.Number, headers, resolvedInterval, importTimeZone, barSymbol, TradeFoundryConstants.SierraOhlcBars, AddWarning);
+            }
+
+            while ((line = reader.ReadLine()) is not null)
+            {
+                rowNumber++;
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return ParseBarRow(CreateRow(line, headers, delimiter), rowNumber, headers, resolvedInterval, importTimeZone, barSymbol, TradeFoundryConstants.SierraOhlcBars, AddWarning);
+            }
+        }
+
+        return _database.CommitStreamingBarImport(journalId, fileName, ReadRecords(), resolvedInterval, importTimeZone, GetWarnings, cancellationToken);
     }
 
     public ImportResult ImportText(Guid journalId, string fileName, string text, string requestedType, string groupingPolicy, string interval, string benchmarkSymbol = "SPY", string barSymbol = "", string? timeZone = null)
@@ -388,50 +472,53 @@ public sealed class ImportService
         interval = ResolveBarInterval(interval, rows, headers, timeZone, requiresInterval);
         result.ResolvedBarInterval = interval;
         foreach (var (row, rowNumber) in rows)
-        {
-            var payload = JsonSerializer.Serialize(row);
-            var symbol = NormalizeBarSymbol(Value(row, headers, "symbol", "ticker", "instrument"));
-            if (string.IsNullOrWhiteSpace(symbol)) symbol = NormalizeBarSymbol(barSymbol);
-            var dateText = BarDateTimeText(row, headers);
-            if (!TryDate(dateText, timeZone, out var eventUtc))
-            {
-                result.Warnings.Add($"OHLC row {rowNumber}: date and time could not be parsed.");
-                result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = Fingerprint(result.SourceType, row), RowNumber = rowNumber, PayloadJson = payload });
-                continue;
-            }
-            var open = DecimalOrNull(Value(row, headers, "open"));
-            var high = DecimalOrNull(Value(row, headers, "high"));
-            var low = DecimalOrNull(Value(row, headers, "low"));
-            var close = DecimalOrNull(Value(row, headers, "close", "last"));
-            if (string.IsNullOrWhiteSpace(symbol) || !open.HasValue || !high.HasValue || !low.HasValue || !close.HasValue)
-            {
-                result.Warnings.Add($"OHLC row {rowNumber}: symbol and Open, High, Low, and Last/Close values are required.");
-                result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = Fingerprint(result.SourceType, row), RowNumber = rowNumber, PayloadJson = payload });
-                continue;
-            }
-            if (high.Value < Math.Max(open.Value, close.Value) || low.Value > Math.Min(open.Value, close.Value) || high.Value < low.Value)
-            {
-                result.Warnings.Add($"OHLC row {rowNumber}: High/Low do not contain the Open and Close values; the raw row was retained.");
-                result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = Fingerprint(result.SourceType, row), RowNumber = rowNumber, PayloadJson = payload });
-                continue;
-            }
-            var bar = new BarDraft
-            {
-                Symbol = symbol,
-                Interval = interval,
-                EventUtc = eventUtc,
-                Open = open.Value,
-                High = high.Value,
-                Low = low.Value,
-                Close = close.Value,
-                Volume = LongOrNull(Value(row, headers, "volume", "vol")),
-                NumberOfTrades = LongOrNull(Value(row, headers, "numberoftrades", "trades")),
-                BidVolume = LongOrNull(Value(row, headers, "bidvolume", "bidvol")),
-                AskVolume = LongOrNull(Value(row, headers, "askvolume", "askvol"))
-            };
-            result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = $"{symbol}\u001f{interval}\u001f{eventUtc:O}", RowNumber = rowNumber, PayloadJson = payload, Bar = bar });
-        }
+            result.Records.Add(ParseBarRow(row, rowNumber, headers, interval, timeZone, barSymbol, result.SourceType, result.Warnings.Add));
         return result;
+    }
+
+    private static ParsedRecord ParseBarRow(Dictionary<string, string> row, int rowNumber, string[] headers, string interval, string timeZone, string barSymbol, string sourceType, Action<string> addWarning)
+    {
+        var payload = JsonSerializer.Serialize(row);
+        var symbol = NormalizeBarSymbol(Value(row, headers, "symbol", "ticker", "instrument"));
+        if (string.IsNullOrWhiteSpace(symbol)) symbol = NormalizeBarSymbol(barSymbol);
+        var dateText = BarDateTimeText(row, headers);
+        if (!TryDate(dateText, timeZone, out var eventUtc))
+        {
+            addWarning($"OHLC row {rowNumber}: date and time could not be parsed.");
+            return new ParsedRecord { SourceType = sourceType, SourceKey = Fingerprint(sourceType, row), RowNumber = rowNumber, PayloadJson = payload };
+        }
+
+        var open = DecimalOrNull(Value(row, headers, "open"));
+        var high = DecimalOrNull(Value(row, headers, "high"));
+        var low = DecimalOrNull(Value(row, headers, "low"));
+        var close = DecimalOrNull(Value(row, headers, "close", "last"));
+        if (string.IsNullOrWhiteSpace(symbol) || !open.HasValue || !high.HasValue || !low.HasValue || !close.HasValue)
+        {
+            addWarning($"OHLC row {rowNumber}: symbol and Open, High, Low, and Last/Close values are required.");
+            return new ParsedRecord { SourceType = sourceType, SourceKey = Fingerprint(sourceType, row), RowNumber = rowNumber, PayloadJson = payload };
+        }
+
+        if (high.Value < Math.Max(open.Value, close.Value) || low.Value > Math.Min(open.Value, close.Value) || high.Value < low.Value)
+        {
+            addWarning($"OHLC row {rowNumber}: High/Low do not contain the Open and Close values; the raw row was retained.");
+            return new ParsedRecord { SourceType = sourceType, SourceKey = Fingerprint(sourceType, row), RowNumber = rowNumber, PayloadJson = payload };
+        }
+
+        var bar = new BarDraft
+        {
+            Symbol = symbol,
+            Interval = interval,
+            EventUtc = eventUtc,
+            Open = open.Value,
+            High = high.Value,
+            Low = low.Value,
+            Close = close.Value,
+            Volume = LongOrNull(Value(row, headers, "volume", "vol")),
+            NumberOfTrades = LongOrNull(Value(row, headers, "numberoftrades", "trades")),
+            BidVolume = LongOrNull(Value(row, headers, "bidvolume", "bidvol")),
+            AskVolume = LongOrNull(Value(row, headers, "askvolume", "askvol"))
+        };
+        return new ParsedRecord { SourceType = sourceType, SourceKey = $"{symbol}\u001f{interval}\u001f{eventUtc:O}", RowNumber = rowNumber, PayloadJson = payload, Bar = bar };
     }
 
     private static string ResolveBarInterval(string interval, IReadOnlyList<(Dictionary<string, string> Row, int Number)> rows, string[] headers, string timeZone, bool required)
@@ -484,6 +571,14 @@ public sealed class ImportService
             for (var c = 0; c < headers.Length; c++) row[headers[c]] = c < cells.Count ? cells[c].Trim() : string.Empty;
             yield return (row, i + 1);
         }
+    }
+
+    private static Dictionary<string, string> CreateRow(string line, string[] headers, char delimiter)
+    {
+        var cells = ParseDelimitedLine(line, delimiter);
+        var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (var c = 0; c < headers.Length; c++) row[headers[c]] = c < cells.Count ? cells[c].Trim() : string.Empty;
+        return row;
     }
 
     private static ParsedImport NewResult(string source) => new()
@@ -540,6 +635,8 @@ public sealed class ImportService
         if (headers.Contains("open") && headers.Contains("high") && headers.Contains("low") && (headers.Contains("close") || headers.Contains("last"))) return ImportSource.Bars;
         return ImportSource.TradingViewAccount;
     }
+
+    private static bool IsSierraBarsRequest(string requestedType) => NormalizeHeader(requestedType) is "sierrabars" or "sierraohlc" or "sierraohlcbars" or "sierrachartbars";
 
     private static string ResolveSourceTimeZone(string text, string requestedType, string requestedTimeZone, string journalTimeZone)
     {

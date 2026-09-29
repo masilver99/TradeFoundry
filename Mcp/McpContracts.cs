@@ -368,9 +368,215 @@ public sealed class McpDataQualityResponse
     public IReadOnlyList<McpQualityCount> Checks { get; init; } = Array.Empty<McpQualityCount>();
 }
 
+public sealed class MarketProbabilityFilterInput
+{
+    [Description("ES, MES, or ES/MES. When omitted, ES/MES is used with one canonical observation per trading date.")]
+    public string? Symbol { get; init; }
+
+    [Description("Calendar month number from 1 through 12.")]
+    public int? Month { get; init; }
+
+    [Description("Day of week such as Tuesday.")]
+    public string? DayOfWeek { get; init; }
+
+    [Description("Inclusive RTH trade date in YYYY-MM-DD format.")]
+    public string? StartDate { get; init; }
+
+    [Description("Inclusive RTH trade date in YYYY-MM-DD format.")]
+    public string? EndDate { get; init; }
+
+    [Description("Exclusive cutoff in YYYY-MM-DD format. Observations on or after this date are excluded.")]
+    public string? AsOfDate { get; init; }
+
+    [Description("low, normal, high, extreme, or unknown.")]
+    public string? VolatilityRegime { get; init; }
+
+    [Description("up, down, neutral, or unknown/no overnight session.")]
+    public string? OvernightDirection { get; init; }
+
+    [Description("up, down, neutral, or unknown/no prior RTH close.")]
+    public string? GapDirection { get; init; }
+
+    [Description("Only retain sessions whose RTH range is strictly greater than this number of points.")]
+    public decimal? RangeGreaterThanPoints { get; init; }
+
+    [Description("Only retain sessions whose RTH range is strictly less than this number of points.")]
+    public decimal? RangeLessThanPoints { get; init; }
+
+    [Description("Only retain sessions whose RTH range divided by ATR20 is strictly greater than this value.")]
+    public decimal? NormalizedRangeGreaterThan { get; init; }
+
+    [Description("Only retain sessions whose RTH range divided by ATR20 is strictly less than this value.")]
+    public decimal? NormalizedRangeLessThan { get; init; }
+}
+
+public sealed record McpMarketProbabilityFilter(
+    string? Symbol,
+    int? Month,
+    string? DayOfWeek,
+    string? StartDate,
+    string? EndDate,
+    string? AsOfDate,
+    string? VolatilityRegime,
+    string? OvernightDirection,
+    string? GapDirection,
+    decimal? RangeGreaterThanPoints,
+    decimal? RangeLessThanPoints,
+    decimal? NormalizedRangeGreaterThan,
+    decimal? NormalizedRangeLessThan);
+
+public sealed record McpProbabilityInterval(decimal? Lower, decimal? Upper, string Method);
+
+public sealed class McpProbabilityEstimate
+{
+    public string Outcome { get; init; } = string.Empty;
+    public int Count { get; init; }
+    public int SampleSize { get; init; }
+    public decimal? RawProbability { get; init; }
+    public decimal? AdjustedProbability { get; init; }
+    public decimal? BaselineProbability { get; init; }
+    public decimal? DifferenceFromBaseline { get; init; }
+    public McpProbabilityInterval ConfidenceInterval { get; init; } = new(null, null, "Wilson");
+    public McpProbabilityInterval CredibleInterval { get; init; } = new(null, null, "Beta posterior");
+    public string ShrinkagePriorScope { get; init; } = string.Empty;
+    public int ShrinkagePriorSampleSize { get; init; }
+    public decimal? ShrinkagePriorProbability { get; init; }
+}
+
+public sealed class McpBaselineProbability
+{
+    public string Outcome { get; init; } = string.Empty;
+    public int Count { get; init; }
+    public int SampleSize { get; init; }
+    public decimal? RawProbability { get; init; }
+}
+
+public sealed class McpMarketProbabilityBaseline
+{
+    public string Scope { get; init; } = string.Empty;
+    public int SampleSize { get; init; }
+    public IReadOnlyList<McpBaselineProbability> MarketTypes { get; init; } = Array.Empty<McpBaselineProbability>();
+    public IReadOnlyList<McpBaselineProbability> Directions { get; init; } = Array.Empty<McpBaselineProbability>();
+    public IReadOnlyList<McpBaselineProbability> DirectionsGivenTrend { get; init; } = Array.Empty<McpBaselineProbability>();
+}
+
+public sealed class McpRangeDistribution
+{
+    public int SampleSize { get; init; }
+    public decimal? Mean { get; init; }
+    public decimal? Median { get; init; }
+    public decimal? StandardDeviation { get; init; }
+    public decimal? P10 { get; init; }
+    public decimal? P25 { get; init; }
+    public decimal? P50 { get; init; }
+    public decimal? P75 { get; init; }
+    public decimal? P90 { get; init; }
+}
+
+public sealed class McpThresholdProbability
+{
+    public string Metric { get; init; } = string.Empty;
+    public string Operator { get; init; } = string.Empty;
+    public decimal Threshold { get; init; }
+    public int Count { get; init; }
+    public int SampleSize { get; init; }
+    public decimal? RawProbability { get; init; }
+    public decimal? BaselineProbability { get; init; }
+    public decimal? DifferenceFromBaseline { get; init; }
+    public McpProbabilityInterval ConfidenceInterval { get; init; } = new(null, null, "Wilson");
+}
+
+public sealed class McpConditionalDirection
+{
+    public string Condition { get; init; } = string.Empty;
+    public int TrendSampleSize { get; init; }
+    public IReadOnlyList<McpProbabilityEstimate> Directions { get; init; } = Array.Empty<McpProbabilityEstimate>();
+}
+
+public sealed class McpMarketProbabilityResponse
+{
+    public string SchemaVersion { get; init; } = "1";
+    public string DataBoundary { get; init; } = McpResponseDefaults.MarketDataBoundary;
+    public string JournalId { get; init; } = string.Empty;
+    public string PopulationSymbol { get; init; } = string.Empty;
+    public McpMarketProbabilityFilter AppliedFilters { get; init; } = new(null, null, null, null, null, null, null, null, null, null, null, null, null);
+    public string FilterDescription { get; init; } = string.Empty;
+    public int SampleSize { get; init; }
+    public int AvailableObservationCount { get; init; }
+    public string ClassifierVersion { get; init; } = string.Empty;
+    public string SessionDefinition { get; init; } = string.Empty;
+    public IReadOnlyList<McpProbabilityEstimate> MarketTypes { get; init; } = Array.Empty<McpProbabilityEstimate>();
+    public IReadOnlyList<McpProbabilityEstimate> Directions { get; init; } = Array.Empty<McpProbabilityEstimate>();
+    public McpConditionalDirection DirectionGivenTrend { get; init; } = new();
+    public McpRangeDistribution RthRange { get; init; } = new();
+    public McpRangeDistribution NormalizedRange { get; init; } = new();
+    public IReadOnlyList<McpThresholdProbability> ThresholdProbabilities { get; init; } = Array.Empty<McpThresholdProbability>();
+    public IReadOnlyList<McpMarketProbabilityBaseline> Baselines { get; init; } = Array.Empty<McpMarketProbabilityBaseline>();
+    public string ShrinkagePriorScope { get; init; } = string.Empty;
+    public int ShrinkagePriorSampleSize { get; init; }
+    public IReadOnlyList<string> DataQualityWarnings { get; init; } = Array.Empty<string>();
+    public string AppPath { get; init; } = string.Empty;
+}
+
+public sealed record McpMarketDay(
+    string Date,
+    string Symbol,
+    string DayOfWeek,
+    int Month,
+    int Year,
+    decimal Open,
+    decimal High,
+    decimal Low,
+    decimal Close,
+    decimal RthRangePoints,
+    decimal? Atr20,
+    decimal? NormalizedRange,
+    decimal OpenToClosePoints,
+    decimal DirectionalEfficiency,
+    decimal PathEfficiency,
+    decimal? CloseLocation,
+    int VwapCrossings,
+    decimal? PercentSessionAboveVwap,
+    decimal? PercentSessionBelowVwap,
+    decimal? PercentHigherHighs,
+    decimal? PercentHigherLows,
+    decimal? PercentLowerHighs,
+    decimal? PercentLowerLows,
+    decimal? MaximumFavorableDirectionalExcursion,
+    decimal? MaximumCountertrendExcursion,
+    decimal? OvernightHigh,
+    decimal? OvernightLow,
+    decimal? OvernightRange,
+    string OvernightDirection,
+    decimal? GapFromPriorRthClose,
+    string GapDirection,
+    decimal? VolatilityMeasurePoints,
+    string VolatilityRegime,
+    string MarketType,
+    string Direction,
+    string ClassifierVersion,
+    int RthBarCount,
+    int OvernightBarCount);
+
+public sealed class McpMarketDaysResponse
+{
+    public string SchemaVersion { get; init; } = "1";
+    public string DataBoundary { get; init; } = McpResponseDefaults.MarketDataBoundary;
+    public string JournalId { get; init; } = string.Empty;
+    public string PopulationSymbol { get; init; } = string.Empty;
+    public McpMarketProbabilityFilter AppliedFilters { get; init; } = new(null, null, null, null, null, null, null, null, null, null, null, null, null);
+    public int TotalMatches { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public IReadOnlyList<string> DataQualityWarnings { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<McpMarketDay> Days { get; init; } = Array.Empty<McpMarketDay>();
+    public string AppPath { get; init; } = string.Empty;
+}
+
 internal static class McpResponseDefaults
 {
     public const string DataBoundary = "Historical journal evidence only. Win/loss, profit factor, and expectancy use gross P&L; net P&L includes fees. No live market data, signals, or order placement. Broker fee profile tools may mutate only explicit user-managed fee profiles; imported journal evidence remains immutable.";
+    public const string MarketDataBoundary = "Historical imported OHLC bars only. Market-day features, classifications, probabilities, shrinkage, and intervals are deterministic TradeFoundry calculations; no live data, signals, or LLM classification. ES/MES is one canonical session population when the symbol filter is omitted.";
     public static readonly AppliedTradeFilters EmptyFilters = new(null, null, "exit", null, null, null, null, "all", null, null, null, null, null);
     public static readonly McpPerformanceMetrics EmptyMetrics = new(0, 0, 0, 0, 0, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, null, null, null, null, 0m, null, null, null, null);
 }

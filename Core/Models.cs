@@ -740,6 +740,7 @@ public sealed class DailyReviewTrade
     public TradeReviewAnnotation Annotation { get; init; } = new();
     public IReadOnlyList<TradeReviewAttachment> Attachments { get; init; } = Array.Empty<TradeReviewAttachment>();
     public IReadOnlyList<TradeReviewHistoryEntry> History { get; init; } = Array.Empty<TradeReviewHistoryEntry>();
+    public TradeSetupWorkspace SetupWorkspace { get; init; } = new();
 }
 
 public sealed class DailyReviewModel
@@ -749,6 +750,7 @@ public sealed class DailyReviewModel
     public DailyJournalEntry DailyJournal { get; init; } = new();
     public IReadOnlyList<DailyReviewTrade> CompletedTrades { get; init; } = Array.Empty<DailyReviewTrade>();
     public IReadOnlyList<DailyReviewTrade> OpenTrades { get; init; } = Array.Empty<DailyReviewTrade>();
+    public IReadOnlyList<TradingSetupSummary> SetupDefinitions { get; init; } = Array.Empty<TradingSetupSummary>();
     public decimal RealizedNetPnl => CompletedTrades.Sum(item => item.Trade.NetPnl);
     public int CompletedTradeCount => CompletedTrades.Count;
     public int OpenTradeCount => OpenTrades.Count;

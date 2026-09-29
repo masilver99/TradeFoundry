@@ -13,7 +13,7 @@ namespace TradeFoundry.Data;
 /// class so a later PostgreSQL provider can be introduced without changing the
 /// import and page models.
 /// </summary>
-public sealed class TradeFoundryDb
+public sealed partial class TradeFoundryDb
 {
     private const string DerivedFillSource = "Derived fills";
     private const string JournalColumns = "id, name, execution_context, labels, description_lexical_state_json, timezone, currency, grouping_policy, starting_equity, import_watch_directory, created_utc";
@@ -105,6 +105,19 @@ public sealed class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_status_time ON trades(journal_id, status, entry_utc)",
             "CREATE INDEX IF NOT EXISTS ix_trades_journal_symbol_time ON trades(journal_id, symbol, entry_utc)",
             "CREATE TABLE IF NOT EXISTS trade_fill_allocations (trade_id TEXT NOT NULL REFERENCES trades(id) ON DELETE CASCADE, fill_id TEXT NOT NULL REFERENCES fills(id) ON DELETE CASCADE, quantity INTEGER NOT NULL, PRIMARY KEY(trade_id, fill_id))",
+            "CREATE TABLE IF NOT EXISTS trading_setups (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, name TEXT NOT NULL, short_description TEXT NOT NULL DEFAULT '', detailed_description TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL, UNIQUE(journal_id, name))",
+            "CREATE INDEX IF NOT EXISTS ix_trading_setups_journal_active ON trading_setups(journal_id, active, name COLLATE NOCASE)",
+            "CREATE TABLE IF NOT EXISTS trading_setup_versions (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, setup_id TEXT NOT NULL REFERENCES trading_setups(id) ON DELETE CASCADE, version INTEGER NOT NULL, notes TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL, UNIQUE(setup_id, version))",
+            "CREATE INDEX IF NOT EXISTS ix_trading_setup_versions_journal_setup ON trading_setup_versions(journal_id, setup_id, version DESC)",
+            "CREATE TABLE IF NOT EXISTS trading_setup_criteria (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, setup_version_id TEXT NOT NULL REFERENCES trading_setup_versions(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', criterion_type TEXT NOT NULL CHECK(criterion_type IN ('required', 'supporting', 'disqualifier', 'context')), display_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, evaluation_mode TEXT NOT NULL CHECK(evaluation_mode IN ('manual', 'automatic', 'suggested')), rule_metadata_json TEXT NOT NULL DEFAULT '', stage TEXT NOT NULL CHECK(stage IN ('context', 'setup', 'trigger', 'management', 'exit')), created_utc TEXT NOT NULL, UNIQUE(setup_version_id, name))",
+            "CREATE INDEX IF NOT EXISTS ix_trading_setup_criteria_version_type_order ON trading_setup_criteria(setup_version_id, criterion_type, active, display_order)",
+            "CREATE TABLE IF NOT EXISTS trade_setups (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, trade_id TEXT NOT NULL REFERENCES trades(id) ON DELETE CASCADE, setup_version_id TEXT NOT NULL REFERENCES trading_setup_versions(id) ON DELETE RESTRICT, role TEXT NOT NULL CHECK(role IN ('primary', 'secondary')), note TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL, UNIQUE(trade_id, setup_version_id))",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_trade_setups_primary ON trade_setups(journal_id, trade_id) WHERE role = 'primary'",
+            "CREATE INDEX IF NOT EXISTS ix_trade_setups_journal_trade ON trade_setups(journal_id, trade_id, role)",
+            "CREATE INDEX IF NOT EXISTS ix_trade_setups_journal_version ON trade_setups(journal_id, setup_version_id, trade_id)",
+            "CREATE TABLE IF NOT EXISTS trade_setup_criterion_evaluations (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, trade_id TEXT NOT NULL REFERENCES trades(id) ON DELETE CASCADE, trade_setup_id TEXT NOT NULL REFERENCES trade_setups(id) ON DELETE CASCADE, setup_version_id TEXT NOT NULL REFERENCES trading_setup_versions(id) ON DELETE RESTRICT, criterion_id TEXT NOT NULL REFERENCES trading_setup_criteria(id) ON DELETE RESTRICT, evaluation_state TEXT NOT NULL CHECK(evaluation_state IN ('met', 'not_met', 'unknown', 'not_applicable')), note TEXT NOT NULL DEFAULT '', evaluation_source TEXT NOT NULL CHECK(evaluation_source IN ('manual', 'automatic', 'suggested', 'override')), evaluated_utc TEXT NOT NULL, UNIQUE(trade_setup_id, criterion_id))",
+            "CREATE INDEX IF NOT EXISTS ix_trade_setup_evaluations_trade ON trade_setup_criterion_evaluations(journal_id, trade_id, trade_setup_id)",
+            "CREATE INDEX IF NOT EXISTS ix_trade_setup_evaluations_version_criterion ON trade_setup_criterion_evaluations(journal_id, setup_version_id, criterion_id, evaluation_state)",
             "CREATE TABLE IF NOT EXISTS trade_review_annotations (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, review_note TEXT NOT NULL DEFAULT '', setup TEXT NOT NULL DEFAULT '', tags_json TEXT NOT NULL DEFAULT '[]', planned_entry_price TEXT NULL, planned_stop_price TEXT NULL, planned_target_price TEXT NULL, planned_risk_points TEXT NULL, planned_risk_currency TEXT NULL, exchange_fees TEXT NULL, nfa_fees TEXT NULL, clearing_fees TEXT NULL, all_in_commission TEXT NULL, plan_adherence TEXT NOT NULL DEFAULT '', process_rating INTEGER NULL, mistakes TEXT NOT NULL DEFAULT '', lessons TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL, UNIQUE(journal_id, review_key))",
             "CREATE INDEX IF NOT EXISTS ix_trade_review_annotations_journal ON trade_review_annotations(journal_id, updated_utc DESC)",
             "CREATE TABLE IF NOT EXISTS trade_review_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, review_key TEXT NOT NULL, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', reason TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL)",
@@ -3040,6 +3053,7 @@ public sealed class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
+        var setupSnapshots = SnapshotDerivedTradeSetups(connection, transaction, journalId);
         using (var deleteAllocations = connection.CreateCommand())
         {
             deleteAllocations.Transaction = transaction;
@@ -3107,6 +3121,7 @@ public sealed class TradeFoundryDb
         foreach (var state in states.Values)
             InsertDerivedTrade(connection, transaction, journalId, state, groupingPolicy, ++sequence, orderLifecycles);
 
+        RestoreDerivedTradeSetups(connection, transaction, journalId, setupSnapshots);
         transaction.Commit();
     }
 

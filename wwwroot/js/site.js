@@ -17,6 +17,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeDailyJournalFeed();
   initializeDailyJournalChartDialog();
   initializeReviewWorkspace();
+  initializeSetupEvaluationControls();
+  initializeSetupCriteriaEditors();
   initializeReviewAttachmentPaste();
   initializeReviewAttachmentCaptions();
   initializeReviewAttachmentRemovals();
@@ -1901,7 +1903,7 @@ function initializeReviewWorkspace() {
 
   shell.classList.add("is-enhanced");
   const formState = new WeakMap();
-  const sections = ["review", "plan", "media"];
+  const sections = ["review", "setups", "plan", "media"];
   let activeKey = shell.dataset.activeKey || editors[0].dataset.reviewKey;
   let activeSection = sections.includes(shell.dataset.reviewSection) ? shell.dataset.reviewSection : "review";
 
@@ -2178,6 +2180,62 @@ function reviewFormSnapshot(form) {
     values.push(`${key}=${String(value)}`);
   }
   return values.join("&");
+}
+
+function initializeSetupEvaluationControls() {
+  document.querySelectorAll("[data-setup-evaluation-form]").forEach(form => {
+    const syncRow = row => {
+      row.querySelectorAll("[data-setup-state-option]").forEach(option => {
+        const input = option.querySelector("input");
+        option.classList.toggle("is-selected", Boolean(input?.checked));
+      });
+    };
+
+    form.querySelectorAll("[data-setup-criterion]").forEach(row => {
+      row.querySelectorAll("input[type=radio]").forEach(input => input.addEventListener("change", () => syncRow(row)));
+      syncRow(row);
+    });
+
+    form.querySelectorAll("[data-setup-bulk-state]").forEach(button => {
+      button.addEventListener("click", () => {
+        const state = button.dataset.setupBulkState;
+        if (!state) return;
+        form.querySelectorAll("[data-setup-criterion]").forEach(row => {
+          const checked = row.querySelector("input[type=radio]:checked");
+          if (checked?.value !== "Unknown") return;
+          const target = Array.from(row.querySelectorAll("input[type=radio]")).find(input => input.value === state);
+          if (target) {
+            target.checked = true;
+            target.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        });
+      });
+    });
+  });
+}
+
+function initializeSetupCriteriaEditors() {
+  document.querySelectorAll("[data-setup-criteria-editor]").forEach(editor => {
+    const list = editor.querySelector("[data-setup-criteria-list]");
+    const template = editor.querySelector("[data-setup-criterion-template]");
+    const add = editor.querySelector("[data-criterion-add]");
+    if (!list || !template || !add) return;
+    const prefix = editor.dataset.criteriaPrefix || "Criteria";
+    let nextIndex = Number(editor.dataset.nextIndex || 0);
+    add.addEventListener("click", () => {
+      const html = template.innerHTML
+        .replaceAll("NewCriteria", prefix)
+        .replaceAll("VersionCriteria", prefix)
+        .replaceAll("__INDEX__", String(nextIndex++));
+      list.insertAdjacentHTML("beforeend", html);
+    });
+    list.addEventListener("click", event => {
+      const remove = event.target.closest("[data-criterion-remove]");
+      if (!remove) return;
+      const row = remove.closest("[data-criterion-row]");
+      if (row) row.remove();
+    });
+  });
 }
 
 function initializeReviewFocus() {
@@ -2687,42 +2745,29 @@ function initializeEquityToggle() {
     if (form.dataset.equityToggleInitialized === "true") return;
 
     const dailyCheckbox = form.querySelector("input[name=daily]");
-    const hideEmptyDaysCheckbox = form.querySelector("input[name=hideEmptyDays]");
     const card = form.closest(".tf-chart-card");
     const host = card?.querySelector("[data-equity-chart-host]");
     if (!dailyCheckbox || !host) return;
 
     form.dataset.equityToggleInitialized = "true";
     form.dataset.equityCurrentDaily = String(dailyCheckbox.checked);
-    form.dataset.equityCurrentHideEmptyDays = String(hideEmptyDaysCheckbox?.checked || false);
-    updateEquityToggleAvailability(form, dailyCheckbox, hideEmptyDaysCheckbox);
     form.addEventListener("submit", event => {
       event.preventDefault();
-      updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, host);
+      updateEquityChart(form, dailyCheckbox, host);
     });
   });
 }
 
-function updateEquityToggleAvailability(form, dailyCheckbox, hideEmptyDaysCheckbox) {
-  if (!hideEmptyDaysCheckbox) return;
-
-  hideEmptyDaysCheckbox.disabled = dailyCheckbox.disabled;
-  hideEmptyDaysCheckbox.setAttribute("aria-label", "Hide dates without trades from the equity curve");
-}
-
-async function updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, host) {
+async function updateEquityChart(form, dailyCheckbox, host) {
   if (form.dataset.equityToggleLoading === "true") return;
 
   const previousDaily = form.dataset.equityCurrentDaily === "true";
-  const previousHideEmptyDays = form.dataset.equityCurrentHideEmptyDays === "true";
   const requestedDaily = dailyCheckbox.checked;
-  const requestedHideEmptyDays = hideEmptyDaysCheckbox?.checked || false;
   const requestId = String((Number(form.dataset.equityToggleRequest || "0") || 0) + 1);
   form.dataset.equityToggleRequest = requestId;
   form.dataset.equityToggleLoading = "true";
   form.setAttribute("aria-busy", "true");
   dailyCheckbox.disabled = true;
-  updateEquityToggleAvailability(form, dailyCheckbox, hideEmptyDaysCheckbox);
 
   try {
     const url = new URL(form.action || window.location.href, window.location.href);
@@ -2732,7 +2777,6 @@ async function updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, hos
     url.searchParams.set("journalId", journalId);
     if (requestedDaily) url.searchParams.set("daily", "true");
     else url.searchParams.delete("daily");
-    url.searchParams.set("hideEmptyDays", String(requestedHideEmptyDays));
 
     const response = await fetch(url, {
       headers: { Accept: "text/html" },
@@ -2765,23 +2809,17 @@ async function updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, hos
       host.replaceChildren(nextEmpty.cloneNode(true));
     }
 
-    const card = form.closest(".tf-chart-card");
-    const viewLabel = card?.querySelector("[data-equity-view-label]");
-    if (viewLabel) viewLabel.textContent = requestedDaily ? "Daily" : "by trade";
-    dailyCheckbox.setAttribute("aria-label", requestedDaily ? "Show equity curve by trade" : "Show Daily equity curve");
+    dailyCheckbox.setAttribute("aria-label", requestedDaily ? "Show all trades" : "Show daily trades");
     form.dataset.equityCurrentDaily = String(requestedDaily);
-    form.dataset.equityCurrentHideEmptyDays = String(requestedHideEmptyDays);
 
     const displayUrl = new URL(window.location.href);
     if (requestedDaily) displayUrl.searchParams.set("daily", "true");
     else displayUrl.searchParams.delete("daily");
-    displayUrl.searchParams.set("hideEmptyDays", String(requestedHideEmptyDays));
     displayUrl.searchParams.delete("handler");
     window.history.replaceState(null, "", `${displayUrl.pathname}${displayUrl.search}${displayUrl.hash}`);
   } catch (error) {
     if (requestId === form.dataset.equityToggleRequest) {
       dailyCheckbox.checked = previousDaily;
-      if (hideEmptyDaysCheckbox) hideEmptyDaysCheckbox.checked = previousHideEmptyDays;
       console.error("TradeFoundry equity chart update failed.", error);
     }
   } finally {
@@ -2789,7 +2827,6 @@ async function updateEquityChart(form, dailyCheckbox, hideEmptyDaysCheckbox, hos
       form.dataset.equityToggleLoading = "false";
       form.removeAttribute("aria-busy");
       dailyCheckbox.disabled = false;
-      updateEquityToggleAvailability(form, dailyCheckbox, hideEmptyDaysCheckbox);
     }
   }
 }

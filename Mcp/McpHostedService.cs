@@ -5,6 +5,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol.Protocol;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
 using TradeFoundry.Services;
@@ -85,7 +86,15 @@ public sealed class McpHostedService(
             .WithHttpTransport(transport => transport.Stateless = true)
             .AddAuthorizationFilters()
             .WithTools<TradeFoundryMcpTools>(mcpJson)
-            .WithPrompts<TradeFoundryMcpPrompts>(mcpJson);
+            .WithPrompts<TradeFoundryMcpPrompts>(mcpJson)
+            .WithListResourcesHandler((_, _) => ValueTask.FromResult(new ListResourcesResult
+            {
+                Resources = []
+            }))
+            .WithListResourceTemplatesHandler((_, _) => ValueTask.FromResult(new ListResourceTemplatesResult
+            {
+                ResourceTemplates = []
+            }));
 
         var app = builder.Build();
         app.Use(async (context, next) =>

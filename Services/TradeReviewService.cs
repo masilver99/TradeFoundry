@@ -11,10 +11,17 @@ public sealed class TradeReviewService
 
     private readonly TradeFoundryDb _database;
     private readonly JournalImageFileStore _imageFiles;
+    private readonly TradingSetupService? _setups;
 
     public TradeReviewService(TradeFoundryDb database)
+        : this(database, null)
+    {
+    }
+
+    public TradeReviewService(TradeFoundryDb database, TradingSetupService? setups)
     {
         _database = database;
+        _setups = setups;
         _imageFiles = new JournalImageFileStore(Path.Combine(Path.GetDirectoryName(database.DatabasePath) ?? AppContext.BaseDirectory, "review-attachments"));
     }
 
@@ -32,6 +39,7 @@ public sealed class TradeReviewService
         var summary = summaries.FirstOrDefault(item => item.Date == date);
         var annotations = _database.GetTradeReviewAnnotations(journalId);
         var imports = new Dictionary<Guid, ImportBatch>();
+        var setupDefinitions = _setups?.GetSetups(journalId, includeInactive: true) ?? Array.Empty<TradingSetupSummary>();
 
         DailyReviewTrade Map(Trade trade)
         {
@@ -53,7 +61,8 @@ public sealed class TradeReviewService
                 ImportBatch = import,
                 Annotation = annotation,
                 Attachments = _database.GetTradeReviewAttachments(journalId, trade.ReviewKey),
-                History = _database.GetTradeReviewHistory(journalId, trade.ReviewKey)
+                History = _database.GetTradeReviewHistory(journalId, trade.ReviewKey),
+                SetupWorkspace = _setups?.GetTradeSetupWorkspace(journalId, trade.Id) ?? new TradeSetupWorkspace()
             };
         }
 
@@ -66,6 +75,7 @@ public sealed class TradeReviewService
             DailyJournal = _database.GetDailyJournal(journalId, date),
             CompletedTrades = summary?.CompletedTrades.Select(Map).ToArray() ?? Array.Empty<DailyReviewTrade>(),
             OpenTrades = summary?.OpenTrades.Select(Map).ToArray() ?? Array.Empty<DailyReviewTrade>(),
+            SetupDefinitions = setupDefinitions,
             PreviousDate = previous,
             NextDate = next
         };

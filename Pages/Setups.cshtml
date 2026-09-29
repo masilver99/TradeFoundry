@@ -1,0 +1,220 @@
+@page "/journal/{journalId:guid}/setups"
+@model TradeFoundry.Pages.SetupsModel
+@using System.Globalization
+@using TradeFoundry.Core
+@{
+    ViewData["Title"] = "Trading setups";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / JOURNAL / SETUPS";
+    ViewData["ActiveNav"] = "setups";
+    string TypeLabel(SetupCriterionType type) => type switch
+    {
+        SetupCriterionType.Required => "Required",
+        SetupCriterionType.Supporting => "Supporting",
+        SetupCriterionType.Disqualifier => "Disqualifier",
+        _ => "Context"
+    };
+    string StageLabel(SetupCriterionStage stage) => stage switch
+    {
+        SetupCriterionStage.Context => "Context",
+        SetupCriterionStage.Setup => "Setup",
+        SetupCriterionStage.Trigger => "Trigger",
+        SetupCriterionStage.Management => "Management",
+        _ => "Exit"
+    };
+    string Number(decimal? value, string format = "0.##") => value?.ToString(format, CultureInfo.CurrentCulture) ?? "—";
+    string TradeLabel(int count) => $"{count} trade{(count == 1 ? string.Empty : "s")}";
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
+}
+
+<div class="tf-settings-intro tf-setup-page-intro">
+    <div>
+        <div class="tf-kicker">REUSABLE TRADE DEFINITIONS</div>
+        <h3 class="tf-settings-heading">Trading setups</h3>
+        <p class="text-secondary mb-0">Define the conditions that existed at entry, keep their versions intact, and evaluate them without mixing setup quality with execution or outcome.</p>
+    </div>
+    <a class="btn btn-outline-primary" href="#setup-performance">View setup performance</a>
+</div>
+
+<div class="row row-cards tf-setup-management">
+    <div class="col-xl-4">
+        <section class="card tf-card tf-setup-list-card">
+            <div class="card-header">
+                <div><div class="tf-kicker">MASTER LIST</div><h3 class="tf-card-title">Setups</h3></div>
+                <span class="text-secondary">@Model.Setups.Count</span>
+            </div>
+            @if (Model.Setups.Count == 0)
+            {
+                <div class="card-body text-secondary">Create the first reusable setup on the right.</div>
+            }
+            else
+            {
+                <div class="list-group list-group-flush">
+                    @foreach (var setup in Model.Setups)
+                    {
+                        <a class="list-group-item list-group-item-action tf-setup-list-item @(Model.SelectedSetup?.Setup.Id == setup.Id ? "is-selected" : string.Empty)" href="@($"/journal/{Model.JournalId:D}/setups?setupId={setup.Id:D}")">
+                            <span class="tf-setup-list-identity"><strong>@setup.Name</strong><small>@(string.IsNullOrWhiteSpace(setup.Category) ? "Uncategorized" : setup.Category) · v@(setup.CurrentVersion) · @setup.CriteriaCount criteria · @TradeLabel(setup.TradeCount)</small></span>
+                            <span class="tf-setup-list-status @(setup.Active ? "is-active" : "is-inactive")">@(setup.Active ? "Active" : "Inactive")</span>
+                        </a>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">NEW DEFINITION</div><h3 class="tf-card-title">Create a setup</h3></div></div>
+            <div class="card-body">
+                <form method="post" asp-page-handler="CreateSetup" class="tf-setup-form" data-setup-criteria-editor data-criteria-prefix="NewCriteria" data-next-index="@Model.NewCriteria.Count">
+                    @Html.AntiForgeryToken()
+                    <label class="form-label">Name<input class="form-control" name="NewName" value="@Model.NewName" maxlength="120" required placeholder="e.g. Second Entry Long" /></label>
+                    <label class="form-label">Category<input class="form-control" name="NewCategory" value="@Model.NewCategory" maxlength="100" placeholder="Pullback, reversal, breakout…" /></label>
+                    <label class="form-label">Short description<input class="form-control" name="NewShortDescription" value="@Model.NewShortDescription" maxlength="500" placeholder="One-line explanation" /></label>
+                    <label class="form-label">Detailed notes<textarea class="form-control" name="NewDetailedDescription" rows="3" maxlength="8000" placeholder="Definition notes and edge cases">@Model.NewDetailedDescription</textarea></label>
+                    <div class="tf-criteria-editor" data-setup-criteria-list>
+                        <div class="tf-criteria-editor-heading"><span>Initial criteria</span><button class="btn btn-sm btn-outline-secondary" type="button" data-criterion-add>Add criterion</button></div>
+                        @for (var index = 0; index < Model.NewCriteria.Count; index++)
+                        {
+                            var criterion = Model.NewCriteria[index];
+                            var prefix = $"NewCriteria[{index}]";
+                            <div class="tf-criterion-editor-row" data-criterion-row>
+                                <div class="tf-criterion-editor-main"><input class="form-control form-control-sm" name="@(prefix).Name" value="@criterion.Name" maxlength="240" placeholder="Criterion name" /><input class="form-control form-control-sm" name="@(prefix).Description" value="@criterion.Description" maxlength="1200" placeholder="What does this mean?" /></div>
+                                <div class="tf-criterion-editor-options"><select class="form-select form-select-sm" name="@(prefix).CriterionType" aria-label="Criterion type">@foreach (var type in Enum.GetValues<SetupCriterionType>()) { <option value="@type" selected="@(criterion.CriterionType == type ? "selected" : null)">@TypeLabel(type)</option> }</select><select class="form-select form-select-sm" name="@(prefix).Stage" aria-label="Criterion stage">@foreach (var stage in Enum.GetValues<SetupCriterionStage>()) { <option value="@stage" selected="@(criterion.Stage == stage ? "selected" : null)">@StageLabel(stage)</option> }</select><select class="form-select form-select-sm" name="@(prefix).EvaluationMode" aria-label="Evaluation mode">@foreach (var mode in Enum.GetValues<SetupEvaluationMode>()) { <option value="@mode" selected="@(criterion.EvaluationMode == mode ? "selected" : null)">@mode</option> }</select></div>
+                                <div class="tf-criterion-editor-footer"><label class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="@(prefix).Active" value="true" checked="@(criterion.Active ? "checked" : null)" /><span class="form-check-label">Active</span></label><input type="hidden" name="@(prefix).Active" value="false" /><input class="form-control form-control-sm" name="@(prefix).RuleMetadataJson" value="@criterion.RuleMetadataJson" maxlength="4000" placeholder="Optional rule JSON" /><button class="btn btn-sm btn-ghost-danger" type="button" data-criterion-remove>Remove</button></div>
+                            </div>
+                        }
+                    </div>
+                    <template data-setup-criterion-template><div class="tf-criterion-editor-row" data-criterion-row><div class="tf-criterion-editor-main"><input class="form-control form-control-sm" name="NewCriteria[__INDEX__].Name" maxlength="240" placeholder="Criterion name" /><input class="form-control form-control-sm" name="NewCriteria[__INDEX__].Description" maxlength="1200" placeholder="What does this mean?" /></div><div class="tf-criterion-editor-options"><select class="form-select form-select-sm" name="NewCriteria[__INDEX__].CriterionType" aria-label="Criterion type"><option value="Required">Required</option><option value="Supporting">Supporting</option><option value="Disqualifier">Disqualifier</option><option value="Context">Context</option></select><select class="form-select form-select-sm" name="NewCriteria[__INDEX__].Stage" aria-label="Criterion stage"><option value="Context">Context</option><option value="Setup" selected>Setup</option><option value="Trigger">Trigger</option><option value="Management">Management</option><option value="Exit">Exit</option></select><select class="form-select form-select-sm" name="NewCriteria[__INDEX__].EvaluationMode" aria-label="Evaluation mode"><option value="Manual" selected>Manual</option><option value="Automatic">Automatic</option><option value="Suggested">Suggested</option></select></div><div class="tf-criterion-editor-footer"><label class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="NewCriteria[__INDEX__].Active" value="true" checked /><span class="form-check-label">Active</span></label><input type="hidden" name="NewCriteria[__INDEX__].Active" value="false" /><input class="form-control form-control-sm" name="NewCriteria[__INDEX__].RuleMetadataJson" maxlength="4000" placeholder="Optional rule JSON" /><button class="btn btn-sm btn-ghost-danger" type="button" data-criterion-remove>Remove</button></div></div></template>
+                    <button class="btn btn-primary" type="submit">Create setup</button>
+                </form>
+            </div>
+        </section>
+    </div>
+
+    <div class="col-xl-8">
+        @if (Model.SelectedSetup is null)
+        {
+            <section class="card tf-card"><div class="card-body text-secondary">Select a setup to view its current definition and version history.</div></section>
+        }
+        else
+        {
+            var setup = Model.SelectedSetup.Setup;
+            var current = Model.CurrentVersion;
+            <section class="card tf-card">
+                <div class="card-header tf-card-header-split"><div><div class="tf-kicker">SETUP DEFINITION</div><h3 class="tf-card-title">@setup.Name</h3><span class="text-secondary">Unused setups can edit the current definition directly; once used, criteria changes create a new version.</span></div><form method="post" asp-page-handler="SetActive" asp-route-journalId="@Model.JournalId" asp-route-setupId="@setup.Id"><input type="hidden" name="setupId" value="@setup.Id" />@Html.AntiForgeryToken()<input type="hidden" name="active" value="@(setup.Active ? "false" : "true")" /><button class="btn btn-sm @(setup.Active ? "btn-outline-danger" : "btn-outline-success")" type="submit">@(setup.Active ? "Deactivate" : "Reactivate")</button></form></div>
+                <div class="card-body">
+                    <form method="post" asp-page-handler="UpdateMetadata" asp-route-journalId="@Model.JournalId" asp-route-setupId="@setup.Id" class="tf-setup-form">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="setupId" value="@setup.Id" />
+                        <div class="tf-setup-form-grid"><label class="form-label">Name<input class="form-control" name="EditName" value="@Model.EditName" maxlength="120" required /></label><label class="form-label">Category<input class="form-control" name="EditCategory" value="@Model.EditCategory" maxlength="100" /></label><label class="form-label tf-setup-form-wide">Short description<input class="form-control" name="EditShortDescription" value="@Model.EditShortDescription" maxlength="500" /></label><label class="form-label tf-setup-form-wide">Detailed notes<textarea class="form-control" name="EditDetailedDescription" rows="3" maxlength="8000">@Model.EditDetailedDescription</textarea></label></div>
+                        <button class="btn btn-outline-primary" type="submit">Save metadata</button>
+                    </form>
+                </div>
+            </section>
+
+            @if (current is not null)
+            {
+                <section class="card tf-card">
+                    <div class="card-header tf-card-header-split"><div><div class="tf-kicker">CURRENT DEFINITION</div><h3 class="tf-card-title">Version @current.Version</h3></div><span class="text-secondary">@TradeLabel(Model.SelectedSetupTradeCount) · @current.Criteria.Count(c => c.Active) active criteria</span></div>
+                    <div class="card-body">
+                        @if (Model.CanEditCurrentVersion)
+                        {
+                            <div class="tf-setup-edit-state"><strong>This setup has not been used yet.</strong><span>Edit the current definition directly; it will remain version @current.Version.</span></div>
+                            <form method="post" asp-page-handler="UpdateCurrentVersion" asp-route-journalId="@Model.JournalId" asp-route-setupId="@setup.Id" class="tf-setup-form" data-setup-criteria-editor data-criteria-prefix="VersionCriteria" data-next-index="@Model.VersionCriteria.Count">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="setupId" value="@setup.Id" />
+                                <label class="form-label">Version notes<input class="form-control" name="versionNotes" value="@current.Notes" maxlength="1000" placeholder="Notes about this definition" /></label>
+                                <div class="tf-criteria-editor" data-setup-criteria-list>
+                                    <div class="tf-criteria-editor-heading"><span>Criteria for version @current.Version</span><button class="btn btn-sm btn-outline-secondary" type="button" data-criterion-add>Add criterion</button></div>
+                                    @for (var index = 0; index < Model.VersionCriteria.Count; index++)
+                                    {
+                                        var criterion = Model.VersionCriteria[index];
+                                        var prefix = $"VersionCriteria[{index}]";
+                                        <div class="tf-criterion-editor-row" data-criterion-row><div class="tf-criterion-editor-main"><input class="form-control form-control-sm" name="@(prefix).Name" value="@criterion.Name" maxlength="240" placeholder="Criterion name" /><input class="form-control form-control-sm" name="@(prefix).Description" value="@criterion.Description" maxlength="1200" placeholder="What does this mean?" /></div><div class="tf-criterion-editor-options"><select class="form-select form-select-sm" name="@(prefix).CriterionType" aria-label="Criterion type">@foreach (var type in Enum.GetValues<SetupCriterionType>()) { <option value="@type" selected="@(criterion.CriterionType == type ? "selected" : null)">@TypeLabel(type)</option> }</select><select class="form-select form-select-sm" name="@(prefix).Stage" aria-label="Criterion stage">@foreach (var stage in Enum.GetValues<SetupCriterionStage>()) { <option value="@stage" selected="@(criterion.Stage == stage ? "selected" : null)">@StageLabel(stage)</option> }</select><select class="form-select form-select-sm" name="@(prefix).EvaluationMode" aria-label="Evaluation mode">@foreach (var mode in Enum.GetValues<SetupEvaluationMode>()) { <option value="@mode" selected="@(criterion.EvaluationMode == mode ? "selected" : null)">@mode</option> }</select></div><div class="tf-criterion-editor-footer"><label class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="@(prefix).Active" value="true" checked="@(criterion.Active ? "checked" : null)" /><span class="form-check-label">Active</span></label><input type="hidden" name="@(prefix).Active" value="false" /><input class="form-control form-control-sm" name="@(prefix).RuleMetadataJson" value="@criterion.RuleMetadataJson" maxlength="4000" placeholder="Optional rule JSON" /><button class="btn btn-sm btn-ghost-danger" type="button" data-criterion-remove>Remove</button></div></div>
+                                    }
+                                </div>
+                                <template data-setup-criterion-template><div class="tf-criterion-editor-row" data-criterion-row><div class="tf-criterion-editor-main"><input class="form-control form-control-sm" name="VersionCriteria[__INDEX__].Name" maxlength="240" placeholder="Criterion name" /><input class="form-control form-control-sm" name="VersionCriteria[__INDEX__].Description" maxlength="1200" placeholder="What does this mean?" /></div><div class="tf-criterion-editor-options"><select class="form-select form-select-sm" name="VersionCriteria[__INDEX__].CriterionType" aria-label="Criterion type"><option value="Required">Required</option><option value="Supporting">Supporting</option><option value="Disqualifier">Disqualifier</option><option value="Context">Context</option></select><select class="form-select form-select-sm" name="VersionCriteria[__INDEX__].Stage" aria-label="Criterion stage"><option value="Context">Context</option><option value="Setup" selected>Setup</option><option value="Trigger">Trigger</option><option value="Management">Management</option><option value="Exit">Exit</option></select><select class="form-select form-select-sm" name="VersionCriteria[__INDEX__].EvaluationMode" aria-label="Evaluation mode"><option value="Manual" selected>Manual</option><option value="Automatic">Automatic</option><option value="Suggested">Suggested</option></select></div><div class="tf-criterion-editor-footer"><label class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="VersionCriteria[__INDEX__].Active" value="true" checked /><span class="form-check-label">Active</span></label><input type="hidden" name="VersionCriteria[__INDEX__].Active" value="false" /><input class="form-control form-control-sm" name="VersionCriteria[__INDEX__].RuleMetadataJson" maxlength="4000" placeholder="Optional rule JSON" /><button class="btn btn-sm btn-ghost-danger" type="button" data-criterion-remove>Remove</button></div></div></template>
+                                <button class="btn btn-primary" type="submit">Save current definition</button>
+                            </form>
+                        }
+                        else
+                        {
+                            @if (!string.IsNullOrWhiteSpace(current.Notes)) { <p class="text-secondary">@current.Notes</p> }
+                            @if (current.Criteria.Count == 0)
+                            {
+                                <p class="text-secondary">No criteria are defined for this version.</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive"><table class="table table-vcenter tf-table tf-criteria-table"><thead><tr><th>Criterion</th><th>Type</th><th>Stage</th><th>Mode</th><th class="text-end">Order</th></tr></thead><tbody>
+                                @foreach (var criterion in current.Criteria)
+                                {
+                                    <tr class="@(criterion.Active ? string.Empty : "is-inactive")"><td><strong>@criterion.Name</strong>@if (!string.IsNullOrWhiteSpace(criterion.Description)) { <small>@criterion.Description</small> }</td><td>@TypeLabel(criterion.CriterionType)</td><td>@StageLabel(criterion.Stage)</td><td>@criterion.EvaluationMode</td><td class="text-end"><form method="post" asp-page-handler="MoveCriterion" asp-route-journalId="@Model.JournalId" asp-route-setupId="@setup.Id" class="tf-criteria-order-form">@Html.AntiForgeryToken()<input type="hidden" name="setupId" value="@setup.Id" /><input type="hidden" name="criterionId" value="@criterion.Id" /><button class="btn btn-sm btn-ghost-secondary" type="submit" name="moveUp" value="true" aria-label="Move @criterion.Name up">↑</button><button class="btn btn-sm btn-ghost-secondary" type="submit" name="moveUp" value="false" aria-label="Move @criterion.Name down">↓</button></form></td></tr>
+                                }
+                                </tbody></table></div>
+                            }
+                        }
+                    </div>
+                </section>
+
+                @if (!Model.CanEditCurrentVersion)
+                {
+                <section class="card tf-card">
+                    <div class="card-header"><div><div class="tf-kicker">VERSIONED CHECKLIST</div><h3 class="tf-card-title">Create version @(current.Version + 1)</h3></div></div>
+                    <div class="card-body">
+                        <p class="text-secondary small">Start from the current criteria, adjust the definition, and save a new immutable version. Existing trade evaluations stay on their recorded version.</p>
+                        <form method="post" asp-page-handler="CreateVersion" asp-route-journalId="@Model.JournalId" asp-route-setupId="@setup.Id" class="tf-setup-form" data-setup-criteria-editor data-criteria-prefix="VersionCriteria" data-next-index="@Model.VersionCriteria.Count">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="setupId" value="@setup.Id" />
+                            <label class="form-label">Version notes<input class="form-control" name="versionNotes" maxlength="1000" placeholder="What changed in this definition?" /></label>
+                            <div class="tf-criteria-editor" data-setup-criteria-list>
+                                <div class="tf-criteria-editor-heading"><span>Criteria for version @(current.Version + 1)</span><button class="btn btn-sm btn-outline-secondary" type="button" data-criterion-add>Add criterion</button></div>
+                                @for (var index = 0; index < Model.VersionCriteria.Count; index++)
+                                {
+                                    var criterion = Model.VersionCriteria[index];
+                                    var prefix = $"VersionCriteria[{index}]";
+                                    <div class="tf-criterion-editor-row" data-criterion-row><div class="tf-criterion-editor-main"><input class="form-control form-control-sm" name="@(prefix).Name" value="@criterion.Name" maxlength="240" placeholder="Criterion name" /><input class="form-control form-control-sm" name="@(prefix).Description" value="@criterion.Description" maxlength="1200" placeholder="What does this mean?" /></div><div class="tf-criterion-editor-options"><select class="form-select form-select-sm" name="@(prefix).CriterionType" aria-label="Criterion type">@foreach (var type in Enum.GetValues<SetupCriterionType>()) { <option value="@type" selected="@(criterion.CriterionType == type ? "selected" : null)">@TypeLabel(type)</option> }</select><select class="form-select form-select-sm" name="@(prefix).Stage" aria-label="Criterion stage">@foreach (var stage in Enum.GetValues<SetupCriterionStage>()) { <option value="@stage" selected="@(criterion.Stage == stage ? "selected" : null)">@StageLabel(stage)</option> }</select><select class="form-select form-select-sm" name="@(prefix).EvaluationMode" aria-label="Evaluation mode">@foreach (var mode in Enum.GetValues<SetupEvaluationMode>()) { <option value="@mode" selected="@(criterion.EvaluationMode == mode ? "selected" : null)">@mode</option> }</select></div><div class="tf-criterion-editor-footer"><label class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="@(prefix).Active" value="true" checked="@(criterion.Active ? "checked" : null)" /><span class="form-check-label">Active</span></label><input type="hidden" name="@(prefix).Active" value="false" /><input class="form-control form-control-sm" name="@(prefix).RuleMetadataJson" value="@criterion.RuleMetadataJson" maxlength="4000" placeholder="Optional rule JSON" /><button class="btn btn-sm btn-ghost-danger" type="button" data-criterion-remove>Remove</button></div></div>
+                                }
+                            </div>
+                            <template data-setup-criterion-template><div class="tf-criterion-editor-row" data-criterion-row><div class="tf-criterion-editor-main"><input class="form-control form-control-sm" name="VersionCriteria[__INDEX__].Name" maxlength="240" placeholder="Criterion name" /><input class="form-control form-control-sm" name="VersionCriteria[__INDEX__].Description" maxlength="1200" placeholder="What does this mean?" /></div><div class="tf-criterion-editor-options"><select class="form-select form-select-sm" name="VersionCriteria[__INDEX__].CriterionType" aria-label="Criterion type"><option value="Required">Required</option><option value="Supporting">Supporting</option><option value="Disqualifier">Disqualifier</option><option value="Context">Context</option></select><select class="form-select form-select-sm" name="VersionCriteria[__INDEX__].Stage" aria-label="Criterion stage"><option value="Context">Context</option><option value="Setup" selected>Setup</option><option value="Trigger">Trigger</option><option value="Management">Management</option><option value="Exit">Exit</option></select><select class="form-select form-select-sm" name="VersionCriteria[__INDEX__].EvaluationMode" aria-label="Evaluation mode"><option value="Manual" selected>Manual</option><option value="Automatic">Automatic</option><option value="Suggested">Suggested</option></select></div><div class="tf-criterion-editor-footer"><label class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="VersionCriteria[__INDEX__].Active" value="true" checked /><span class="form-check-label">Active</span></label><input type="hidden" name="VersionCriteria[__INDEX__].Active" value="false" /><input class="form-control form-control-sm" name="VersionCriteria[__INDEX__].RuleMetadataJson" maxlength="4000" placeholder="Optional rule JSON" /><button class="btn btn-sm btn-ghost-danger" type="button" data-criterion-remove>Remove</button></div></div></template>
+                            <button class="btn btn-primary" type="submit">Create version @(current.Version + 1)</button>
+                        </form>
+                    </div>
+                </section>
+                }
+            }
+
+            <section class="card tf-card">
+                <div class="card-header"><div><div class="tf-kicker">HISTORY</div><h3 class="tf-card-title">Historical versions</h3></div></div>
+                <div class="list-group list-group-flush">
+                    @foreach (var version in Model.SelectedSetup.Versions)
+                    {
+                        <div class="list-group-item d-flex align-items-center justify-content-between gap-3"><span><strong>@setup.Name v@(version.Version)</strong><small class="d-block text-secondary">@version.Criteria.Count(c => c.Active) active criteria · @version.CreatedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</small></span><span class="badge bg-blue-lt">Historical definition</span></div>
+                    }
+                </div>
+            </section>
+        }
+    </div>
+</div>
+
+<section class="card tf-card" id="setup-performance">
+    <div class="card-header tf-card-header-split"><div><div class="tf-kicker">DESCRIPTIVE PERFORMANCE</div><h3 class="tf-card-title">Setup performance</h3><span class="text-secondary">Outcome metrics are shown separately from adherence; they do not redefine setup quality.</span></div><span class="text-secondary">@Model.Performance.Sum(item => item.Trades) associated trades</span></div>
+    <div class="card-body">
+        @if (Model.Performance.Count == 0)
+        {
+            <p class="text-secondary mb-0">Attach a setup to a trade and evaluate it before performance rows appear.</p>
+        }
+        else
+        {
+            <div class="table-responsive"><table class="table table-vcenter tf-table tf-setup-performance-table"><caption class="visually-hidden">Descriptive performance by setup version.</caption><thead><tr><th>Setup</th><th>Trades</th><th>Win %</th><th>Avg P/L</th><th>Avg R</th><th>Avg MAE</th><th>Avg MFE</th><th>Required adherence</th></tr></thead><tbody>
+            @foreach (var row in Model.Performance)
+            {
+                <tr><td><strong>@row.SetupName</strong><small>v@(row.Version)</small></td><td>@row.Trades</td><td>@Number(row.WinRatePercent, "0.0")%</td><td class="@(row.AveragePnl >= 0 ? "positive" : "negative")">@(row.AveragePnl?.ToString("C2", CultureInfo.CurrentCulture) ?? "—")</td><td>@Number(row.AverageR)</td><td>@Number(row.AverageMaePoints)</td><td>@Number(row.AverageMfePoints)</td><td>@(row.RequiredAdherencePercent.HasValue ? $"{row.RequiredAdherencePercent.Value:0.0}%" : "—")</td></tr>
+            }
+            </tbody></table></div>
+            <p class="text-secondary small mb-0">MAE/MFE are absolute points using the existing trade evidence convention. Advanced criterion-by-outcome discovery is intentionally left to a later analytics phase.</p>
+        }
+    </div>
+</section>

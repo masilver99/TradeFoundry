@@ -38,6 +38,35 @@
         : review.ExchangeFees.HasValue || review.NfaFees.HasValue || review.ClearingFees.HasValue
             ? " · per-trade component override"
             : " · imported/instrument-derived";
+    string CriterionTypeLabel(SetupCriterionType type) => type switch
+    {
+        SetupCriterionType.Required => "Required",
+        SetupCriterionType.Supporting => "Supporting",
+        SetupCriterionType.Disqualifier => "Disqualifiers",
+        _ => "Context"
+    };
+    string CriterionStageLabel(SetupCriterionStage stage) => stage switch
+    {
+        SetupCriterionStage.Context => "Context",
+        SetupCriterionStage.Setup => "Setup",
+        SetupCriterionStage.Trigger => "Trigger",
+        SetupCriterionStage.Management => "Management",
+        _ => "Exit"
+    };
+    string CriterionStateSymbol(CriterionEvaluationState state) => state switch
+    {
+        CriterionEvaluationState.Met => "✓",
+        CriterionEvaluationState.NotMet => "×",
+        CriterionEvaluationState.NotApplicable => "—",
+        _ => "?"
+    };
+    string CriterionStateLabel(CriterionEvaluationState state) => state switch
+    {
+        CriterionEvaluationState.Met => "Met",
+        CriterionEvaluationState.NotMet => "Not met",
+        CriterionEvaluationState.NotApplicable => "Not applicable",
+        _ => "Unknown"
+    };
 }
 
 <article class="card tf-card tf-review-trade @(reviewActive ? "is-active" : string.Empty)" id="@reviewId" data-review-editor data-review-key="@trade.ReviewKey" data-review-index="@reviewIndex" aria-hidden="@(!reviewActive)">
@@ -71,6 +100,7 @@
 
     <nav class="tf-review-tabs" role="tablist" aria-label="Trade review sections">
         <button type="button" role="tab" class="tf-review-tab is-active" id="@reviewId-tab-review" aria-controls="@reviewId-panel-review" aria-selected="true" data-review-tab="review">Review</button>
+        <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-setups" aria-controls="@reviewId-panel-setups" aria-selected="false" data-review-tab="setups">Setup</button>
         <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-plan" aria-controls="@reviewId-panel-plan" aria-selected="false" data-review-tab="plan">Plan &amp; costs</button>
         <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-media" aria-controls="@reviewId-panel-media" aria-selected="false" data-review-tab="media">Media &amp; history</button>
     </nav>
@@ -233,6 +263,144 @@
             <button class="btn btn-outline-primary" type="submit" data-review-manual-save>Save now</button>
         </div>
     </form>
+
+    <div class="tf-review-tab-panel" id="@reviewId-panel-setups" role="tabpanel" aria-labelledby="@reviewId-tab-setups" data-review-panel="setups">
+        <section class="tf-setup-review" aria-label="Setup evaluation">
+            <div class="tf-setup-review-header">
+                <div>
+                    <div class="tf-kicker">SETUP QUALITY</div>
+                    <h3 class="tf-card-title mb-1">Setup checklist</h3>
+                    <p class="text-secondary mb-0">Record the conditions at entry. This stays separate from execution and the trade result.</p>
+                </div>
+                <span class="text-secondary">@Model.SetupWorkspace.Evaluations.Count setup@(Model.SetupWorkspace.Evaluations.Count == 1 ? string.Empty : "s")</span>
+            </div>
+
+            @if (reviewPage.Day.SetupDefinitions.Count == 0)
+            {
+                <div class="tf-setup-empty">
+                    <p class="mb-2">No setup definitions exist in this journal yet.</p>
+                    <a class="btn btn-sm btn-outline-primary" asp-page="/Setups" asp-route-journalId="@trade.JournalId">Create a setup</a>
+                </div>
+            }
+            else
+            {
+                <form method="post" asp-page-handler="AttachSetup" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="setups" class="tf-setup-attach-form">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="tradeId" value="@trade.Id" />
+                    <label class="visually-hidden" for="setup-version-@reviewId">Add a setup</label>
+                    <select id="setup-version-@reviewId" class="form-select form-select-sm" name="setupVersionId">
+                        <option value="">Add a setup…</option>
+                        @foreach (var definition in reviewPage.Day.SetupDefinitions.Where(item => item.CurrentVersionId.HasValue))
+                        {
+                            <option value="@definition.CurrentVersionId">@definition.Name v@(definition.CurrentVersion)@(definition.Active ? string.Empty : " · inactive")</option>
+                        }
+                    </select>
+                    <select class="form-select form-select-sm" name="role" aria-label="Setup role">
+                        <option value="Primary">Primary setup</option>
+                        <option value="Secondary">Supporting setup</option>
+                    </select>
+                    <button class="btn btn-sm btn-primary" type="submit">Add</button>
+                </form>
+            }
+
+            @foreach (var setupEvaluation in Model.SetupWorkspace.Evaluations)
+            {
+                <article class="tf-setup-evaluation-card">
+                    <div class="tf-setup-evaluation-heading">
+                        <div>
+                            <div class="tf-kicker">@(setupEvaluation.Association.Role == TradeSetupRole.Primary ? "PRIMARY SETUP" : "SECONDARY SETUP")</div>
+                            <h4 class="tf-setup-evaluation-title">@setupEvaluation.Setup.Name <span class="text-secondary">v@(setupEvaluation.Version.Version)</span></h4>
+                            @if (!string.IsNullOrWhiteSpace(setupEvaluation.Setup.ShortDescription))
+                            {
+                                <p class="text-secondary mb-0">@setupEvaluation.Setup.ShortDescription</p>
+                            }
+                        </div>
+                        <div class="tf-setup-evaluation-actions">
+                            <form method="post" asp-page-handler="SetSetupRole" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="setups">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="tradeSetupId" value="@setupEvaluation.Association.Id" />
+                                <label class="visually-hidden" for="setup-role-@setupEvaluation.Association.Id">Role for @setupEvaluation.Setup.Name</label>
+                                <select id="setup-role-@setupEvaluation.Association.Id" class="form-select form-select-sm" name="role" onchange="this.form.submit()">
+                                    <option value="Primary" selected="@(setupEvaluation.Association.Role == TradeSetupRole.Primary ? "selected" : null)">Primary</option>
+                                    <option value="Secondary" selected="@(setupEvaluation.Association.Role == TradeSetupRole.Secondary ? "selected" : null)">Secondary</option>
+                                </select>
+                            </form>
+                            <form method="post" asp-page-handler="RemoveSetup" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="setups">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="tradeSetupId" value="@setupEvaluation.Association.Id" />
+                                <button class="btn btn-sm btn-ghost-danger" type="submit" title="Remove this setup from the trade">Remove</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="tf-setup-adherence" aria-label="Setup adherence summary">
+                        <div><span>Required</span><strong class="@(setupEvaluation.Adherence.IsFullySatisfied ? "text-success" : "text-danger")">@setupEvaluation.Adherence.RequiredMet / @setupEvaluation.Adherence.RequiredTotal met</strong></div>
+                        <div><span>Supporting</span><strong>@setupEvaluation.Adherence.SupportingMet / @setupEvaluation.Adherence.SupportingTotal met</strong></div>
+                        <div><span>Disqualifiers</span><strong class="@(setupEvaluation.Adherence.HasDisqualifiers ? "text-danger" : "text-success")">@setupEvaluation.Adherence.DisqualifiersPresent present</strong></div>
+                        <div><span>Evaluated</span><strong>@setupEvaluation.Adherence.TotalEvaluatedCriteria / @setupEvaluation.Adherence.TotalCriteria</strong></div>
+                    </div>
+                    @if (!setupEvaluation.Adherence.IsFullySatisfied)
+                    {
+                        <div class="alert alert-warning tf-setup-warning" role="status">Does not fully satisfy @setupEvaluation.Setup.Name definition. Required criteria can remain incomplete; the trade is still valid analytical data.</div>
+                    }
+                    @if (setupEvaluation.Adherence.HasDisqualifiers)
+                    {
+                        <div class="alert alert-danger tf-setup-warning" role="status">One or more disqualifying conditions are present.</div>
+                    }
+
+                    <form method="post" asp-page-handler="SaveSetupEvaluation" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="setups" class="tf-setup-evaluation-form" data-setup-evaluation-form>
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="tradeSetupId" value="@setupEvaluation.Association.Id" />
+                        <div class="tf-setup-bulk-actions">
+                            <span class="text-secondary">Quick fill:</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-setup-bulk-state="NotMet">Remaining not met</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-setup-bulk-state="Unknown">Remaining unknown</button>
+                        </div>
+                        @foreach (var type in new[] { SetupCriterionType.Required, SetupCriterionType.Supporting, SetupCriterionType.Disqualifier, SetupCriterionType.Context })
+                        {
+                            var criteria = setupEvaluation.Criteria.Where(item => item.Criterion.CriterionType == type).ToArray();
+                            if (criteria.Length == 0) continue;
+                            <fieldset class="tf-setup-criteria-group">
+                                <legend>@CriterionTypeLabel(type)</legend>
+                                @foreach (var item in criteria)
+                                {
+                                    var itemIndex = setupEvaluation.Criteria.TakeWhile(candidate => candidate.Criterion.Id != item.Criterion.Id).Count();
+                                    var inputPrefix = $"SetupCriterionEvaluations[{itemIndex}].";
+                                    <div class="tf-setup-criterion-row" data-setup-criterion>
+                                        <div class="tf-setup-criterion-copy">
+                                            <strong>@item.Criterion.Name</strong>
+                                            <span class="tf-setup-criterion-meta">@CriterionStageLabel(item.Criterion.Stage) · @item.Criterion.EvaluationMode</span>
+                                            @if (!string.IsNullOrWhiteSpace(item.Criterion.Description))
+                                            {
+                                                <small>@item.Criterion.Description</small>
+                                            }
+                                            <input type="hidden" name="@(inputPrefix)CriterionId" value="@item.Criterion.Id" />
+                                            <input class="form-control form-control-sm tf-setup-criterion-note" name="@(inputPrefix)Note" value="@item.Note" placeholder="Optional note" aria-label="Note for @item.Criterion.Name" />
+                                        </div>
+                                        <div class="tf-setup-state-options" role="radiogroup" aria-label="@item.Criterion.Name state">
+                                            @foreach (var state in Enum.GetValues<CriterionEvaluationState>())
+                                            {
+                                                var stateId = $"{reviewId}-criterion-{item.Criterion.Id:N}-{state}";
+                                                <label class="tf-setup-state-option @(item.EvaluationState == state ? "is-selected" : string.Empty)" data-setup-state-option for="@stateId" title="@CriterionStateLabel(state)">
+                                                    <input id="@stateId" type="radio" name="@(inputPrefix)EvaluationState" value="@state" checked="@(item.EvaluationState == state ? "checked" : null)" />
+                                                    <span aria-hidden="true">@CriterionStateSymbol(state)</span>
+                                                    <span class="visually-hidden">@CriterionStateLabel(state)</span>
+                                                </label>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </fieldset>
+                        }
+                        <div class="tf-setup-evaluation-footer">
+                            <span class="text-secondary">Unknown means not evaluated; N/A is preserved separately.</span>
+                            <button class="btn btn-sm btn-primary" type="submit">Save setup review</button>
+                        </div>
+                    </form>
+                </article>
+            }
+        </section>
+    </div>
 
     <div class="tf-review-tab-panel" id="@reviewId-panel-media" role="tabpanel" aria-labelledby="@reviewId-tab-media" data-review-panel="media">
         <form method="post" enctype="multipart/form-data" asp-page-handler="Attach" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="media" class="tf-review-attachment-form" data-review-attachment-form>

@@ -23,18 +23,17 @@ public static partial class ChartRenderer
         var points = source.OrderBy(x => x.ExitUtc).ToArray();
         if (points.Length == 0) return Empty("Import a completed trade to see the equity curve.");
 
-        var x = WithStart(points.Select(point => point.ExitUtc), points[0].ExitUtc);
         var y = new[] { 0m }.Concat(points.Select(point => point.CumulativePnl)).ToArray();
-        return Line(x, y, "cumulative net P&L", Blue, "exit date");
+        return IndexedLine(y, "cumulative net P&L", Blue, "trade number", "Trade");
     }
 
-    public static string Equity(IEnumerable<DailyPnl> source, bool hideEmptyDays = false)
+    public static string Equity(IEnumerable<DailyPnl> source)
     {
         var days = source
             .GroupBy(x => x.Date)
             .OrderBy(x => x.Key)
             .Select(x => (Date: x.Key, NetPnl: x.Sum(day => day.NetPnl), TradeCount: x.Sum(day => day.TradeCount)))
-            .Where(x => !hideEmptyDays || x.TradeCount > 0)
+            .Where(x => x.TradeCount > 0)
             .ToArray();
         if (days.Length == 0) return Empty("Import a completed trade to see the equity curve.");
 
@@ -44,11 +43,8 @@ public static partial class ChartRenderer
             cumulative += day.NetPnl;
             return cumulative;
         }).ToArray();
-        var x = new[] { days[0].Date.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }
-            .Concat(days.Select(day => day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)))
-            .ToArray();
         var y = new[] { 0m }.Concat(values).ToArray();
-        return Line(x, y, "daily cumulative net P&L", Blue, "exit date", category: hideEmptyDays);
+        return IndexedLine(y, "daily cumulative net P&L", Blue, "trade day number", "Trade day");
     }
 
     public static string Equity(IEnumerable<Trade> source)
@@ -62,9 +58,8 @@ public static partial class ChartRenderer
             cumulative += trade.NetPnl;
             return cumulative;
         }).ToArray();
-        var x = WithStart(trades.Select(trade => trade.ExitUtc!.Value), trades[0].ExitUtc!.Value);
         var y = new[] { 0m }.Concat(values).ToArray();
-        return Line(x, y, "cumulative net P&L", Blue, "exit date");
+        return IndexedLine(y, "cumulative net P&L", Blue, "trade number", "Trade");
     }
 
     public static string BenchmarkComparison(IEnumerable<Trade> source, IEnumerable<BenchmarkPoint> benchmarkSource, decimal? startingEquity)
@@ -847,6 +842,37 @@ public static partial class ChartRenderer
         return Plotly(label, new object[] { LineTrace(x, y, label, color, dateAxis: !category) }, layout);
     }
 
+    private static string IndexedLine(IReadOnlyList<decimal> y, string label, string color, string xLabel, string pointLabel)
+    {
+        var x = Enumerable.Range(0, y.Count).ToArray();
+        var layout = CartesianLayout();
+        SetAxis(layout, "xaxis", xLabel, linear: true);
+        SetRange(layout, "xaxis", new[] { 0, Math.Max(1, x[^1]) });
+        if (layout["xaxis"] is Dictionary<string, object?> axis)
+        {
+            // Keep autoscale/reset snug to the data, just like the initial range.
+            axis["autorangeoptions"] = new { minallowed = 0, maxallowed = x[^1] };
+            axis["tickmode"] = "auto";
+            axis["nticks"] = y.Count <= 8 ? y.Count : 0;
+            axis["tickformat"] = ",d";
+        }
+        SetAxis(layout, "yaxis", "net P&L");
+        return Plotly(label, new object[]
+        {
+            new
+            {
+                type = "scatter",
+                x,
+                y,
+                mode = "lines+markers",
+                name = label,
+                line = new { color, width = 1.5 },
+                marker = new { color, size = 5 },
+                hovertemplate = $"{pointLabel} %{{x}}<br>%{{y:,.2f}}<extra></extra>"
+            }
+        }, layout);
+    }
+
     private static Dictionary<string, object?> CartesianLayout(string? hovermode = null)
     {
         var layout = BaseLayout();
@@ -879,13 +905,14 @@ public static partial class ChartRenderer
         ["automargin"] = true
     };
 
-    private static void SetAxis(Dictionary<string, object?> layout, string key, string title, bool date = false, bool percent = false, bool category = false)
+    private static void SetAxis(Dictionary<string, object?> layout, string key, string title, bool date = false, bool percent = false, bool category = false, bool linear = false)
     {
         var axis = Axis();
         if (!string.IsNullOrWhiteSpace(title))
             axis["title"] = new { text = title, font = new { color = Muted, size = 11 } };
         if (date) axis["type"] = "date";
         if (category) axis["type"] = "category";
+        if (linear) axis["type"] = "linear";
         if (percent) axis["ticksuffix"] = "%";
         layout[key] = axis;
     }

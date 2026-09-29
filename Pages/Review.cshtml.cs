@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.DependencyInjection;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
 using TradeFoundry.Services;
@@ -13,11 +14,19 @@ public class ReviewModel : PageModel
 {
     private readonly TradeReviewService _reviews;
     private readonly TradeFoundryDb _database;
+    private readonly TradingSetupService? _setups;
 
     public ReviewModel(TradeReviewService reviews, TradeFoundryDb database)
+        : this(reviews, database, null)
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public ReviewModel(TradeReviewService reviews, TradeFoundryDb database, TradingSetupService? setups)
     {
         _reviews = reviews;
         _database = database;
+        _setups = setups;
     }
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
@@ -31,6 +40,7 @@ public class ReviewModel : PageModel
     [BindProperty] public string? DailyJournalStateJson { get; set; }
     [BindProperty] public IFormFile? Screenshot { get; set; }
     [BindProperty] public string? AttachmentCaption { get; set; }
+    [BindProperty] public List<TradeSetupCriterionEvaluationInput> SetupCriterionEvaluations { get; set; } = new();
 
     public DailyReviewModel Day { get; private set; } = new();
     public MaeTargetSettings MaeTargets { get; private set; } = new();
@@ -275,6 +285,86 @@ public class ReviewModel : PageModel
         {
             Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
             return new JsonResult(new { saved = false, message = exception.Message });
+        }
+    }
+
+    public IActionResult OnPostAttachSetup(Guid tradeId, Guid setupVersionId, TradeSetupRole role, DateOnly date, string reviewKey)
+    {
+        Date = date;
+        Focus = reviewKey;
+        Section = "setups";
+        try
+        {
+            (_setups ?? throw new InvalidOperationException("Setup tracking is not available.")).AttachToTrade(JournalId, tradeId, setupVersionId, role);
+            return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = reviewKey, section = "setups", saved = true });
+        }
+        catch (InvalidOperationException exception)
+        {
+            LoadDay();
+            ErrorMessage = exception.Message;
+            return Page();
+        }
+    }
+
+    public IActionResult OnPostSaveSetupEvaluation(Guid tradeSetupId, DateOnly date, string reviewKey)
+    {
+        Date = date;
+        Focus = reviewKey;
+        Section = "setups";
+        try
+        {
+            (_setups ?? throw new InvalidOperationException("Setup tracking is not available.")).SaveEvaluations(JournalId, tradeSetupId, SetupCriterionEvaluations);
+            return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = reviewKey, section = "setups", saved = true });
+        }
+        catch (InvalidOperationException exception)
+        {
+            LoadDay();
+            ErrorMessage = exception.Message;
+            return Page();
+        }
+        catch (ArgumentException exception)
+        {
+            LoadDay();
+            ErrorMessage = exception.Message;
+            return Page();
+        }
+    }
+
+    public IActionResult OnPostSetSetupRole(Guid tradeSetupId, TradeSetupRole role, DateOnly date, string reviewKey)
+    {
+        Date = date;
+        Focus = reviewKey;
+        Section = "setups";
+        try
+        {
+            if (!(_setups ?? throw new InvalidOperationException("Setup tracking is not available.")).SetRole(JournalId, tradeSetupId, role))
+                throw new InvalidOperationException("The trade setup association could not be found.");
+            return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = reviewKey, section = "setups", saved = true });
+        }
+        catch (InvalidOperationException exception)
+        {
+            LoadDay();
+            ErrorMessage = exception.Message;
+            return Page();
+        }
+    }
+
+    public IActionResult OnPostRemoveSetup(Guid tradeSetupId, DateOnly date, string reviewKey)
+    {
+        Date = date;
+        Focus = reviewKey;
+        Section = "setups";
+        try
+        {
+            if (!(_setups ?? throw new InvalidOperationException("Setup tracking is not available.")).RemoveFromTrade(JournalId, tradeSetupId))
+                throw new InvalidOperationException("The trade setup association could not be found.");
+            return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = reviewKey, section = "setups", saved = true });
+        }
+        catch (InvalidOperationException exception)
+        {
+            LoadDay();
+            ErrorMessage = exception.Message;
+            return Page();
         }
     }
 

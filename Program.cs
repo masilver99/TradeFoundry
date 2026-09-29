@@ -63,9 +63,12 @@ builder.Services.AddSingleton<MarketDayFeatureCacheService>();
 builder.Services.AddSingleton<MarketProbabilityService>(services => new MarketProbabilityService(
     services.GetRequiredService<TradeFoundryDb>(),
     services.GetRequiredService<MarketDayFeatureCacheService>()));
+builder.Services.AddSingleton<TradingSetupService>();
 builder.Services.AddSingleton<McpTokenService>();
 builder.Services.AddSingleton<JournalAnalysisService>();
-builder.Services.AddSingleton<TradeReviewService>();
+builder.Services.AddSingleton<TradeReviewService>(services => new TradeReviewService(
+    services.GetRequiredService<TradeFoundryDb>(),
+    services.GetRequiredService<TradingSetupService>()));
 builder.Services.AddSingleton<DailyJournalImageService>();
 builder.Services.AddSingleton<AccountLedgerService>();
 builder.Services.AddHostedService<McpHostedService>();

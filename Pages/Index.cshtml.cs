@@ -27,9 +27,6 @@ public class IndexModel : PageModel
     [BindProperty(Name = "daily", SupportsGet = true)]
     public bool ShowDailyEquity { get; set; }
 
-    [BindProperty(Name = "hideEmptyDays", SupportsGet = true)]
-    public bool HideEmptyEquityDays { get; set; } = true;
-
     public IReadOnlyList<Journal> Journals { get; private set; } = Array.Empty<Journal>();
     public JournalOverview? Overview { get; private set; }
     public AccountSummary? Account { get; private set; }
@@ -37,7 +34,7 @@ public class IndexModel : PageModel
     public string? FlashKind { get; private set; }
     public string EquityChart => Overview is null
         ? string.Empty
-        : ShowDailyEquity ? ChartRenderer.Equity(Overview.DailyPnl, HideEmptyEquityDays) : ChartRenderer.Equity(Overview.Equity);
+        : ShowDailyEquity ? ChartRenderer.Equity(Overview.DailyPnl) : ChartRenderer.Equity(Overview.Equity);
     public string DailyChart => Overview is null ? string.Empty : ChartRenderer.Daily(Overview.DailyPnl);
 
     [BindProperty] public string NewJournalName { get; set; } = string.Empty;
@@ -61,12 +58,12 @@ public class IndexModel : PageModel
         return Page();
     }
 
-    public IActionResult OnGetEquityChart(Guid journalId, bool daily, bool hideEmptyDays)
+    public IActionResult OnGetEquityChart(Guid journalId, bool daily)
     {
         if (_database.GetJournal(journalId) is null) return NotFound();
 
         var overview = _database.GetOverview(journalId);
-        var chart = daily ? ChartRenderer.Equity(overview.DailyPnl, hideEmptyDays) : ChartRenderer.Equity(overview.Equity);
+        var chart = daily ? ChartRenderer.Equity(overview.DailyPnl) : ChartRenderer.Equity(overview.Equity);
         return Content(chart, "text/html; charset=utf-8");
     }
 

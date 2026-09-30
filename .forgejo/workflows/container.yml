@@ -1,0 +1,76 @@
+name: Publish container
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+# Serialize moving tags so concurrent builds cannot race each other.
+concurrency:
+  group: tradefoundry-container
+  cancel-in-progress: false
+
+env:
+  REGISTRY: git.shaa.one
+  IMAGE_NAME: git.shaa.one/masilver/tradefoundry
+
+jobs:
+  publish:
+    runs-on: docker
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: https://data.forgejo.org/actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Test, build, and publish
+        shell: bash
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          BUILD_REF: ${{ forgejo.ref }}
+          BUILD_SHA: ${{ forgejo.sha }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$REGISTRY_USERNAME" || { echo 'Missing REGISTRY_USERNAME secret'; exit 1; }
+          test -n "$REGISTRY_TOKEN" || { echo 'Missing REGISTRY_TOKEN secret'; exit 1; }
+
+          image_tags=()
+          if [[ "$BUILD_REF" == refs/tags/* ]]; then
+            version="${BUILD_REF#refs/tags/v}"
+            # Release tags are deliberately strict; prereleases do not move latest.
+            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
+              echo 'Use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-rc.N (alpha/beta also supported).'
+              exit 1
+            fi
+            image_tags+=("$IMAGE_NAME:$version")
+            if [[ "$version" != *-* ]]; then
+              image_tags+=("$IMAGE_NAME:latest")
+            fi
+          elif [[ "$BUILD_REF" == refs/heads/main ]]; then
+            version="0.0.0-dev.${BUILD_SHA:0:12}"
+            image_tags+=("$IMAGE_NAME:sha-$BUILD_SHA" "$IMAGE_NAME:main")
+          else
+            echo 'Only main and version tags can publish images.'
+            exit 1
+          fi
+
+          docker_config="$(mktemp -d)"
+          trap 'rm -rf "$docker_config"' EXIT
+          export DOCKER_CONFIG="$docker_config"
+          printf '%s' "$REGISTRY_TOKEN" |
+            docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
+
+          docker build --pull --target test \
+            --build-arg "VERSION=$version" --build-arg "REVISION=$BUILD_SHA" .
+          tag_args=()
+          for tag in "${image_tags[@]}"; do
+            tag_args+=(--tag "$tag")
+          done
+          docker build --target runtime \
+            --build-arg "VERSION=$version" --build-arg "REVISION=$BUILD_SHA" \
+            "${tag_args[@]}" .
+          for tag in "${image_tags[@]}"; do
+            docker push "$tag"
+          done

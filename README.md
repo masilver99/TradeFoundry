@@ -10,7 +10,7 @@ Much of the code has been written with AI, and it has left some rough edges due 
 
 I'm already using it to view stats on my trading.
 
-Eventually, there will be a docker image to self host and a shell application for those that want to run it locally as an app.
+TradeFoundry can be self-hosted with Docker or installed as a Windows desktop application.
 
 ## Current Status
 
@@ -70,11 +70,59 @@ The Forgejo Action in `.forgejo/workflows/windows-installer.yml` runs for pushes
 
 ## Run with Docker
 
+Download [compose.published.yml](compose.published.yml) into an empty deployment directory. Once the publishing workflow has completed, run:
+
+```bash
+docker compose -f compose.published.yml pull
+docker compose -f compose.published.yml up -d
+```
+
+Open `http://localhost:8080` and create your owner account. This file defaults to the `main` development image, so it works before the first numbered release. It binds to localhost; for remote access, configure a reverse proxy with HTTPS and the appropriate port binding.
+
+To pin a release, create a `.env` file beside the Compose file:
+
+```dotenv
+TRADEFOUNDRY_VERSION=0.1.0
+```
+
+Use a version that has actually been published. Available tags are `main` (newest successful main build), `sha-<full commit SHA>` (a specific commit), numbered versions such as `0.1.0`, and `latest` (most recently published stable release). Prereleases such as `0.1.0-rc.1` do not update `latest`. Numbered releases and commit tags should never be reused; pin the registry digest for an immutable deployment.
+
+Update the version in `.env`, then run the same `pull` and `up -d` commands to upgrade. The named `tradefoundry-data` volume preserves journals, attachments, and authentication keys across container replacements. Keep the deployment directory/project name stable so Compose reuses that volume. `docker compose down -v` deletes it. Back up before upgrading; an older image may not support a database updated by a newer release.
+
+To build from source instead:
+
 ```bash
 docker compose up -d --build
 ```
 
-The host `data/` directory is mounted into the container. Back up the database while the app is stopped, or use SQLite’s online backup tooling; keep the active database on local storage rather than SMB/NFS.
+The source-build Compose file mounts the host `data/` directory instead of a named volume. Back up the whole data directory/volume while the app is stopped, or use SQLite’s online backup tooling for the database; keep the active database on local storage rather than SMB/NFS. MCP is disabled in Docker images.
+
+### Publishing images on Forgejo
+
+`.forgejo/workflows/container.yml` tests and publishes Linux images to `git.shaa.one/masilver/tradefoundry` on every push to `main` and on version-tag pushes. Images include the application version and commit in .NET assembly metadata and OCI labels. The initial architecture is that of the Linux Docker runner (normally amd64); ARM64 is not built separately.
+
+Configure these prerequisites on git.shaa.one:
+
+1. Enable Actions for the repository and make a Linux runner with the `docker` label available. Its job environment must include Bash, Git, Node (for checkout), and Docker CLI with access to a Docker daemon. This uses the same runner convention as the existing site publishing workflow.
+2. Add repository Actions secrets `REGISTRY_USERNAME` (the publishing account) and `REGISTRY_TOKEN` (a token with `read:package` and `write:package` access for the image owner). Keep credentials in Actions secrets; do not put them in Compose or the repository.
+3. For anonymous downloads, the package owner `masilver` must be public and instance settings must permit anonymous package access. Forgejo package visibility follows the owning user/organization, independently of this repository's visibility. See [Forgejo package access rules](https://forgejo.org/docs/latest/user/packages/#access-restrictions). Linking the package to this repository does not make it public by itself.
+
+Create a stable release from the desired commit on `main`:
+
+```bash
+git tag -a v0.1.0 -m "TradeFoundry 0.1.0"
+git push forgejo v0.1.0
+```
+
+Use `vMAJOR.MINOR.PATCH`; prereleases may use `-alpha.N`, `-beta.N`, or `-rc.N`. Increment patch for fixes, minor for features, and major for breaking changes (during `0.x`, minor releases may break compatibility). Protect release tags against deletion or replacement. Publishing an older stable tag also moves `latest`, so publish stable releases in order. A Git tag triggers an image release; a Forgejo release page is optional.
+
+After the workflow succeeds, verify public access from a machine without stored registry credentials:
+
+```bash
+docker pull git.shaa.one/masilver/tradefoundry:0.1.0
+```
+
+The workflow publishes images only; it does not restart any running deployments. Configure package cleanup to retain numbered releases and deployed commit tags.
 
 ## Local MCP server
 

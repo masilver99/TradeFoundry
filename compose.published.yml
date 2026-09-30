@@ -1,13 +1,16 @@
 services:
   tradefoundry:
-    build: .
+    image: git.shaa.one/masilver/tradefoundry:${TRADEFOUNDRY_VERSION:-main}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       Storage__DataDirectory: /app/data
       DataProtection__KeysDirectory: /app/data/keys
       Mcp__Enabled: "false"
     volumes:
-      - ./data:/app/data
+      - tradefoundry-data:/app/data
     restart: unless-stopped
+
+volumes:
+  tradefoundry-data:

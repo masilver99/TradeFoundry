@@ -1661,12 +1661,31 @@ function initializePnlCalendar() {
 
     days.replaceChildren();
     const firstDay = new Date(month.year, month.month - 1, 1).getDay();
-    const leadingDays = (firstDay + 6) % 7;
+    const leadingDays = firstDay;
     for (let index = 0; index < leadingDays; index += 1) {
       days.append(element("span", "tf-pnl-day tf-pnl-day-leading"));
     }
 
-    (month.days || []).forEach(day => {
+    let weekDays = [];
+    const appendWeekSummary = () => {
+      const total = field => weekDays.reduce((sum, day) => sum + Number(day[field] || 0), 0);
+      const tradeCount = total("tradeCount");
+      const netPnl = total("netPnl");
+      const maeValues = weekDays.filter(day => day.maeCurrency != null).map(day => Number(day.maeCurrency));
+      const hasPercent = weekDays.filter(day => day.tradeCount > 0).every(day => day.profitPercent != null);
+      const row = element("div", "tf-pnl-week-summary");
+      row.dataset.tone = netPnl > 0 ? "positive" : netPnl < 0 ? "negative" : "flat";
+      row.append(element("span", "", `Week ${weekDays[0].day}–${weekDays.at(-1).day}`),
+        element("strong", "", formatPnl(netPnl)),
+        element("span", "", `${tradeCount} ${tradeCount === 1 ? "trade" : "trades"}`),
+        element("span", "", `${maeValues.length ? formatMae(Math.max(...maeValues)) : "—"} max MAE`),
+        element("span", "", `${total("points").toFixed(2)}p`),
+        element("span", "", tradeCount > 0 && hasPercent ? formatProfitPercent(total("profitPercent")) : "—"));
+      days.append(row);
+      weekDays = [];
+    };
+    (month.days || []).forEach((day, index) => {
+      weekDays.push(day);
       const tone = day.netPnl > 0 ? "positive" : day.netPnl < 0 ? "negative" : "flat";
       const dayNode = element(day.tradeCount > 0 ? "a" : "div", "tf-pnl-day", undefined);
       if (day.tradeCount > 0 && root.dataset.pnlReviewBase) {
@@ -1688,15 +1707,21 @@ function initializePnlCalendar() {
       const result = element("div", "tf-pnl-day-result");
       result.append(
         element("strong", "tf-pnl-day-value", day.tradeCount > 0 ? formatPnl(day.netPnl) : "â€”"),
-        ...(day.tradeCount > 0 ? [element("span", "tf-pnl-day-points", `${Number(day.points || 0).toFixed(2)}p`)] : [])
+        ...(day.tradeCount > 0 ? [element("small", "tf-pnl-day-percent", formatProfitPercent(day.profitPercent))] : [])
       );
       dayNode.append(
         element("span", "tf-pnl-day-number", String(day.day)),
         result,
         footer,
-        element("small", "tf-pnl-day-percent", day.tradeCount > 0 ? formatProfitPercent(day.profitPercent) : "â€”")
+        element("span", "tf-pnl-day-points", day.tradeCount > 0 ? `${Number(day.points || 0).toFixed(2)}p` : "\u2014")
       );
       days.append(dayNode);
+      if ((leadingDays + index + 1) % 7 === 0 || index === month.days.length - 1) {
+        const trailingDays = (7 - (leadingDays + index + 1) % 7) % 7;
+        for (let slot = 0; slot < trailingDays; slot += 1)
+          days.append(element("span", "tf-pnl-day tf-pnl-day-leading"));
+        appendWeekSummary();
+      }
     });
   };
 

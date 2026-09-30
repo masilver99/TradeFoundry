@@ -1304,3 +1304,7 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
   .tf-criterion-editor-footer { align-items: stretch; }
   .tf-setup-performance-table { min-width: 760px; }
 }
+
+.tf-pnl-week-summary { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 2px 6px; border: 1px solid var(--tf-line); border-radius: 3px; background: var(--tf-surface); color: var(--tf-muted); font-size: 10px; line-height: 16px; white-space: nowrap; overflow-x: auto; }
+.tf-pnl-week-summary[data-tone="positive"] { background: #123b26; border-color: var(--tf-green); color: #a7f3d0; }
+.tf-pnl-week-summary[data-tone="negative"] { background: #4a1c1c; border-color: var(--tf-red); color: #fecaca; }

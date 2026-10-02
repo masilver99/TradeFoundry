@@ -330,21 +330,27 @@ public sealed class Bar
     public long? AskVolume { get; init; }
 }
 
-public sealed class BarSeriesInfo
+public class BarSeriesAvailability
 {
     public string Symbol { get; init; } = string.Empty;
     public string Interval { get; init; } = BarIntervals.Source;
     public int IntervalMinutes { get; init; }
     public DateTimeOffset? FirstEventUtc { get; init; }
     public DateTimeOffset? LastEventUtc { get; init; }
-    public long BarCount { get; init; }
+    public bool HasBars => FirstEventUtc.HasValue;
     public string Label => BarIntervals.Label(Interval);
+    internal IReadOnlyList<string> SourceSeriesIds { get; init; } = Array.Empty<string>();
+}
+
+public sealed class BarSeriesInfo : BarSeriesAvailability
+{
+    public long BarCount { get; init; }
 }
 
 public sealed class BarQueryResult
 {
     public IReadOnlyList<Bar> Bars { get; init; } = Array.Empty<Bar>();
-    public IReadOnlyList<BarSeriesInfo> AvailableSeries { get; init; } = Array.Empty<BarSeriesInfo>();
+    public IReadOnlyList<BarSeriesAvailability> AvailableSeries { get; init; } = Array.Empty<BarSeriesAvailability>();
     public string RequestedInterval { get; init; } = BarIntervals.Source;
     public string ResolvedInterval { get; init; } = BarIntervals.Source;
     public bool IsConsolidated { get; init; }

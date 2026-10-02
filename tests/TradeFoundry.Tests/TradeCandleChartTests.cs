@@ -214,6 +214,170 @@ public sealed class TradeCandleChartTests
     }
 
     [Fact]
+    public void BarAvailabilityReflectsSharedImportsAndRemovalWithoutCachedCounts()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var other = database.CreateJournal("Other", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var start = Utc(2026, 9, 14, 13, 0);
+            Assert.False(database.HasBarSeries(other.Id, "MESU26_FUT_CME"));
+            Assert.Empty(database.GetBarSeriesAvailability(other.Id, "MES"));
+
+            ImportBars(database, journal.Id, start, 5, "1m");
+            Assert.True(database.HasBarSeries(other.Id, "MESU26_FUT_CME"));
+            var available = Assert.Single(database.GetBarSeriesAvailability(other.Id, "MESU26_FUT_CME"));
+            Assert.Equal("1m", available.Interval);
+            Assert.Equal(1, available.IntervalMinutes);
+            Assert.True(available.HasBars);
+            Assert.Equal(start, available.FirstEventUtc);
+            Assert.Equal(start.AddMinutes(4), available.LastEventUtc);
+            Assert.Equal(5, Assert.Single(database.GetBarSeries(other.Id, "MES")).BarCount);
+
+            ImportBars(database, journal.Id, start.AddMinutes(5), 3, "1m");
+            Assert.Equal(start.AddMinutes(7), Assert.Single(database.GetBarSeriesAvailability(other.Id, "MES")).LastEventUtc);
+            database.ClearOhlcData();
+            Assert.False(database.HasBarSeries(other.Id, "MES"));
+            Assert.Empty(database.GetBarSeriesAvailability(other.Id, "MES"));
+            var page = database.GetBarHistoryPage(other.Id, "MES", "1m", start, before: true, limit: 3);
+            Assert.Empty(page.Bars);
+            Assert.False(page.HasMore);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void EmptySeriesKeepAvailabilitySemanticsAndDoNotInventBounds()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={database.DatabasePath}");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO bar_series (id, symbol, interval, series_key, created_utc) VALUES ($id, 'MES', '1m', 'empty', $created)";
+            command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+            command.Parameters.AddWithValue("$created", Utc(2026, 9, 14, 13, 0).ToString("O"));
+            command.ExecuteNonQuery();
+
+            Assert.True(database.HasBarSeries(Guid.Empty, "MES"));
+            var series = Assert.Single(database.GetBarSeriesAvailability(Guid.Empty, "MES"));
+            Assert.False(series.HasBars);
+            Assert.Null(series.FirstEventUtc);
+            Assert.Null(series.LastEventUtc);
+            var query = database.GetBarWindow(Guid.Empty, "MES", Utc(2026, 9, 14, 13, 0), Utc(2026, 9, 14, 14, 0));
+            Assert.Empty(query.Bars);
+            Assert.Single(query.AvailableSeries);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void LegacySeriesAreMergedIntoUniqueBoundedHistoryPages()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var start = Utc(2026, 9, 14, 13, 0);
+            ImportBars(database, journal.Id, start, 20, "1m");
+            using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={database.DatabasePath}"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "INSERT INTO bar_series (id, symbol, interval, series_key, created_utc) VALUES ($series, 'MES', '1m', 'legacy', $created)";
+                command.Parameters.AddWithValue("$series", Guid.NewGuid().ToString("D"));
+                command.Parameters.AddWithValue("$created", start.ToString("O"));
+                command.ExecuteNonQuery();
+                command.CommandText = "UPDATE bars SET series_id = $series WHERE event_utc = $event";
+                var eventParameter = command.Parameters.AddWithValue("$event", string.Empty);
+                for (var index = 1; index < 20; index += 2)
+                {
+                    eventParameter.Value = start.AddMinutes(index).ToString("O");
+                    command.ExecuteNonQuery();
+                }
+                // Put the same timestamp in both physical series, with a known
+                // lower ID so deterministic duplicate selection can be asserted.
+                command.CommandText = "INSERT INTO bars (id, series_id, event_utc, open, high, low, close) SELECT '00000000-0000-0000-0000-000000000001', s.id, $event, '999', '1001', '998', '1000' FROM bar_series s WHERE s.series_key <> 'legacy'";
+                eventParameter.Value = start.AddMinutes(9).ToString("O");
+                command.ExecuteNonQuery();
+            }
+
+            var available = Assert.Single(database.GetBarSeriesAvailability(journal.Id, "MES"));
+            Assert.Equal(start, available.FirstEventUtc);
+            Assert.Equal(start.AddMinutes(19), available.LastEventUtc);
+            Assert.Equal(20, Assert.Single(database.GetBarSeries(journal.Id, "MES")).BarCount);
+            var before = database.GetBarHistoryPage(journal.Id, "MES", "1m", start.AddMinutes(10), before: true, limit: 3);
+            Assert.Equal([start.AddMinutes(7), start.AddMinutes(8), start.AddMinutes(9)], before.Bars.Select(bar => bar.EventUtc));
+            Assert.Equal(999m, before.Bars[^1].Open);
+            Assert.True(before.HasMore);
+            var after = database.GetBarHistoryPage(journal.Id, "MES", "1m", start.AddMinutes(8), before: false, limit: 3);
+            Assert.Equal([start.AddMinutes(9), start.AddMinutes(10), start.AddMinutes(11)], after.Bars.Select(bar => bar.EventUtc));
+            Assert.Equal(999m, after.Bars[0].Open);
+            Assert.True(after.HasMore);
+            var first = database.GetBarHistoryPage(journal.Id, "MES", "1m", start.AddMinutes(3), before: true, limit: 3);
+            Assert.Equal([start, start.AddMinutes(1), start.AddMinutes(2)], first.Bars.Select(bar => bar.EventUtc));
+            Assert.False(first.HasMore);
+            var last = database.GetBarHistoryPage(journal.Id, "MES", "1m", start.AddMinutes(18), before: false, limit: 3);
+            Assert.Single(last.Bars);
+            Assert.False(last.HasMore);
+            var consolidated = database.GetBarHistoryPage(journal.Id, "MES", "5m", start.AddMinutes(20), before: true, limit: 3);
+            Assert.Equal([start.AddMinutes(5), start.AddMinutes(10), start.AddMinutes(15)], consolidated.Bars.Select(bar => bar.EventUtc));
+            Assert.Equal(1000m, consolidated.Bars[0].Close);
+            Assert.True(consolidated.HasMore);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void BarWindowsPreserveFinestIntervalConsolidationAndCoverageFallback()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var start = Utc(2026, 9, 14, 13, 0);
+            ImportBars(database, journal.Id, start, 30, "1m");
+            ImportBars(database, journal.Id, start.AddHours(1), 30, "5m");
+
+            var finest = database.GetBarWindow(journal.Id, "MES", start, start.AddMinutes(19));
+            Assert.Equal("1m", finest.ResolvedInterval);
+            Assert.Equal(20, finest.Bars.Count);
+            Assert.Equal(2, finest.AvailableSeries.Count);
+            var derived = database.GetBarWindow(journal.Id, "MES", start, start.AddMinutes(19), "2m");
+            Assert.True(derived.IsConsolidated);
+            Assert.Equal("2m", derived.ResolvedInterval);
+            Assert.Equal(10, derived.Bars.Count);
+            var coarser = database.GetBarWindow(journal.Id, "MES", start.AddHours(1), start.AddHours(1).AddMinutes(10), "1m");
+            Assert.True(coarser.IsCoarserThanRequested);
+            Assert.Equal("5m", coarser.ResolvedInterval);
+            Assert.Equal(11, coarser.Bars.Count);
+            Assert.Contains("Only 5 minutes data", coarser.AvailabilityNote);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void DerivedHistoryUsesCompleteUtcAlignedBucketsAcrossPageBoundaries()
     {
         var directory = NewDirectory();

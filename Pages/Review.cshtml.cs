@@ -560,7 +560,7 @@ public class ReviewModel : PageModel
         return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(value, TimeZoneCatalog.Resolve(Day.Journal.TimeZone)).DateTime).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
 
-    public string DomId(string reviewKey) => string.Concat("review-", reviewKey.Where(character => char.IsLetterOrDigit(character) || character is '-' or '_'));
+    public string DomId(string reviewKey) => "review-" + new string(reviewKey.Where(character => char.IsLetterOrDigit(character) || character is '-' or '_').ToArray());
 
     public string TagsText(TradeReviewAnnotation annotation) => string.Join(", ", annotation.Tags);
 
@@ -577,24 +577,24 @@ public class ReviewModel : PageModel
     private BarQueryResult GetTradeBarQuery(Trade trade, string? interval)
     {
         var end = (trade.ExitUtc ?? trade.EntryUtc).AddMinutes(30);
-        var available = _database.GetBarSeries(trade.JournalId, trade.Symbol);
+        var available = _database.GetBarSeriesAvailability(trade.JournalId, trade.Symbol);
         var requestedInterval = BarIntervals.TryNormalize(interval, out var normalizedInterval, allowSource: false)
             ? normalizedInterval
             : BarIntervals.TryNormalize(trade.SourceTimeframe, out var sourceTimeframe, allowSource: false)
                 ? sourceTimeframe
             : available.Where(x => x.IntervalMinutes > 0).OrderBy(x => x.IntervalMinutes).Select(x => x.Interval).FirstOrDefault()
                 ?? (available.Count > 0 ? available[0].Interval : "1m");
-        return _database.GetBarWindow(trade.JournalId, trade.Symbol, trade.EntryUtc.AddMinutes(-30), end, requestedInterval);
+        return _database.GetBarWindow(trade.JournalId, trade.Symbol, trade.EntryUtc.AddMinutes(-30), end, requestedInterval, available);
     }
 
-    private static IReadOnlyList<string> BuildAvailableBarIntervals(IReadOnlyList<BarSeriesInfo> series)
+    private static IReadOnlyList<string> BuildAvailableBarIntervals(IReadOnlyList<BarSeriesAvailability> series)
     {
         var intervals = series
             .Where(x => x.IntervalMinutes > 0)
             .Select(x => BarIntervals.Format(x.IntervalMinutes))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        if (series.Any(x => x.IntervalMinutes == 1 && x.BarCount > 0))
+        if (series.Any(x => x.IntervalMinutes == 1 && x.HasBars))
         {
             intervals.Add("2m");
             intervals.Add("5m");

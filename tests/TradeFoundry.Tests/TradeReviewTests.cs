@@ -10,6 +10,17 @@ namespace TradeFoundry.Tests;
 public sealed class TradeReviewTests
 {
     [Fact]
+    public void ReviewDomIdsPreserveTradeKeysAndKeepTradePanelsDistinct()
+    {
+        var model = new TradeFoundry.Pages.ReviewModel(null!, null!);
+
+        Assert.Equal("review-tfrk_first-trade", model.DomId("tfrk_first-trade"));
+        Assert.Equal("review-tfrk_second-trade", model.DomId("tfrk_second-trade"));
+        Assert.NotEqual(model.DomId("tfrk_first-trade"), model.DomId("tfrk_second-trade"));
+        Assert.Equal("review-tfrk_ab", model.DomId("tfrk_a[]<> b"));
+    }
+
+    [Fact]
     public void LexicalPlainTextExtractsReadableContentAndKeepsPlainTextEntriesSearchable()
     {
         var state = """{"root":{"children":[{"type":"paragraph","children":[{"type":"text","text":"Overnight ES breakout"}]},{"type":"paragraph","children":[{"type":"text","text":"Risk stays at 100%."}]}]}}""";

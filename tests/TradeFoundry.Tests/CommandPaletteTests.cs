@@ -11,6 +11,9 @@ public sealed class CommandPaletteTests
         var items = CommandPaletteCatalog.Items;
 
         Assert.Contains(items, item => item.Category == "Navigation" && item.Title == "Daybook Review");
+        var setups = Assert.Single(items, item => item.Category == "Navigation" && item.Title == "Setups");
+        Assert.Equal("/setups", setups.Route);
+        Assert.Contains("Trading setups", setups.Aliases);
         Assert.Contains(items, item => item.Category == "Chart" && item.Title == "Underwater net P&L");
         Assert.Contains(items, item => item.Category == "Metric" && item.Title == "Sharpe" && item.Route == "/analytics" && item.TargetId == CommandPaletteCatalog.Anchor("risk-metrics", "Sharpe"));
         Assert.True(items.Count(item => item.Category == "Chart") >= 50);

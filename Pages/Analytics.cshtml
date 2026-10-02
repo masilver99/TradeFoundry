@@ -225,7 +225,13 @@
                 <div class="tf-pnl-calendar" data-pnl-calendar data-pnl-currency="@Model.PnlCalendarCurrency" data-pnl-review-base="@($"/journal/{Model.JournalId:D}/review")">
                     <div class="tf-pnl-calendar-toolbar">
                         <div><div class="tf-kicker" data-pnl-calendar-kicker>MONTHLY</div><span class="tf-pnl-calendar-title" data-pnl-calendar-title aria-live="polite">Monthly net P&amp;L</span></div>
-                        <button type="button" class="tf-pnl-calendar-back" data-pnl-calendar-back hidden>Back to months</button>
+                        <div class="tf-pnl-calendar-actions">
+                            <label class="form-check form-switch mb-0 tf-pnl-simple-toggle">
+                                <input class="form-check-input" type="checkbox" role="switch" data-pnl-calendar-simple />
+                                <span class="form-check-label">Simple PnL</span>
+                            </label>
+                            <button type="button" class="tf-pnl-calendar-back" data-pnl-calendar-back hidden>Back to months</button>
+                        </div>
                     </div>
                     @if (Model.PnlCalendarMonths.Count == 0)
                     {

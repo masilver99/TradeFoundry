@@ -30,7 +30,7 @@ public sealed class JournalAnalysisService
                 dates.FirstOrDefault() == default ? null : dates[^1].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 trades.Count,
                 _database.GetOrderEvents(journal.Id).Count > 0,
-                trades.Select(x => x.Symbol).Distinct(StringComparer.OrdinalIgnoreCase).Any(symbol => _database.GetBarSeries(journal.Id, symbol).Count > 0),
+                trades.Select(x => x.Symbol).Distinct(StringComparer.OrdinalIgnoreCase).Any(symbol => _database.HasBarSeries(journal.Id, symbol)),
                 _database.GetBenchmarkPoints(journal.Id).Count > 0,
                 $"/journal/{journal.Id:D}/overview");
         }).ToArray();
@@ -105,7 +105,7 @@ public sealed class JournalAnalysisService
         var gaps = TradeGaps(trade).ToList();
         if (trade.SourceType.Equals("Derived fills", StringComparison.OrdinalIgnoreCase) && fillEvidence.Length == 0) gaps.Add("No allocated fill evidence is stored for this derived trade.");
         if (orderEvidence.Length == 0) gaps.Add("No nearby order lifecycle evidence is stored for this trade.");
-        if (_database.GetBarSeries(journalId, trade.Symbol).Count == 0) gaps.Add("No OHLC bar series is available for this symbol.");
+        if (!_database.HasBarSeries(journalId, trade.Symbol)) gaps.Add("No OHLC bar series is available for this symbol.");
         return new McpTradeDetailResponse
         {
             JournalId = journalId.ToString("D"), JournalTimeZone = journal.TimeZone, Currency = journal.Currency,
@@ -214,7 +214,7 @@ public sealed class JournalAnalysisService
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
         var benchmarks = _database.GetBenchmarkPoints(journalId).OrderBy(point => point.EventUtc).ToArray();
         var barSeries = trades.Select(x => x.Symbol).Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(x => x, x => _database.GetBarSeries(journalId, x), StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(x => x, x => _database.GetBarSeriesAvailability(journalId, x), StringComparer.OrdinalIgnoreCase);
         bool HasBars(Trade trade) => barSeries.GetValueOrDefault(trade.Symbol)?.Any(series => series.FirstEventUtc <= trade.EntryUtc && series.LastEventUtc >= (trade.ExitUtc ?? trade.EntryUtc)) == true;
         bool HasOrders(Trade trade)
         {
@@ -369,7 +369,7 @@ public sealed class JournalAnalysisService
         if (!trades.Any(x => x.MaePoints.HasValue || x.MfePoints.HasValue)) gaps.Add("No excursion evidence is available; entry/exit efficiency conclusions are limited.");
         if (_database.GetOrderEvents(journalId).Count == 0) gaps.Add("No order lifecycle events are stored; execution-quality conclusions are limited.");
         if (_database.GetBenchmarkPoints(journalId).Count == 0) gaps.Add("No cached benchmark points are stored; benchmark comparisons are unavailable.");
-        if (!trades.Select(x => x.Symbol).Distinct(StringComparer.OrdinalIgnoreCase).Any(x => _database.GetBarSeries(journalId, x).Count > 0)) gaps.Add("No stored OHLC series matches the selected trades.");
+        if (!trades.Select(x => x.Symbol).Distinct(StringComparer.OrdinalIgnoreCase).Any(x => _database.HasBarSeries(journalId, x))) gaps.Add("No stored OHLC series matches the selected trades.");
         if (_database.GetImportWarningBatchCount(journalId) > 0) gaps.Add("One or more import batches recorded warnings; review import diagnostics before relying on completeness.");
         return gaps;
     }

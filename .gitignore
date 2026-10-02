@@ -14,6 +14,7 @@ Data/*.db-wal
 .tradefoundry-data/*.db
 .tradefoundry-data/*.db-shm
 .tradefoundry-data/*.db-wal
+.tradefoundry-data/expense-receipts/
 .smoke-data*/
 output/playwright/
 *.user

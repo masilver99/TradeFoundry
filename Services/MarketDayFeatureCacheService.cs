@@ -17,7 +17,7 @@ public sealed class MarketDayFeatureCacheService
     private readonly MarketDayFeatureBuilder _builder;
     private readonly TimeZoneInfo _sessionTimeZone;
     private readonly object _sync = new();
-    private readonly Dictionary<string, BarSeriesInfo?> _sourceSeriesByRoot = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, BarSeriesAvailability?> _sourceSeriesByRoot = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _sourceDirtySignatureByRoot = new(StringComparer.OrdinalIgnoreCase);
 
     public MarketDayFeatureCacheService(TradeFoundryDb database)
@@ -36,7 +36,7 @@ public sealed class MarketDayFeatureCacheService
 
     public MarketRegimeOptions Options => _options;
 
-    public BarSeriesInfo? GetSourceSeries(Guid journalId, string root)
+    public BarSeriesAvailability? GetSourceSeries(Guid journalId, string root)
     {
         var normalizedRoot = InstrumentCatalog.ExtractRoot(root);
         lock (_sync)
@@ -161,8 +161,8 @@ public sealed class MarketDayFeatureCacheService
         return rows.Length;
     }
 
-    private BarSeriesInfo? SelectSourceSeries(Guid journalId, string root) => _database
-        .GetBarSeries(journalId, root)
+    private BarSeriesAvailability? SelectSourceSeries(Guid journalId, string root) => _database
+        .GetBarSeriesAvailability(journalId, root)
         .Where(series => series.IntervalMinutes is > 0 and < 1440)
         .OrderBy(series => series.IntervalMinutes)
         .ThenBy(series => series.Interval, StringComparer.OrdinalIgnoreCase)

@@ -1579,6 +1579,8 @@ function initializePnlCalendar() {
   const back = root?.querySelector("[data-pnl-calendar-back]");
   const summary = root?.querySelector("[data-pnl-calendar-summary]");
   const days = root?.querySelector("[data-pnl-calendar-days]");
+  const simpleToggle = root?.querySelector("[data-pnl-calendar-simple]");
+  let selectedMonth = null;
 
   if (!root || !dataNode || !monthly || !daily || !title || !kicker || !back || !summary || !days) return;
 
@@ -1647,6 +1649,9 @@ function initializePnlCalendar() {
   };
 
   const renderDaily = month => {
+    selectedMonth = month;
+    const simple = simpleToggle?.checked === true;
+    root.classList.toggle("tf-pnl-calendar-simple", simple);
     monthly.hidden = true;
     daily.hidden = false;
     back.hidden = false;
@@ -1675,7 +1680,11 @@ function initializePnlCalendar() {
       const hasPercent = weekDays.filter(day => day.tradeCount > 0).every(day => day.profitPercent != null);
       const row = element("div", "tf-pnl-week-summary");
       row.dataset.tone = netPnl > 0 ? "positive" : netPnl < 0 ? "negative" : "flat";
-      row.append(element("span", "", `Week ${weekDays[0].day}–${weekDays.at(-1).day}`),
+      const weekLabel = element("span", "tf-pnl-week-label");
+      const arrow = element("span", "tf-pnl-week-arrow", "\u2191");
+      arrow.setAttribute("aria-hidden", "true");
+      weekLabel.append(arrow, document.createTextNode(`Week ${weekDays[0].day}\u2013${weekDays.at(-1).day}`));
+      row.append(weekLabel,
         element("strong", "", formatPnl(netPnl)),
         element("span", "", `${tradeCount} ${tradeCount === 1 ? "trade" : "trades"}`),
         element("span", "", `${maeValues.length ? formatMae(Math.max(...maeValues)) : "—"} max MAE`),
@@ -1694,7 +1703,9 @@ function initializePnlCalendar() {
       }
       dayNode.dataset.tone = tone;
       const profitPercent = day.profitPercent === null || day.profitPercent === undefined ? null : formatProfitPercent(day.profitPercent);
-      dayNode.setAttribute("aria-label", day.tradeCount > 0
+      dayNode.setAttribute("aria-label", simple
+        ? `${day.date}: ${day.tradeCount > 0 ? formatPnl(day.netPnl) : "no completed trades"}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}`
+        : day.tradeCount > 0
         ? `${day.date}: ${formatPnl(day.netPnl)}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}, ${Number(day.points || 0).toFixed(2)} points${profitPercent === null ? ", profit percentage unavailable" : `, ${profitPercent} profit`}${day.maeCurrency === null || day.maeCurrency === undefined ? "" : `, ${formatMae(day.maeCurrency)} MAE`}`
         : `${day.date}: no completed trades`);
       if (day.tradeCount === 0) dayNode.classList.add("tf-pnl-day-no-trades");
@@ -1732,6 +1743,9 @@ function initializePnlCalendar() {
     if (month) renderDaily(month);
   });
   back.addEventListener("click", renderMonthly);
+  simpleToggle?.addEventListener("change", () => {
+    if (selectedMonth && root.dataset.pnlCalendarView === "daily") renderDaily(selectedMonth);
+  });
   renderMonthly();
 }
 
@@ -1928,7 +1942,7 @@ function initializeReviewWorkspace() {
 
   shell.classList.add("is-enhanced");
   const formState = new WeakMap();
-  const sections = ["review", "setups", "plan", "media"];
+  const sections = ["review", "setups", "plan", "media", "details"];
   let activeKey = shell.dataset.activeKey || editors[0].dataset.reviewKey;
   let activeSection = sections.includes(shell.dataset.reviewSection) ? shell.dataset.reviewSection : "review";
 
@@ -1961,7 +1975,13 @@ function initializeReviewWorkspace() {
       const selected = panel.dataset.reviewPanel === nextSection;
       panel.classList.toggle("is-active", selected);
       panel.setAttribute("aria-hidden", String(!selected));
+      panel.hidden = !selected;
     });
+    const form = editor.querySelector("[data-review-form]");
+    if (form) form.hidden = nextSection !== "review" && nextSection !== "plan";
+    if (nextSection === "details" && editor.classList.contains("is-active")) {
+      void loadReviewChart(editor.querySelector("[data-review-chart]"));
+    }
   };
 
   const updateUrl = () => {
@@ -2103,7 +2123,7 @@ function initializeReviewWorkspace() {
     if (!key) return true;
     if (key === activeKey) {
       const current = editors.find(editor => editor.dataset.reviewKey === activeKey);
-      if (current) void loadReviewChart(current.querySelector("[data-review-chart]"));
+      if (current && activeSection === "details") void loadReviewChart(current.querySelector("[data-review-chart]"));
       updateUrl();
       return true;
     }
@@ -2127,7 +2147,6 @@ function initializeReviewWorkspace() {
     });
     setSection(next, activeSection);
     updateUrl();
-    void loadReviewChart(next.querySelector("[data-review-chart]"));
     if (options.focus) next.querySelector("[data-review-tab].is-active")?.focus({ preventScroll: true });
     return true;
   };
@@ -2146,11 +2165,28 @@ function initializeReviewWorkspace() {
       event.preventDefault();
       scheduleSave(form, true);
     });
-    editor.querySelectorAll("[data-review-tab]").forEach(tab => tab.addEventListener("click", () => {
+    const tabs = Array.from(editor.querySelectorAll("[data-review-tab]"));
+    const selectTab = tab => {
       activeSection = tab.dataset.reviewTab || "review";
       setSection(editor, activeSection);
       updateUrl();
-    }));
+      editor.scrollIntoView({ block: "start", behavior: "instant" });
+      tab.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+    };
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => selectTab(tab));
+      tab.addEventListener("keydown", event => {
+        let nextIndex;
+        if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+        else if (event.key === "ArrowLeft") nextIndex = (index + tabs.length - 1) % tabs.length;
+        else if (event.key === "Home") nextIndex = 0;
+        else if (event.key === "End") nextIndex = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        selectTab(tabs[nextIndex]);
+        tabs[nextIndex].focus({ preventScroll: true });
+      });
+    });
     editor.querySelector("[data-review-prev]")?.addEventListener("click", () => {
       const index = Number(editor.dataset.reviewIndex || 1);
       const previous = editors[index - 2];
@@ -2193,7 +2229,7 @@ function initializeReviewWorkspace() {
 
   if (shell.dataset.focus) {
     window.requestAnimationFrame(() => {
-      initial?.scrollIntoView({ block: "start", behavior: "smooth" });
+      initial?.scrollIntoView({ block: "start", behavior: "instant" });
     });
   }
 }

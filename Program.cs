@@ -71,6 +71,7 @@ builder.Services.AddSingleton<TradeReviewService>(services => new TradeReviewSer
     services.GetRequiredService<TradingSetupService>()));
 builder.Services.AddSingleton<DailyJournalImageService>();
 builder.Services.AddSingleton<AccountLedgerService>();
+builder.Services.AddSingleton<ExpenseService>();
 builder.Services.AddHostedService<McpHostedService>();
 builder.Services.AddHostedService<ImportFolderMonitor>(services => services.GetRequiredService<ImportFolderMonitor>());
 builder.Services.AddHttpClient<YahooFinanceBenchmarkProvider>(client =>

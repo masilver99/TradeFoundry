@@ -1,0 +1,22 @@
+.tf-expense-actions { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
+.tf-expense-filters { display:grid; grid-template-columns:1fr 1fr 1.4fr auto; align-items:end; gap:1rem; }
+.tf-expense-summary { display:flex; align-items:center; flex-wrap:wrap; gap:1.5rem; margin-top:1rem; }
+.tf-expense-summary small { font-size:.8rem; color:var(--tblr-secondary); }
+.tf-expense-breakdown { display:flex; flex-wrap:wrap; gap:.5rem 1.5rem; }
+.tf-expense-breakdown span { display:flex; gap:.6rem; }
+.tf-expense-upload { display:flex; align-items:end; gap:1rem; }
+.tf-expense-upload > div { flex:1; min-width:0; }
+.tf-expense-receipts { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:1rem; }
+.tf-expense-receipt { display:flex; flex-direction:column; gap:.5rem; padding:1rem; border:1px solid var(--tblr-border-color); border-radius:6px; min-width:0; }
+.tf-expense-receipt strong { overflow-wrap:anywhere; }
+.tf-expense-receipt img { width:100%; height:160px; object-fit:contain; }
+.tf-expense-pdf { height:80px; display:grid; place-items:center; font-weight:600; color:var(--tblr-secondary); background:var(--tblr-bg-surface-secondary); }
+.tf-expense-table { min-width:780px; }
+.tf-expense-table td:nth-child(2) { max-width:360px; white-space:normal; overflow-wrap:anywhere; }
+.tf-expense-pagination { display:flex; justify-content:flex-end; align-items:center; gap:1rem; }
+.tf-expense-dialog { color:var(--tblr-body-color); background:var(--tblr-bg-surface); border:1px solid var(--tblr-border-color); border-radius:8px; padding:1.5rem; width:min(680px,calc(100vw - 2rem)); max-height:85vh; overflow:auto; }
+.tf-expense-dialog::backdrop { background:rgb(0 0 0 / .65); }
+.tf-expense-category-form { display:flex; align-items:center; gap:.5rem; }
+.tf-expense-category-form .form-control { flex:1; min-width:0; }
+.tf-expense-category-active { display:flex; align-items:center; gap:.4rem; white-space:nowrap; }
+@media(max-width:767px) { .tf-expense-filters { grid-template-columns:1fr 1fr; } .tf-expense-filters > div:nth-child(3),.tf-expense-filters > div:nth-child(4) { grid-column:1/-1; } .tf-expense-upload { flex-direction:column; align-items:stretch; } .tf-expense-category-form { flex-wrap:wrap; } .tf-expense-category-form .form-control { flex-basis:100%; } .tf-expense-dialog { padding:1rem; } }

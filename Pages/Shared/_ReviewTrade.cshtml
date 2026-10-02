@@ -74,8 +74,7 @@
     <div class="tf-review-editor-heading">
         <div class="tf-review-editor-identity">
             <div class="tf-kicker">TRADE @reviewIndex OF @reviewCount · @trade.Status.ToUpperInvariant()</div>
-            <h2 class="tf-review-editor-title">@trade.Direction @trade.Instrument <span class="text-secondary">@trade.Symbol · × @trade.ClosedQuantity / @trade.Quantity</span></h2>
-            <p class="text-secondary mb-0">Entry @reviewPage.LocalTime(trade.EntryUtc) · @(trade.ExitUtc.HasValue ? $"Exit {reviewPage.LocalTime(trade.ExitUtc.Value)}" : "Still open") · Source note: @(string.IsNullOrWhiteSpace(trade.Note) ? "none" : trade.Note)</p>
+            <h2 class="tf-review-editor-title">@trade.Direction @trade.Instrument</h2>
         </div>
         <div class="tf-review-trade-result">
             @if (trade.ExitUtc.HasValue && trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase))
@@ -87,8 +86,6 @@
             {
                 <span class="badge text-bg-warning">Open / not realized</span>
             }
-            <small class="text-secondary" data-review-trade-fees>All-in commission: @trade.Fees.ToString("C2", CultureInfo.CurrentCulture)@(review.AllInCommission.HasValue ? " · per-trade override" : " · imported/settings-derived")</small>
-            <small class="text-secondary" data-review-trade-fee-breakdown>@feeBreakdownText@feeBreakdownNote</small>
         </div>
     </div>
 
@@ -103,10 +100,11 @@
         <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-setups" aria-controls="@reviewId-panel-setups" aria-selected="false" data-review-tab="setups">Setup</button>
         <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-plan" aria-controls="@reviewId-panel-plan" aria-selected="false" data-review-tab="plan">Plan &amp; costs</button>
         <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-media" aria-controls="@reviewId-panel-media" aria-selected="false" data-review-tab="media">Media &amp; history</button>
+        <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-details" aria-controls="@reviewId-panel-details" aria-selected="false" data-review-tab="details">Trade details</button>
     </nav>
     </div>
 
-    <section class="tf-review-readonly" aria-label="Read-only trade detail">
+    <section class="tf-review-tab-panel tf-review-readonly" id="@reviewId-panel-details" role="tabpanel" aria-labelledby="@reviewId-tab-details" data-review-panel="details" tabindex="0">
         <div class="tf-review-readonly-heading">
             <div>
                 <div class="tf-kicker">READ-ONLY TRADE DETAIL</div>
@@ -168,6 +166,10 @@
             <div class="card-body">
                 <dl class="tf-definition-list">
                     <dt>Instrument</dt><dd>@trade.Instrument</dd>
+                    <dt>Symbol</dt><dd>@trade.Symbol</dd>
+                    <dt>Closed / total quantity</dt><dd>@trade.ClosedQuantity / @trade.Quantity</dd>
+                    <dt>Entry time</dt><dd>@reviewPage.LocalTime(trade.EntryUtc)</dd>
+                    <dt>Exit time</dt><dd>@(trade.ExitUtc.HasValue ? reviewPage.LocalTime(trade.ExitUtc.Value) : "Still open")</dd>
                     <dt>Trading app</dt><dd>@sourceApplication</dd>
                     <dt>Source type</dt><dd>@trade.SourceType</dd>
                     <dt>Source timeframe</dt><dd>@(string.IsNullOrWhiteSpace(trade.SourceTimeframe) ? "Not recorded" : trade.SourceTimeframe)</dd>
@@ -268,18 +270,19 @@
         <section class="tf-setup-review" aria-label="Setup evaluation">
             <div class="tf-setup-review-header">
                 <div>
-                    <div class="tf-kicker">SETUP QUALITY</div>
                     <h3 class="tf-card-title mb-1">Setup checklist</h3>
                     <p class="text-secondary mb-0">Record the conditions at entry. This stays separate from execution and the trade result.</p>
                 </div>
-                <span class="text-secondary">@Model.SetupWorkspace.Evaluations.Count setup@(Model.SetupWorkspace.Evaluations.Count == 1 ? string.Empty : "s")</span>
+                <div class="tf-setup-review-links">
+                    <span class="text-secondary">@Model.SetupWorkspace.Evaluations.Count setup@(Model.SetupWorkspace.Evaluations.Count == 1 ? string.Empty : "s")</span>
+                    <a class="btn btn-sm btn-outline-primary" asp-page="/Setups" asp-route-journalId="@trade.JournalId">Create a setup</a>
+                </div>
             </div>
 
             @if (reviewPage.Day.SetupDefinitions.Count == 0)
             {
                 <div class="tf-setup-empty">
                     <p class="mb-2">No setup definitions exist in this journal yet.</p>
-                    <a class="btn btn-sm btn-outline-primary" asp-page="/Setups" asp-route-journalId="@trade.JournalId">Create a setup</a>
                 </div>
             }
             else

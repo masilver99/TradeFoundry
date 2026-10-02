@@ -47,7 +47,9 @@ public static class CommandPaletteCatalog
 
         Page("Overview", "/overview", "Home", "Dashboard");
         Page("Trade Ledger", "/trades", "Trades", "Trade search", "Ledger");
+        Page("Setups", "/setups", "Trading setups", "Strategies", "Setup definitions");
         Page("Account", "/account", "Balance", "Transactions");
+        Page("Expenses", "/expenses", "Receipts", "Trading expenses", "Software costs");
         Page("Analysis", "/analytics", "Analytics");
         Page("Indicators", "/indicators", "Metrics", "Statistics");
         Page("Broker Costs", "/broker-comparison", "Commissions", "Fees", "Broker comparison");

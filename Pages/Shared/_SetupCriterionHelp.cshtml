@@ -1,0 +1,44 @@
+@model string
+@{
+    var title = Model switch { "type" => "Criterion type", "stage" => "Criterion stage", "mode" => "Evaluation mode", "active" => "Active criterion", _ => "Rule metadata" };
+}
+<details class="tf-criterion-help">
+    <summary aria-label="Help for @title" title="Help for @title">?</summary>
+    <div class="tf-criterion-help-content">
+        <strong>@title</strong>
+        @switch (Model)
+        {
+            case "type":
+                <p>Choose how this condition contributes to the setup review.</p>
+                <p><b>Required:</b> A condition the setup must meet; included in required adherence.</p>
+                <p><b>Supporting:</b> Extra confirmation, tracked separately from required adherence.</p>
+                <p><b>Disqualifier:</b> A condition that invalidates the setup when present (Met).</p>
+                <p><b>Context:</b> Background information, tracked separately from required adherence.</p>
+                break;
+            case "stage":
+                <p>Choose where this condition belongs in the trade lifecycle.</p>
+                <p><b>Context:</b> Market environment or background conditions.</p>
+                <p><b>Setup:</b> The pattern or conditions defining the opportunity.</p>
+                <p><b>Trigger:</b> The signal for entering the trade.</p>
+                <p><b>Management:</b> Decisions while the position is open.</p>
+                <p><b>Exit:</b> Conditions for closing the trade.</p>
+                break;
+            case "mode":
+                <p>Record the intended way to evaluate this criterion.</p>
+                <p><b>Manual:</b> You assess the condition during review.</p>
+                <p><b>Automatic:</b> Intended for a rule-based assessment.</p>
+                <p><b>Suggested:</b> Intended for a suggested assessment that you review.</p>
+                <p>Currently all evaluations are entered manually. Choosing Automatic or Suggested does not run a check or generate a suggestion.</p>
+                break;
+            case "active":
+                <p><b>Checked:</b> Show this criterion in the trade details checklist and include it in setup adherence.</p>
+                <p><b>Unchecked:</b> Hide it from the trade details checklist and exclude it from adherence. It remains in the setup definition; historical versions and reviews are preserved.</p>
+                break;
+            default:
+                <p>Optional structured metadata for a future evaluation rule. Leave blank for a normal manual checklist item.</p>
+                <p>If supplied, the value must be valid JSON (up to 4,000 characters), for example <code>{"threshold": 2}</code>.</p>
+                <p>The JSON is stored with the criterion. No rule schema or automatic execution is implemented yet.</p>
+                break;
+        }
+    </div>
+</details>

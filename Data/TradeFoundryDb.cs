@@ -170,6 +170,8 @@ public sealed partial class TradeFoundryDb
             command.ExecuteNonQuery();
         }
 
+        InitializeExpenses(connection);
+
         // The application started without migrations, so keep schema upgrades
         // additive and idempotent for existing local SQLite files.
         EnsureColumn(connection, "journals", "starting_equity", "TEXT NULL");
@@ -2351,6 +2353,41 @@ public sealed partial class TradeFoundryDb
         return bars.GroupBy(x => x.EventUtc).Select(x => x.First()).ToArray();
     }
 
+    public bool HasBarSeries(Guid journalId, string symbol)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM bar_series WHERE symbol = $symbol)";
+        command.Parameters.AddWithValue("$symbol", InstrumentCatalog.ExtractRoot(symbol));
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
+    }
+
+    public IReadOnlyList<BarSeriesAvailability> GetBarSeriesAvailability(Guid journalId, string symbol)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        // Probe the ends of each time index instead of aggregating its entire history.
+        // Legacy databases can contain multiple physical series for an interval.
+        command.CommandText = "SELECT s.id, s.symbol, s.interval, (SELECT event_utc FROM bars WHERE series_id = s.id ORDER BY event_utc LIMIT 1), (SELECT event_utc FROM bars WHERE series_id = s.id ORDER BY event_utc DESC LIMIT 1) FROM bar_series s WHERE s.symbol = $symbol ORDER BY CASE WHEN s.interval = 'source' THEN 1 ELSE 0 END, s.interval, s.id";
+        command.Parameters.AddWithValue("$symbol", InstrumentCatalog.ExtractRoot(symbol));
+        using var reader = command.ExecuteReader();
+        var sources = new List<(string Id, string Symbol, string Interval, DateTimeOffset? First, DateTimeOffset? Last)>();
+        while (reader.Read())
+            sources.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2),
+                reader.IsDBNull(3) ? null : ParseDate(reader.GetString(3)),
+                reader.IsDBNull(4) ? null : ParseDate(reader.GetString(4))));
+
+        return sources.GroupBy(source => (source.Symbol, source.Interval)).Select(group => new BarSeriesAvailability
+        {
+            Symbol = group.Key.Symbol,
+            Interval = group.Key.Interval,
+            IntervalMinutes = BarIntervals.TryGetMinutes(group.Key.Interval, out var minutes) ? minutes : 0,
+            FirstEventUtc = group.Min(source => source.First),
+            LastEventUtc = group.Max(source => source.Last),
+            SourceSeriesIds = group.Select(source => source.Id).ToArray()
+        }).ToArray();
+    }
+
     public IReadOnlyList<BarSeriesInfo> GetBarSeries(Guid journalId, string symbol)
     {
         var normalizedSymbol = InstrumentCatalog.ExtractRoot(symbol);
@@ -2491,9 +2528,11 @@ public sealed partial class TradeFoundryDb
     }
 
     public BarQueryResult GetBarWindow(Guid journalId, string symbol, DateTimeOffset start, DateTimeOffset end, string requestedInterval = BarIntervals.Source)
+        => GetBarWindow(journalId, symbol, start, end, requestedInterval, GetBarSeriesAvailability(journalId, symbol));
+
+    internal BarQueryResult GetBarWindow(Guid journalId, string symbol, DateTimeOffset start, DateTimeOffset end, string requestedInterval, IReadOnlyList<BarSeriesAvailability> available)
     {
         var requested = BarIntervals.Normalize(requestedInterval);
-        var available = GetBarSeries(journalId, symbol);
         var fullyCovered = available.Where(x => x.FirstEventUtc.HasValue && x.LastEventUtc.HasValue && x.FirstEventUtc.Value <= start && x.LastEventUtc.Value >= end).ToArray();
         var overlapping = available.Where(x => x.FirstEventUtc.HasValue && x.LastEventUtc.HasValue && x.FirstEventUtc.Value <= end && x.LastEventUtc.Value >= start).ToArray();
         var candidates = fullyCovered.Length > 0 ? fullyCovered : overlapping.Length > 0 ? overlapping : available.ToArray();
@@ -2542,7 +2581,7 @@ public sealed partial class TradeFoundryDb
             throw new ArgumentOutOfRangeException(nameof(limit), "The bar page size must be between 1 and 500.");
 
         var requested = BarIntervals.Normalize(requestedInterval, allowSource: true);
-        var available = GetBarSeries(journalId, symbol);
+        var available = GetBarSeriesAvailability(journalId, symbol);
         var requestedMinutes = BarIntervals.TryGetMinutes(requested, out var targetMinutes) ? targetMinutes : 0;
         var selected = SelectBarSeries(available, requestedMinutes);
         if (selected is null)
@@ -2568,7 +2607,7 @@ public sealed partial class TradeFoundryDb
             if (!before)
                 queryCursor = queryCursor.AddMinutes(requestedMinutes);
         }
-        var sourceBars = GetBarHistoryRaw(symbol, selected.Interval, queryCursor, before, sourceLimit, afterInclusive: consolidated && !before);
+        var sourceBars = GetBarHistoryRaw(selected, queryCursor, before, sourceLimit, afterInclusive: consolidated && !before);
         var candidates = consolidated ? ConsolidateBars(sourceBars, requestedMinutes) : sourceBars;
         var ordered = candidates.OrderBy(x => x.EventUtc).ToArray();
         var hasMore = ordered.Length > limit || sourceBars.Count >= sourceLimit;
@@ -2584,27 +2623,34 @@ public sealed partial class TradeFoundryDb
         };
     }
 
-    private IReadOnlyList<Bar> GetBarHistoryRaw(string symbol, string interval, DateTimeOffset cursor, bool before, int limit, bool afterInclusive)
+    private IReadOnlyList<Bar> GetBarHistoryRaw(BarSeriesAvailability series, DateTimeOffset cursor, bool before, int limit, bool afterInclusive)
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         var comparison = before ? "<" : afterInclusive ? ">=" : ">";
         var order = before ? "DESC" : "ASC";
-        command.CommandText = $"SELECT b.id, b.series_id, s.symbol, s.interval, b.event_utc, b.open, b.high, b.low, b.close, b.volume, b.number_of_trades, b.bid_volume, b.ask_volume FROM bars b JOIN bar_series s ON s.id = b.series_id WHERE s.symbol = $symbol AND s.interval = $interval AND b.event_utc {comparison} $cursor ORDER BY b.event_utc {order}, b.id {order} LIMIT $limit";
-        command.Parameters.AddWithValue("$symbol", InstrumentCatalog.ExtractRoot(symbol));
-        command.Parameters.AddWithValue("$interval", interval);
+        // event_utc is unique within a physical series. Fixing series_id lets
+        // SQLite walk its time index and stop at LIMIT without sorting history.
+        command.CommandText = $"SELECT b.id, b.series_id, $symbol, $interval, b.event_utc, b.open, b.high, b.low, b.close, b.volume, b.number_of_trades, b.bid_volume, b.ask_volume FROM bars b WHERE b.series_id = $series AND b.event_utc {comparison} $cursor ORDER BY b.event_utc {order} LIMIT $limit";
+        var seriesParameter = command.Parameters.AddWithValue("$series", string.Empty);
+        command.Parameters.AddWithValue("$symbol", series.Symbol);
+        command.Parameters.AddWithValue("$interval", series.Interval);
         command.Parameters.AddWithValue("$cursor", cursor.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$limit", limit);
 
         var bars = new List<Bar>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read()) bars.Add(ReadBar(reader));
-        return before
-            ? bars.OrderBy(x => x.EventUtc).ThenBy(x => x.Id).GroupBy(x => x.EventUtc).Select(x => x.First()).ToArray()
-            : bars.GroupBy(x => x.EventUtc).Select(x => x.First()).ToArray();
+        foreach (var sourceId in series.SourceSeriesIds)
+        {
+            seriesParameter.Value = sourceId;
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) bars.Add(ReadBar(reader));
+        }
+        var merged = bars.OrderBy(bar => bar.EventUtc).ThenBy(bar => bar.Id)
+            .GroupBy(bar => bar.EventUtc).Select(group => group.First()).ToArray();
+        return before ? merged.TakeLast(limit).ToArray() : merged.Take(limit).ToArray();
     }
 
-    private static BarSeriesInfo? SelectBarSeries(IReadOnlyList<BarSeriesInfo> available, int requestedMinutes)
+    private static BarSeriesAvailability? SelectBarSeries(IReadOnlyList<BarSeriesAvailability> available, int requestedMinutes)
     {
         if (available.Count == 0) return null;
         if (requestedMinutes == 0)

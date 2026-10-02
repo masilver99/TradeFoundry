@@ -1,0 +1,94 @@
+@page "/journal/{journalId:guid}/expenses"
+@model TradeFoundry.Pages.ExpensesModel
+@{
+    ViewData["Title"] = "Expenses";
+    ViewData["ActiveNav"] = "expenses";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / EXPENSES";
+    var editing = Model.Editing;
+    var formUrl = Model.FilterUrl(Model.PageNumber);
+}
+<link rel="stylesheet" href="~/css/expenses.css" asp-append-version="true" />
+<section class="tf-page-intro mb-3">
+    <div><div class="tf-kicker">TRADING OPERATING COSTS</div><h1>Expenses</h1><p class="tf-lede">Keep tools, software, data, and other trading expenses together with their receipts.</p></div>
+    <div class="tf-expense-actions"><a class="btn btn-primary" href="@formUrl#expense-form">Add expense</a><button class="btn btn-outline-secondary" type="button" data-expense-categories-open>Manage categories</button></div>
+</section>
+@if (TempData["ExpenseMessage"] is string message)
+{
+    <div class="alert tf-alert" role="status">@message</div>
+}
+<div asp-validation-summary="All" class="text-danger mb-3" aria-live="assertive"></div>
+<section class="card tf-card mb-3" aria-label="Expense filters">
+    <div class="card-body"><form method="get" action="@Model.BaseUrl" class="tf-expense-filters">
+        <div><label class="form-label" for="start">From</label><input id="start" name="start" type="date" class="form-control" value="@Model.Start?.ToString("yyyy-MM-dd")" required /></div>
+        <div><label class="form-label" for="end">Through</label><input id="end" name="end" type="date" class="form-control" value="@Model.End?.ToString("yyyy-MM-dd")" required /></div>
+        <div><label class="form-label" for="category">Category</label><select id="category" name="category" class="form-select"><option value="">All categories</option>@foreach (var category in Model.Categories){<option value="@category.Id" selected="@(Model.Category == category.Id)">@category.Name@(category.Active ? "" : " (archived)")</option>}</select></div>
+        <div class="tf-expense-actions"><button type="submit" class="btn btn-outline-primary">Apply filters</button><a class="btn btn-outline-secondary" href="@formUrl&handler=Export">Export CSV</a></div>
+    </form></div>
+</section>
+<section class="card tf-card mb-3" aria-label="Expense summary"><div class="card-body">
+    <div class="tf-section-heading"><h2 class="tf-card-title">Filtered expenses</h2><span class="text-secondary">@Model.Matches.Count expense(s)</span></div>
+    @if (Model.Matches.Count == 0){<p class="text-secondary mb-0 mt-2">No expenses in this date range.</p>}
+    @foreach (var currency in Model.Matches.GroupBy(e => e.Currency).OrderBy(g => g.Key))
+    {
+        <div class="tf-expense-summary"><strong class="tf-metric-value">@currency.Sum(e => e.Details.Amount).ToString("N2") <small>@currency.Key</small></strong><div class="tf-expense-breakdown">@foreach (var group in currency.GroupBy(e => e.CategoryName).OrderBy(g => g.Key)){<span>@group.Key <strong>@group.Sum(e => e.Details.Amount).ToString("N2")</strong></span>}</div></div>
+    }
+    <p class="text-secondary small mt-2 mb-0">Expenses are tracked separately from trading P&amp;L and account balances. Totals include every matching expense, across all pages.</p>
+</div></section>
+<section class="card tf-card mb-3" id="expense-form">
+    <div class="card-header"><h2 class="tf-card-title">@(editing is null ? "Add expense" : "Edit expense")</h2></div>
+    <div class="card-body"><form method="post" action="@formUrl&handler=Save" class="row g-3">
+        @Html.AntiForgeryToken()
+        @if (editing is not null){<input type="hidden" name="expenseId" value="@editing.Id" /><input type="hidden" name="expectedRevision" value="@editing.Revision" />}
+        <div class="col-sm-6 col-lg-3"><label class="form-label" for="Input_Date">Expense date</label><input id="Input_Date" name="Input.Date" type="date" class="form-control" value="@Model.Input.Date.ToString("yyyy-MM-dd")" required /></div>
+        <div class="col-sm-6 col-lg-3"><label class="form-label" asp-for="Input.Amount">Amount (@(editing?.Currency ?? Model.Journal!.Currency))</label><input asp-for="Input.Amount" type="number" class="form-control" min="0.01" step="0.01" required /></div>
+        <div class="col-sm-6 col-lg-3"><label class="form-label" asp-for="Input.CategoryId">Category</label><select asp-for="Input.CategoryId" class="form-select" required><option value="">Choose category</option>@foreach (var category in Model.Categories.Where(c => c.Active || c.Id == editing?.Details.CategoryId)){<option value="@category.Id">@category.Name@(category.Active ? "" : " (archived)")</option>}</select></div>
+        <div class="col-sm-6 col-lg-3"><label class="form-label" asp-for="Input.Vendor">Vendor <span class="text-secondary">(optional)</span></label><input asp-for="Input.Vendor" class="form-control" maxlength="180" /></div>
+        <div class="col-12"><label class="form-label" asp-for="Input.Description">Description</label><input asp-for="Input.Description" class="form-control" maxlength="250" required placeholder="Monthly charting subscription…" /></div>
+        <div class="col-12"><label class="form-label" asp-for="Input.Notes">Notes <span class="text-secondary">(optional)</span></label><textarea asp-for="Input.Notes" class="form-control" maxlength="2000" rows="2"></textarea></div>
+        <div class="col-12 tf-expense-actions"><button class="btn btn-primary" type="submit" disabled="@Model.SaveConflict">@(editing is null ? "Save expense" : "Save changes")</button>@if (Model.SaveConflict){<a class="btn btn-outline-primary" href="@formUrl&edit=@editing?.Id#expense-form">Reload current expense</a>}@if (editing is not null){<a class="btn btn-outline-secondary" href="@formUrl#expense-form">Cancel edit</a><span class="text-secondary small">Revision @editing.Revision</span>}else{<span class="text-secondary small">Save your expense to attach receipts.</span>}</div>
+    </form></div>
+</section>
+@if (editing is not null)
+{
+    <section class="card tf-card mb-3" id="expense-receipts"><div class="card-header"><h2 class="tf-card-title">Receipts</h2></div><div class="card-body">
+        <form method="post" action="@formUrl&handler=Attach" enctype="multipart/form-data" class="tf-expense-upload">
+            @Html.AntiForgeryToken()<input type="hidden" name="expenseId" value="@editing.Id" /><input type="hidden" name="expectedRevision" value="@editing.Revision" />
+            <div><label class="form-label" for="Receipt">PDF, PNG, JPEG, or WebP · up to 10 MB per receipt</label><input id="Receipt" name="Receipt" type="file" class="form-control" accept="application/pdf,image/png,image/jpeg,image/webp" required /></div><button class="btn btn-outline-primary" type="submit">Attach receipt</button>
+        </form>
+        <div class="tf-expense-receipts mt-3">
+        @foreach (var receipt in Model.Receipts)
+        {
+            <article class="tf-expense-receipt">
+                @if (receipt.ContentType.StartsWith("image/")){<a href="@Model.ReceiptUrl(receipt)" target="_blank" rel="noopener"><img src="@Model.ReceiptUrl(receipt)" alt="Receipt: @receipt.OriginalFileName" loading="lazy" /></a>}else{<div class="tf-expense-pdf" aria-hidden="true">PDF</div>}
+                <strong>@receipt.OriginalFileName</strong><span class="text-secondary small">@((receipt.Length / 1024m).ToString("N1")) KB</span>
+                <div class="tf-expense-actions"><a class="btn btn-sm btn-outline-secondary" href="@Model.ReceiptUrl(receipt, true)">Download</a><form method="post" action="@formUrl&handler=RemoveReceipt" data-expense-confirm="Remove this receipt?">@Html.AntiForgeryToken()<input type="hidden" name="expenseId" value="@editing.Id" /><input type="hidden" name="receiptId" value="@receipt.Id" /><input type="hidden" name="expectedRevision" value="@editing.Revision" /><button class="btn btn-sm btn-outline-danger" type="submit">Remove</button></form></div>
+            </article>
+        }
+        </div>
+        @if (Model.Receipts.Count == 0){<p class="text-secondary mt-3 mb-0">No receipts attached yet.</p>}
+    </div></section>
+}
+<section class="card tf-card" id="expense-ledger"><div class="card-header"><h2 class="tf-card-title">Expense ledger</h2></div>
+    @if (Model.Rows.Count == 0){<div class="tf-empty m-3"><strong>No matching expenses.</strong>Add an expense above or adjust the filters.</div>}
+    else
+    {
+        <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-expense-table"><thead><tr><th>Date</th><th>Vendor / description</th><th>Category</th><th>Amount</th><th>Receipts</th><th>Actions</th></tr></thead><tbody>
+        @foreach (var expense in Model.Rows)
+        {
+            <tr><td>@expense.Details.Date.ToString("MMM d, yyyy")</td><td><strong>@expense.Details.Description</strong>@if (!string.IsNullOrWhiteSpace(expense.Details.Vendor)){<small>@expense.Details.Vendor</small>}</td><td>@expense.CategoryName</td><td class="text-nowrap">@expense.Details.Amount.ToString("N2") @expense.Currency</td><td><a href="@formUrl&edit=@expense.Id#expense-receipts">@expense.ReceiptCount receipt(s)</a></td><td><div class="tf-expense-actions"><a class="btn btn-sm btn-outline-secondary" href="@formUrl&edit=@expense.Id#expense-form">Edit</a><form method="post" action="@formUrl&handler=Delete" data-expense-confirm="Delete this expense? Its history and receipts will be retained.">@Html.AntiForgeryToken()<input type="hidden" name="expenseId" value="@expense.Id" /><input type="hidden" name="expectedRevision" value="@expense.Revision" /><button class="btn btn-sm btn-outline-danger" type="submit">Delete</button></form></div></td></tr>
+        }
+        </tbody></table></div>
+    }
+    @if (Model.PageCount > 1){<div class="card-footer tf-expense-pagination">@if(Model.PageNumber > 1){<a class="btn btn-sm btn-outline-secondary" href="@Model.FilterUrl(Model.PageNumber - 1)#expense-ledger">Previous</a>}<span>Page @Model.PageNumber of @Model.PageCount</span>@if(Model.PageNumber < Model.PageCount){<a class="btn btn-sm btn-outline-secondary" href="@Model.FilterUrl(Model.PageNumber + 1)#expense-ledger">Next</a>}</div>}
+</section>
+<dialog id="expense-categories" class="tf-expense-dialog" aria-labelledby="expense-categories-title" data-open="@(Model.CategoryDialogOpen || Request.Query["categories"] == "true" ? "true" : "false")">
+    <div class="tf-section-heading mb-3"><h2 id="expense-categories-title">Expense categories</h2><button type="button" class="btn btn-outline-secondary" data-expense-categories-close aria-label="Close categories">Close</button></div>
+    <p class="text-secondary small">Archived categories stay on existing expenses. Reactivate one to use it again.</p>
+    <div asp-validation-summary="All" class="text-danger" aria-live="assertive"></div>
+    <form method="post" action="@formUrl&handler=CreateCategory" class="tf-expense-category-form mb-3">@Html.AntiForgeryToken()<label class="visually-hidden" for="new-category-name">New category name</label><input id="new-category-name" name="name" class="form-control" maxlength="80" placeholder="New category name" required /><button class="btn btn-primary" type="submit">Add category</button></form>
+    @foreach (var category in Model.Categories)
+    {
+        <form method="post" action="@formUrl&handler=UpdateCategory" class="tf-expense-category-form mb-2">@Html.AntiForgeryToken()<input type="hidden" name="categoryId" value="@category.Id" /><input type="hidden" name="expectedRevision" value="@category.Revision" /><label class="visually-hidden" for="category-@category.Id">Rename @category.Name</label><input id="category-@category.Id" name="name" class="form-control" value="@category.Name" maxlength="80" required /><label class="tf-expense-category-active"><input type="checkbox" name="active" value="true" checked="@category.Active" /> Active</label><button class="btn btn-outline-secondary" type="submit">Save</button></form>
+    }
+</dialog>
+@section Scripts {<script src="~/js/expenses.js" asp-append-version="true"></script>}

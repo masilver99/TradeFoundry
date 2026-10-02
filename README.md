@@ -97,6 +97,12 @@ docker compose up -d --build
 
 The source-build Compose file mounts the host `data/` directory instead of a named volume. Back up the whole data directory/volume while the app is stopped, or use SQLite’s online backup tooling for the database; keep the active database on local storage rather than SMB/NFS. MCP is disabled in Docker images.
 
+### Trading expenses
+
+Each journal has an Expenses page for manually recording operating costs, managing categories, attaching PDF/image receipts, and exporting filtered expenses to CSV. Expenses do not change trading P&L or account balances. New entries use the journal currency; existing entries retain their recorded currency if the journal setting changes. Totals are separated by currency without conversion.
+
+Receipts are private files in `expense-receipts/<journal-id>/` beside `journal.db`, up to 10 MB each. Backups must include both the database and this receipt directory (along with other attachment directories); CSV export does not include receipt files. Deleting an expense hides it and its receipts while retaining audit history. Removing an individual receipt deletes its file.
+
 ### Publishing images on Forgejo
 
 `.forgejo/workflows/container.yml` tests and publishes Linux images to `git.shaa.one/masilver/tradefoundry` on every push to `main` and on version-tag pushes. Images include the application version and commit in .NET assembly metadata and OCI labels. The initial architecture is that of the Linux Docker runner (normally amd64); ARM64 is not built separately.

@@ -39,7 +39,7 @@
         <div class="alert alert-success" role="status">@Model.NoticeMessage</div>
     }
 
-    <section class="card tf-card tf-daily-journal" aria-labelledby="daily-journal-heading">
+    <section class="card tf-card tf-daily-journal" data-daily-journal-entry aria-labelledby="daily-journal-heading">
         <div class="card-header tf-daily-journal-heading" role="button" tabindex="0" aria-controls="daily-journal-editor" aria-expanded="true" data-daily-journal-toggle>
             <div class="tf-daily-journal-title">
                 <h2 id="daily-journal-heading" class="tf-card-title">Daily journal</h2>
@@ -91,9 +91,8 @@
         <div class="tf-review-workspace" data-review-workspace>
             <aside class="card tf-card tf-review-roster" aria-label="Trades for selected day">
             <div class="tf-review-roster-heading">
-                <div class="tf-kicker">SELECTED DAY</div>
                     <div class="tf-review-roster-title-row">
-                        <h2>@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)</h2>
+                        <h2><time datetime="@dateText" aria-label="@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture)">@selectedDate.ToString("ddd, M/d/yy", CultureInfo.InvariantCulture)</time></h2>
                         <div class="tf-review-day-nav" aria-label="Trading day navigation">
                             @if (Model.Day.PreviousDate.HasValue)
                             {
@@ -118,7 +117,6 @@
                         <span>@Model.Day.OpenTradeCount open</span>
                         <strong class="@(Model.Day.RealizedNetPnl >= 0 ? "text-success" : "text-danger")">@Model.Day.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong>
                     </div>
-                    <div class="tf-review-roster-hint">Select a trade to edit. Your position stays visible while you scroll.</div>
                 </div>
                 <div class="tf-review-roster-list" role="listbox" aria-label="Trades on selected day">
                     @{

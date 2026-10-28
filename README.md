@@ -130,6 +130,10 @@ docker pull git.shaa.one/masilver/tradefoundry:0.1.0
 
 The workflow publishes images only; it does not restart any running deployments. Configure package cleanup to retain numbered releases and deployed commit tags.
 
+## Public journal website
+
+Publish one journal's dashboard, realized equity curve, monthly calendars, daily writing, images, and compact trade summaries to the separate public reader in this repository. In TradeFoundry, open **Publishing**, configure the website, create a frozen preview, and publish it manually. See [public journal setup, Docker hosting, API, and backups](PublicJournal/README.md).
+
 ## Local MCP server
 
 TradeFoundry includes an optional, scoped MCP server for desktop AI clients. It is disabled by default and listens on a separate loopback-only endpoint, so the normal browser listener does not expose MCP routes. This first release is for native local runs only; Docker, LAN, and internet-reachable MCP use are unsupported.

@@ -3,6 +3,7 @@ ARG VERSION=0.0.0-dev
 ARG REVISION=unknown
 WORKDIR /src
 COPY ["TradeFoundry.csproj", "."]
+COPY ["PublicJournal/Contracts/TradeFoundry.Publishing.Contracts.csproj", "PublicJournal/Contracts/"]
 RUN dotnet restore "TradeFoundry.csproj"
 COPY . .
 RUN dotnet publish "TradeFoundry.csproj" -c Release -o /app/publish \

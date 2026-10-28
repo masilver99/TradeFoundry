@@ -19,3 +19,4 @@ Data/*.db-wal
 output/playwright/
 *.user
 *.suo
+PublicJournal/.env

@@ -71,6 +71,10 @@ builder.Services.AddSingleton<TradeReviewService>(services => new TradeReviewSer
     services.GetRequiredService<TradingSetupService>()));
 builder.Services.AddSingleton<DailyJournalImageService>();
 builder.Services.AddSingleton<AccountLedgerService>();
+builder.Services.AddSingleton<PublicationExportService>();
+builder.Services.AddSingleton<PublicationWorkflow>();
+builder.Services.AddHttpClient("Publication", client => client.Timeout = TimeSpan.FromMinutes(3))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<ExpenseService>();
 builder.Services.AddHostedService<McpHostedService>();
 builder.Services.AddHostedService<ImportFolderMonitor>(services => services.GetRequiredService<ImportFolderMonitor>());

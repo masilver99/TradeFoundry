@@ -1,0 +1,31 @@
+name: public-journal
+
+services:
+  journal:
+    image: tradefoundry-public-journal:${IMAGE_TAG:?Set IMAGE_TAG to the deployed commit}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Publishing__Token: ${PUBLIC_JOURNAL_TOKEN:?Set the PUBLIC_JOURNAL_TOKEN Forgejo Actions secret}
+      Storage__DataDirectory: /app/data
+      AllowedHosts: trades.shaa.one;localhost;127.0.0.1
+      VIRTUAL_HOST: trades.shaa.one
+      VIRTUAL_PORT: "8080"
+      LETSENCRYPT_HOST: trades.shaa.one
+    volumes:
+      - journal-data:/app/data
+    networks:
+      - int
+    healthcheck:
+      test: ["CMD", "dotnet", "TradeFoundry.PublicJournal.dll", "--health-check"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+
+networks:
+  int:
+    external: true
+
+volumes:
+  journal-data:

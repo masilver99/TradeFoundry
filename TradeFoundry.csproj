@@ -4,9 +4,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <DefaultItemExcludes>$(DefaultItemExcludes);PublicJournal\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="PublicJournal\Contracts\TradeFoundry.Publishing.Contracts.csproj" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
   </ItemGroup>

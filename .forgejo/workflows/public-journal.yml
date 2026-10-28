@@ -1,0 +1,97 @@
+name: Deploy public journal
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'PublicJournal/**'
+      - 'tests/**'
+      - 'Core/**'
+      - 'Data/**'
+      - 'Services/**'
+      - 'Pages/**'
+      - 'Program.cs'
+      - 'TradeFoundry.csproj'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.forgejo/workflows/public-journal.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: tradefoundry-public-journal-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: docker
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      IMAGE_TAG: sha-${{ forgejo.sha }}
+      DEPLOY_HOST: trades.shaa.one
+      DEPLOY_USER: ${{ vars.PUBLIC_JOURNAL_DEPLOY_USER }}
+    steps:
+      - name: Check out source
+        uses: https://data.forgejo.org/actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Test backend and publishing workflow
+        run: docker build --target test .
+
+      - name: Build public reader
+        run: docker build --pull --tag "tradefoundry-public-journal:$IMAGE_TAG" PublicJournal
+
+      - name: Configure deployment access
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.PUBLIC_JOURNAL_DEPLOY_KNOWN_HOSTS }}
+          PUBLIC_JOURNAL_TOKEN: ${{ secrets.PUBLIC_JOURNAL_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$DEPLOY_USER" || { echo 'Set PUBLIC_JOURNAL_DEPLOY_USER Actions variable'; exit 1; }
+          test -n "$SSH_PRIVATE_KEY" || { echo 'Set DEPLOY_SSH_KEY Actions secret'; exit 1; }
+          test -n "$KNOWN_HOSTS" || { echo 'Set PUBLIC_JOURNAL_DEPLOY_KNOWN_HOSTS Actions secret'; exit 1; }
+          test -n "$PUBLIC_JOURNAL_TOKEN" || { echo 'Set PUBLIC_JOURNAL_TOKEN Actions secret'; exit 1; }
+          umask 077
+          install -d -m 700 "$RUNNER_TEMP/public-journal-ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/public-journal-ssh/deploy_key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/public-journal-ssh/known_hosts"
+          printf '%s\n' \
+            'Host production' \
+            "  HostName $DEPLOY_HOST" \
+            "  User $DEPLOY_USER" \
+            "  IdentityFile $RUNNER_TEMP/public-journal-ssh/deploy_key" \
+            "  UserKnownHostsFile $RUNNER_TEMP/public-journal-ssh/known_hosts" \
+            '  IdentitiesOnly yes' \
+            '  BatchMode yes' \
+            '  StrictHostKeyChecking yes' > "$RUNNER_TEMP/public-journal-ssh/config"
+          chmod 600 "$RUNNER_TEMP/public-journal-ssh/"*
+
+      - name: Upload public reader image and deployment files
+        run: |
+          set -Eeuo pipefail
+          ssh -F "$RUNNER_TEMP/public-journal-ssh/config" production 'mkdir -p /opt/trades'
+          docker save "tradefoundry-public-journal:$IMAGE_TAG" | gzip > "$RUNNER_TEMP/public-journal-$IMAGE_TAG.tar.gz"
+          scp -F "$RUNNER_TEMP/public-journal-ssh/config" \
+            "$RUNNER_TEMP/public-journal-$IMAGE_TAG.tar.gz" \
+            PublicJournal/compose.production.yml PublicJournal/deploy.sh PublicJournal/nginx-vhost.conf production:/opt/trades/
+
+      - name: Activate container and verify public HTTPS
+        env:
+          PUBLIC_JOURNAL_TOKEN: ${{ secrets.PUBLIC_JOURNAL_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          printf '%s\n' "$PUBLIC_JOURNAL_TOKEN" |
+            ssh -F "$RUNNER_TEMP/public-journal-ssh/config" production "bash /opt/trades/deploy.sh '$IMAGE_TAG'"
+          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors \
+            --connect-timeout 10 --max-time 15 https://trades.shaa.one/health
+
+      - name: Remove temporary credentials and image archive
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/public-journal-ssh/deploy_key" \
+            "$RUNNER_TEMP/public-journal-ssh/known_hosts" "$RUNNER_TEMP/public-journal-ssh/config" \
+            "$RUNNER_TEMP/public-journal-$IMAGE_TAG.tar.gz"

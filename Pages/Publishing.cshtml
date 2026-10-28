@@ -1,0 +1,46 @@
+@page "/journal/{journalId:guid}/publishing"
+@model TradeFoundry.Pages.PublishingModel
+@{
+    ViewData["Title"] = "Publishing";
+    ViewData["ActiveNav"] = "publishing";
+    var draft = Model.State.Draft;
+}
+<div class="mb-4"><div class="tf-kicker">PUBLIC JOURNAL</div><h2>Publish @Model.Journal!.Name</h2>
+<p class="text-secondary">Publish this journal’s entire history: realized statistics, daily writing, and embedded images. Anyone can view the website. Local changes appear only after another preview and publication.</p></div>
+@if (Model.Error is not null) { <div class="alert alert-danger" role="alert" data-notification-exclude>@Model.Error</div> }
+@if (Model.Message is not null) { <div class="alert alert-success" role="status" data-notification-exclude>@Model.Message</div> }
+<div class="row row-cards">
+<section class="col-lg-6"><div class="card"><div class="card-body"><h3>Website settings</h3>
+<form method="post" asp-page-handler="Save">
+<div class="mb-3"><label class="form-label" asp-for="DestinationUrl">Destination URL</label><input class="form-control" asp-for="DestinationUrl" type="url" required placeholder="https://journal.example.com/" /></div>
+<div class="mb-3"><label class="form-label" for="PublishingToken">Publishing token</label><input class="form-control" id="PublishingToken" name="PublishingToken" type="password" value="" autocomplete="new-password" maxlength="4096" /><small class="text-secondary">@(Model.State.ProtectedToken.Length > 0 ? "A protected token is saved. Leave blank to keep it." : "Use the token configured on the website server.")</small></div>
+<div class="mb-3"><label class="form-label" asp-for="PublicTitle">Public title</label><input class="form-control" asp-for="PublicTitle" required maxlength="150" /></div>
+<div class="mb-3"><label class="form-label" asp-for="Introduction">Introduction</label><textarea class="form-control" asp-for="Introduction" rows="3" maxlength="5000"></textarea></div>
+<button type="submit" class="btn btn-primary">Save settings</button><small class="text-secondary ms-2">Saving clears the current preview.</small>
+</form></div></div></section>
+<section class="col-lg-6"><div class="card"><div class="card-body"><h3>Publication status</h3>
+<dl><dt>Last successful publication</dt><dd>@(Model.State.LastSuccessUtc?.ToString("yyyy-MM-dd HH:mm 'UTC'") ?? "Never published from this journal")</dd>
+<dt>Last observed website status</dt><dd>@(Model.State.RemoteStatus is { } status ? $"Revision {status.Revision} · {(status.SnapshotId.HasValue ? "Published" : "Unpublished")}" : "Not checked")</dd></dl>
+@if (Model.State.RemoteStatus?.BoundJournalId is { } bound && bound != Model.JournalId) { <p class="text-danger">This website is bound to another journal.</p> }
+<div class="d-flex flex-wrap gap-2"><form method="post" asp-page-handler="Status"><button class="btn" type="submit">Refresh status</button></form>
+<form method="post" asp-page-handler="Preview"><button class="btn btn-primary" type="submit">Create preview</button></form></div>
+<p class="text-secondary small mt-3">Preview uses saved settings and includes all daily journal entries. Account identifiers, imports, private trade reviews, and receipts are excluded.</p>
+@if (Model.State.RemoteStatus is { } remote)
+{
+<hr /><form method="post" asp-page-handler="Unpublish"><input type="hidden" name="expectedRevision" value="@remote.Revision" />
+<label class="form-check mb-3"><input class="form-check-input" type="checkbox" name="resetBinding" value="true" /><span class="form-check-label">Also reset the journal binding so another journal can use this website.</span></label>
+<button class="btn btn-outline-danger" type="submit">Unpublish website</button></form>
+}
+</div></div></section>
+</div>
+@if (draft is not null)
+{
+<section class="card mt-4"><div class="card-body"><h3>Review the outgoing snapshot</h3>
+<p>Prepared @draft.Snapshot.GeneratedUtc.ToString("yyyy-MM-dd HH:mm 'UTC'") · @draft.Snapshot.Days.Count days · @draft.Snapshot.Dashboard.CompletedTrades trades · @draft.Snapshot.Images.Count images</p>
+@if (draft.Snapshot.Days.Count > 0) { <p class="text-secondary">Coverage: @draft.Snapshot.Days.Min(d => d.Date).ToString("yyyy-MM-dd") to @draft.Snapshot.Days.Max(d => d.Date).ToString("yyyy-MM-dd").</p> }
+<p class="text-secondary">The preview below contains the complete publication. Later local edits will not change this snapshot.</p>
+<a class="btn mb-3" target="_blank" rel="noopener" href="?handler=PreviewDocument&amp;snapshotId=@draft.Snapshot.SnapshotId">Open full preview</a>
+<iframe title="Complete public journal preview" src="?handler=PreviewDocument&amp;snapshotId=@draft.Snapshot.SnapshotId" class="w-100 border rounded" height="760" sandbox="allow-same-origin"></iframe>
+<form method="post" asp-page-handler="Publish" class="mt-3"><input type="hidden" name="snapshotId" value="@draft.Snapshot.SnapshotId" /><button class="btn btn-success" type="submit">Publish this exact snapshot</button></form>
+</div></section>
+}

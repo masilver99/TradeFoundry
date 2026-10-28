@@ -1,0 +1,33 @@
+name: public-journal
+services:
+  journal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      Publishing__Token: ${PUBLIC_JOURNAL_TOKEN:?Set PUBLIC_JOURNAL_TOKEN in .env}
+      Storage__DataDirectory: /app/data
+    ports:
+      - "127.0.0.1:9080:8080"
+    volumes:
+      - journal-data:/app/data
+  proxy:
+    image: caddy:2
+    profiles: [https]
+    restart: unless-stopped
+    environment:
+      PUBLIC_JOURNAL_DOMAIN: ${PUBLIC_JOURNAL_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - proxy-data:/data
+      - proxy-config:/config
+    depends_on:
+      - journal
+volumes:
+  journal-data:
+  proxy-data:
+  proxy-config:

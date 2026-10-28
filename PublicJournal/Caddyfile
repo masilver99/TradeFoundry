@@ -1,0 +1,6 @@
+{$PUBLIC_JOURNAL_DOMAIN} {
+    request_body {
+        max_size 128MiB
+    }
+    reverse_proxy journal:8080
+}

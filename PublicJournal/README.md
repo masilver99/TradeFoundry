@@ -27,6 +27,10 @@ The **Title** setting supplies the public page heading instead of the private jo
 
 The private preview is stored beside publishing settings in `journal.db`; it contains the complete outgoing data and copied images. Tokens are protected using ASP.NET Data Protection. Preserve TradeFoundry's data-protection keys across restarts, container replacements, and restores, or re-enter the token. Preview content is not a live view of subsequent local edits. Saving settings clears the preview.
 
+Trade rows offer **View chart**, opening a five-minute candlestick popup with price-anchored entry/exit triangles and a connecting line. Each chart publishes around 50 actual candles, expanding for longer trades (up to 2,000 candles). Five-minute bars are consolidated from finer imported data where available. Missing matching bars or executions display **Chart unavailable**. Charts contain only OHLCV data and the recorded trade prices; they never request data from the private journal. The chart scripts and TradingView Lightweight Charts 5.2.0 are bundled locally under `Contracts/Assets/` with their license and notice.
+
+Update the public reader before publishing schema-version-2 snapshots, then create and publish a fresh preview to include charts. The updated reader still accepts version-1 snapshots; older publications remain readable and show no charts until republished.
+
 ## Docker and HTTPS
 
 From `PublicJournal/`, create an ignored `.env` containing a strong `PUBLIC_JOURNAL_TOKEN` (generate with `openssl rand -hex 32`) and, when using the included HTTPS proxy, `PUBLIC_JOURNAL_DOMAIN=journal.example.com`. The explicit Compose project name `public-journal` preserves the volume names used by the previous deployment directory.

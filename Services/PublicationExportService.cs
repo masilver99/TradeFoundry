@@ -30,17 +30,19 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
                 { throw new InvalidOperationException($"The journal image in entry {entry.Date:yyyy-MM-dd} could not be read. Check that the image is available and TradeFoundry has permission to read it.", ex); }
                 return key;
             }));
-        return BuildSnapshot(journal, trades, account, entries, sourceImages.Values.ToList(), settings, DateTimeOffset.UtcNow);
+        return BuildSnapshot(journal, trades, account, entries, sourceImages.Values.ToList(), settings, DateTimeOffset.UtcNow, BuildTradeChart);
     }
 
     public static PublicationSnapshot BuildSnapshot(Journal journal, IEnumerable<Trade> trades, AccountSummary account,
-        IReadOnlyDictionary<DateOnly, List<PublicationNode>> entries, List<PublicationImage> images, PublishingSettings settings, DateTimeOffset now)
+        IReadOnlyDictionary<DateOnly, List<PublicationNode>> entries, List<PublicationImage> images, PublishingSettings settings, DateTimeOffset now,
+        Func<Trade, PublicationTradeChart?>? chartForTrade = null)
     {
         var trading = DailyTradeAggregation.Build(trades.Where(t => t.JournalId == journal.Id), journal.TimeZone).Where(d => d.CompletedTradeCount > 0).ToDictionary(d => d.Date);
         var dates = trading.Keys.Concat(entries.Where(e => HasContent(e.Value)).Select(e => e.Key)).Distinct().OrderBy(d => d).ToArray();
         var days = dates.Select(date =>
         {
-            var rows = trading.TryGetValue(date, out var day) ? day.CompletedTrades.Select(t => new PublicationTrade(t.Symbol, t.Direction, t.Quantity, t.NetPnl)).ToList() : [];
+            var rows = trading.TryGetValue(date, out var day) ? day.CompletedTrades.Select(t => new PublicationTrade(t.Symbol, t.Direction, t.Quantity, t.NetPnl)
+            { Chart = chartForTrade?.Invoke(t) }).ToList() : [];
             return new PublicationDay
             {
                 Date = date, NetPnl = rows.Sum(t => t.NetPnl), Trades = rows,
@@ -72,6 +74,27 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
         };
         PublicationValidation.Validate(snapshot);
         return snapshot;
+    }
+
+    private PublicationTradeChart? BuildTradeChart(Trade trade)
+    {
+        if (trade.ExitUtc is not { } exitUtc || trade.ExitPrice is not { } exitPrice) return null;
+        var query = database.GetBarWindow(trade.JournalId, trade.Symbol, trade.EntryUtc.AddMinutes(-250), exitUtc.AddMinutes(250), "5m");
+        if (query.ResolvedInterval != "5m") return null;
+        var bars = query.Bars.OrderBy(b => b.EventUtc).ToArray();
+        var entryIndex = Array.FindIndex(bars, b => b.EventUtc <= trade.EntryUtc && trade.EntryUtc < b.EventUtc.AddMinutes(5));
+        var exitIndex = Array.FindIndex(bars, b => b.EventUtc <= exitUtc && exitUtc < b.EventUtc.AddMinutes(5));
+        if (entryIndex < 0 || exitIndex < entryIndex) return null;
+        var span = exitIndex - entryIndex + 1;
+        var count = Math.Min(bars.Length, Math.Max(50, span + 10));
+        if (count > 2000) return null;
+        var first = Math.Clamp(entryIndex - (count - span) / 2, 0, bars.Length - count);
+        return new()
+        {
+            Bars = bars.Skip(first).Take(count).Select(b => new PublicationChartBar(b.EventUtc.ToUnixTimeSeconds(), b.Open, b.High, b.Low, b.Close, b.Volume ?? 0)).ToList(),
+            Entry = new(bars[entryIndex].EventUtc.ToUnixTimeSeconds(), trade.EntryPrice),
+            Exit = new(bars[exitIndex].EventUtc.ToUnixTimeSeconds(), exitPrice)
+        };
     }
 
     private static bool HasContent(IEnumerable<PublicationNode> nodes) => nodes.Any(node => node.Type == "image" || !string.IsNullOrWhiteSpace(node.Text) || HasContent(node.Children));

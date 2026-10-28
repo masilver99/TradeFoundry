@@ -21,6 +21,74 @@ namespace TradeFoundry.Tests;
 public sealed class PublicationTests
 {
     [Fact]
+    public void TradeChartsExportFiveMinuteContextAndExactPricesWithoutPrivateEvidence()
+    {
+        using var data = new LocalData();
+        var start = new DateTimeOffset(2026, 9, 10, 10, 0, 0, TimeSpan.Zero);
+        var parsed = new ParsedImport { SourceType = TradeFoundryConstants.OhlcvBars };
+        foreach (var index in Enumerable.Range(0, 500))
+            parsed.Records.Add(new ParsedRecord { SourceType = TradeFoundryConstants.OhlcvBars, SourceKey = $"bar-{index}", RowNumber = index + 1, PayloadJson = "PRIVATE-BAR", Bar = new()
+            {
+                Symbol = "MES", Interval = "1m", EventUtc = start.AddMinutes(index),
+                Open = 5000, High = 5002, Low = 4998, Close = 5001, Volume = 100
+            } });
+        parsed.Trades.Add(new ImportedTradeDraft
+        {
+            SourceType = TradeFoundryConstants.TradingViewStrategy, SourceKey = "PRIVATE-TRADE", Symbol = "MES", Instrument = "MES", Account = "PRIVATE-ACCOUNT",
+            Direction = "Long", EntryUtc = start.AddMinutes(201), ExitUtc = start.AddMinutes(222),
+            EntryPrice = 5000.25m, ExitPrice = 5001.75m, Quantity = 1, GrossPnl = 7.5m, NetPnl = 7.5m, PointValue = 5m, TickSize = .25m
+        });
+        data.Database.CommitImport(data.Journal.Id, "PRIVATE-IMPORT", parsed, "flat_to_flat", "1m");
+        var snapshot = new PublicationExportService(data.Database, new(data.Database)).Build(data.Journal.Id, new(Title: "Public"));
+        var trade = Assert.Single(Assert.Single(snapshot.Days).Trades);
+        var chart = Assert.IsType<PublicationTradeChart>(trade.Chart);
+        Assert.Equal(2, snapshot.SchemaVersion);
+        Assert.Equal("5m", chart.Interval);
+        Assert.Equal(50, chart.Bars.Count);
+        Assert.Equal(5000.25m, chart.Entry.Price);
+        Assert.Equal(5001.75m, chart.Exit.Price);
+        Assert.Equal(start.AddMinutes(200).ToUnixTimeSeconds(), chart.Entry.Time);
+        Assert.Equal(start.AddMinutes(220).ToUnixTimeSeconds(), chart.Exit.Time);
+        Assert.All(chart.Bars, bar => Assert.Equal(500, bar.Volume));
+        var json = JsonSerializer.Serialize(snapshot, PublicationJson.Options);
+        Assert.DoesNotContain("PRIVATE-", json);
+        var restored = JsonSerializer.Deserialize<PublicationSnapshot>(json, PublicationJson.Options)!;
+        PublicationValidation.Validate(restored);
+        foreach (var preview in new[] { true, false })
+        {
+            var html = PublicationPresentation.Document(restored, null, _ => "", "/", "/publication.css", preview: preview);
+            Assert.Contains("View chart", html);
+            Assert.Contains("data-public-chart=", html);
+            Assert.Contains("trade-chart-dialog", html);
+            Assert.Contains("/publication-assets/publication-charts.js", html);
+            Assert.DoesNotContain("PRIVATE-", html);
+        }
+    }
+
+    [Fact]
+    public void ChartValidationRejectsMalformedCandlesAndUnmappedExecutionsAndKeepsLegacySnapshotsReadable()
+    {
+        var snapshot = Snapshot();
+        var day = snapshot.Days[0];
+        var chart = new PublicationTradeChart
+        {
+            Bars = [new(1000, 100, 102, 99, 101, 50)], Entry = new(1000, 100.25m), Exit = new(1000, 100.75m)
+        };
+        PublicationSnapshot WithChart(PublicationTradeChart value) => snapshot with { Days = [day with { Trades = [day.Trades[0] with { Chart = value }] }] };
+        PublicationValidation.Validate(WithChart(chart));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(WithChart(chart with { Bars = [chart.Bars[0], chart.Bars[0]] })));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(WithChart(chart with { Exit = new(1300, 100) })));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(WithChart(chart with { Bars = [new(1000, 100, 99, 98, 101, 50)] })));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(WithChart(chart with { Interval = "1m" })));
+        var legacy = snapshot with { SchemaVersion = 1 };
+        PublicationValidation.Validate(legacy);
+        var html = PublicationPresentation.Document(legacy, null, _ => "", "/", "/publication.css");
+        Assert.Contains("Chart unavailable", html);
+        Assert.DoesNotContain("data-public-chart=", html);
+        Assert.DoesNotContain("publication-charts.js", html);
+    }
+
+    [Fact]
     public void IntroductionFormattingAndPublicTitleSurviveSnapshotSerializationAndRenderBelowTimezone()
     {
         const string state = """{"root":{"children":[{"type":"heading","tag":"h3","children":[{"type":"text","text":"Welcome","format":1}]},{"type":"paragraph","children":[{"type":"text","text":"<script>private</script>","format":2}]},{"type":"list","tag":"ul","children":[{"type":"listitem","children":[{"type":"text","text":"My process"}]}]}]}}""";
@@ -272,8 +340,12 @@ public sealed class PublicationTests
         Assert.Equal("image/png", (await visitor.GetAsync(imagePath)).Content.Headers.ContentType!.MediaType);
         Assert.Contains(".calendar", await visitor.GetStringAsync("/publication.css"));
         var malformed = snapshot with { SnapshotId = Guid.NewGuid(), Images = [] };
+        Assert.Contains("showModal", await visitor.GetStringAsync("/publication-assets/publication-charts.js"));
+        Assert.Contains("class TradeExecutionDrawing", await visitor.GetStringAsync("/publication-assets/trade-execution-drawing.js"));
+        Assert.Contains("5.2.0", await visitor.GetStringAsync("/publication-assets/lightweight-charts.standalone.production.js"));
+        Assert.Equal(HttpStatusCode.NotFound, (await visitor.GetAsync("/publication-assets/private.js")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await host.Client.PutAsJsonAsync("/api/v1/publication", new PublicationUpload(1, malformed), PublicationJson.Options)).StatusCode);
-        var unknownJson = JsonSerializer.Serialize(new PublicationUpload(1, snapshot), PublicationJson.Options).Replace("\"schemaVersion\":1", "\"privateField\":\"secret\",\"schemaVersion\":1");
+        var unknownJson = JsonSerializer.Serialize(new PublicationUpload(1, snapshot), PublicationJson.Options).Replace("\"schemaVersion\":", "\"privateField\":\"secret\",\"schemaVersion\":");
         Assert.Equal(HttpStatusCode.BadRequest, (await host.Client.PutAsync("/api/v1/publication", new StringContent(unknownJson, Encoding.UTF8, "application/json"))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await host.Client.PutAsync("/api/v1/publication", new StringContent("{\"expectedRevision\":1,", Encoding.UTF8, "application/json"))).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await host.Client.PutAsJsonAsync("/api/v1/publication", new PublicationUpload(0, snapshot with { SnapshotId = Guid.NewGuid() }), PublicationJson.Options)).StatusCode);

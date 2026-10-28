@@ -117,6 +117,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapRazorPages();
+app.MapGet("/publication-assets/{name}", (string name) => TradeFoundry.Publishing.PublicationAssets.Script(name) is { } script
+    ? Results.Content(script, "text/javascript") : Results.NotFound());
 
 if (desktopMode && !embeddedMode)
 {

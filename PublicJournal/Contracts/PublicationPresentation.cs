@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 
 namespace TradeFoundry.Publishing;
 
@@ -86,8 +87,14 @@ public static class PublicationPresentation
             html.Append($"<div class=\"trade-summary\">{day.Trades.Count} completed {(day.Trades.Count == 1 ? "trade" : "trades")} · {day.Wins} {(day.Wins == 1 ? "win" : "wins")} · {day.Losses} {(day.Losses == 1 ? "loss" : "losses")} · {day.Breakevens} breakeven</div>");
             if (day.Trades.Count > 0)
             {
-                html.Append("<div class=\"trade-table-wrap\"><table><thead><tr><th>Symbol</th><th>Direction</th><th>Quantity</th><th>Net P&amp;L</th></tr></thead><tbody>");
-                foreach (var trade in day.Trades) html.Append($"<tr><td>{E(trade.Symbol)}</td><td>{E(trade.Direction)}</td><td>{trade.Quantity}</td><td class=\"{Tone(trade.NetPnl)}\">{E(Money(trade.NetPnl))}</td></tr>");
+                html.Append("<div class=\"trade-table-wrap\"><table><thead><tr><th>Symbol</th><th>Direction</th><th>Quantity</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody>");
+                foreach (var trade in day.Trades)
+                {
+                    var chartButton = trade.Chart is { } chart
+                        ? $"<button type=\"button\" class=\"chart-button\" data-public-chart=\"{E(JsonSerializer.Serialize(chart, PublicationJson.Options))}\" data-chart-title=\"{E($"{trade.Symbol} · {trade.Direction} · {day.Date:yyyy-MM-dd}")}\" data-chart-timezone=\"{E(snapshot.TimeZone)}\" data-chart-direction=\"{E(trade.Direction)}\" data-chart-pnl=\"{trade.NetPnl.ToString(CultureInfo.InvariantCulture)}\" aria-haspopup=\"dialog\" aria-controls=\"trade-chart-dialog\" aria-label=\"View chart for {E(trade.Symbol)} {E(trade.Direction)} trade on {day.Date:yyyy-MM-dd}\">View chart</button>"
+                        : "<span class=\"muted\">Chart unavailable</span>";
+                    html.Append($"<tr><td>{E(trade.Symbol)}</td><td>{E(trade.Direction)}</td><td>{trade.Quantity}</td><td class=\"{Tone(trade.NetPnl)}\">{E(Money(trade.NetPnl))}</td><td>{chartButton}</td></tr>");
+                }
                 html.Append("</tbody></table></div>");
             }
             html.Append("</article>");
@@ -96,7 +103,14 @@ public static class PublicationPresentation
         if (selected.HasValue || before.HasValue) html.Append($"<a class=\"button\" href=\"{E(pageUrl)}#entries\">Back to latest entries</a> ");
         if (!preview && !selected.HasValue && ordered.Length > PageSize)
             html.Append($"<a class=\"button\" rel=\"next\" href=\"{E(pageUrl)}?before={displayed[^1].Date:yyyy-MM-dd}&amp;snapshot={snapshot.SnapshotId:D}#entries\">Load older entries</a>");
-        html.Append("</section><footer>Published from TradeFoundry · Historical realized trading results</footer></main></body></html>");
+        html.Append("</section><footer>Published from TradeFoundry · Historical realized trading results</footer></main>");
+        if (displayed.Any(d => d.Trades.Any(t => t.Chart is not null)))
+        {
+            html.Append("<dialog id=\"trade-chart-dialog\" class=\"trade-chart-dialog\" aria-labelledby=\"trade-chart-title\"><div class=\"chart-dialog-heading\"><div><h2 id=\"trade-chart-title\">Trade chart</h2><p class=\"muted\" data-chart-description></p></div><button type=\"button\" class=\"chart-button\" data-chart-close aria-label=\"Close trade chart\" autofocus>Close</button></div><div class=\"public-trade-chart\" data-public-chart-host role=\"img\" aria-label=\"Trade candlestick chart\"></div><div class=\"chart-dialog-toolbar\"><p data-chart-prices></p><button type=\"button\" class=\"chart-button\" data-chart-focus>Focus trade</button></div><p class=\"muted\">▶ Entry · ◀ Exit · Triangles mark the recorded trade prices.</p><p class=\"muted\">TradingView Lightweight Charts™ · <a href=\"https://www.tradingview.com/\" target=\"_blank\" rel=\"noopener noreferrer\">TradingView</a></p></dialog>");
+            foreach (var script in new[] { "lightweight-charts.standalone.production.js", "trade-execution-drawing.js", "publication-charts.js" })
+                html.Append($"<script defer src=\"/publication-assets/{script}\"></script>");
+        }
+        html.Append("</body></html>");
         return html.ToString();
     }
 

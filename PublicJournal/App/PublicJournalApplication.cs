@@ -23,7 +23,8 @@ public static class PublicJournalApplication
             context.Response.Headers.CacheControl = "no-store";
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
             context.Response.Headers["Referrer-Policy"] = "no-referrer";
-            context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+            // The pinned Lightweight Charts 5.2.0 attribution logo injects this exact stylesheet.
+            context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; img-src 'self'; style-src 'self' 'sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
             if (context.Request.Path.StartsWithSegments("/api"))
             {
                 var authorization = context.Request.Headers.Authorization.ToString();
@@ -41,6 +42,8 @@ public static class PublicJournalApplication
             catch (BadHttpRequestException ex) { await Error(context, ex.StatusCode, "Publication request is invalid or exceeds the upload limit."); }
         });
         app.MapGet("/publication.css", () => Results.Content(PublicationPresentation.Style(), "text/css"));
+        app.MapGet("/publication-assets/{name}", (string name) => PublicationAssets.Script(name) is { } script
+            ? Results.Content(script, "text/javascript") : Results.NotFound());
         app.MapGet("/favicon.ico", () => Results.NoContent());
         app.MapGet("/health", (PublicationStore store) => { store.Status(); return Results.Ok(new { status = "ok" }); });
         app.MapGet("/api/v1/publication", (PublicationStore store) => Results.Json(store.Status(), PublicationJson.Options));

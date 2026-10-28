@@ -6,7 +6,7 @@ public static class PublicationValidation
 {
     public static void Validate(PublicationSnapshot snapshot)
     {
-        if (snapshot.SchemaVersion != 1) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
+        if (snapshot.SchemaVersion is not (1 or 2)) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
         if (snapshot.JournalId == Guid.Empty || snapshot.SnapshotId == Guid.Empty || snapshot.GeneratedUtc == default || snapshot.AsOfDate == default)
             throw new InvalidOperationException("Publication identity or date is missing.");
         if (string.IsNullOrWhiteSpace(snapshot.Title) || snapshot.Title.Length > 150 || snapshot.Introduction is null || snapshot.Introduction.Length > 5000
@@ -37,6 +37,8 @@ public static class PublicationValidation
                 || day.Breakevens != day.Trades.Count(t => t.NetPnl == 0))
                 throw new InvalidOperationException("Daily totals do not match the published trade summaries.");
             PublicationContent.Validate(day.Content, imageIds);
+            foreach (var trade in day.Trades)
+                if (trade.Chart is { } chart) ValidateChart(chart, snapshot.SchemaVersion);
         }
         var months = snapshot.Days.GroupBy(d => new DateOnly(d.Date.Year, d.Date.Month, 1))
             .Select(g => new PublicationMonth(g.Key, g.Sum(d => d.NetPnl), g.Sum(d => d.Trades.Count))).OrderBy(m => m.Month).ToArray();
@@ -55,6 +57,23 @@ public static class PublicationValidation
             || dashboard.ProfitFactor != (loss == 0 ? (decimal?)null : profit / loss)
             || dashboard.BalanceNote is null || dashboard.BalanceNote.Length > 1000)
             throw new InvalidOperationException("Dashboard metrics do not match the published trading history.");
+    }
+
+    private static void ValidateChart(PublicationTradeChart chart, int version)
+    {
+        if (version < 2 || chart.Interval != "5m" || chart.Bars is null || chart.Bars.Count is < 1 or > 2000
+            || chart.Entry is null || chart.Exit is null || chart.Entry.Time > chart.Exit.Time)
+            throw new InvalidOperationException("Invalid published trade chart.");
+        long previous = 0;
+        foreach (var bar in chart.Bars)
+        {
+            if (bar is null || bar.Time <= previous || bar.Time > 253402300799 || bar.Volume < 0
+                || bar.High < Math.Max(bar.Open, bar.Close) || bar.Low > Math.Min(bar.Open, bar.Close) || bar.Low > bar.High)
+                throw new InvalidOperationException("Published candles must be ordered, unique and valid OHLCV bars.");
+            previous = bar.Time;
+        }
+        if (!chart.Bars.Any(b => b.Time == chart.Entry.Time) || !chart.Bars.Any(b => b.Time == chart.Exit.Time))
+            throw new InvalidOperationException("Published trade executions must map to published candles.");
     }
 
     private static bool ValidImage(string type, byte[] bytes) => type switch

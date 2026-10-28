@@ -4,5 +4,5 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
-  <ItemGroup><EmbeddedResource Include="publication.css" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="publication.css" /><EmbeddedResource Include="Assets\*.js" /></ItemGroup>
 </Project>

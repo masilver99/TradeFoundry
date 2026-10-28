@@ -67,14 +67,14 @@ public sealed class TradeCandleChartTests
         Assert.Equal(5008.25m, entry.GetProperty("price").GetDecimal());
         Assert.Equal(trade.EntryUtc.ToUnixTimeSeconds(), entry.GetProperty("exactTime").GetInt64());
         Assert.Equal(start.AddMinutes(8).ToUnixTimeSeconds(), entry.GetProperty("time").GetInt64());
-        Assert.Equal("belowBar", entry.GetProperty("barPosition").GetString());
-        Assert.Equal("arrowUp", entry.GetProperty("shape").GetString());
+        Assert.Equal("left", entry.GetProperty("barPosition").GetString());
+        Assert.Equal("triangleRight", entry.GetProperty("shape").GetString());
         Assert.Equal("Long", entry.GetProperty("label").GetString());
         var exit = root.GetProperty("trade").GetProperty("exit");
         Assert.Equal(5012.75m, exit.GetProperty("price").GetDecimal());
         Assert.Equal(trade.ExitUtc.Value.ToUnixTimeSeconds(), exit.GetProperty("exactTime").GetInt64());
-        Assert.Equal("aboveBar", exit.GetProperty("barPosition").GetString());
-        Assert.Equal("arrowDown", exit.GetProperty("shape").GetString());
+        Assert.Equal("right", exit.GetProperty("barPosition").GetString());
+        Assert.Equal("triangleLeft", exit.GetProperty("shape").GetString());
         Assert.Equal("Exit", exit.GetProperty("label").GetString());
         var path = root.GetProperty("trade").GetProperty("path");
         Assert.Equal(2, path.GetArrayLength());
@@ -88,7 +88,7 @@ public sealed class TradeCandleChartTests
     }
 
     [Fact]
-    public void CandlesUseOppositeBarMarkerPositionsForShortTrades()
+    public void CandlesKeepEntryOnLeftAndExitOnRightForShortTrades()
     {
         var start = Utc(2026, 9, 14, 13, 0);
         var bars = Enumerable.Range(0, 8)
@@ -124,11 +124,11 @@ public sealed class TradeCandleChartTests
         var entry = payload.RootElement.GetProperty("trade").GetProperty("entry");
         var exit = payload.RootElement.GetProperty("trade").GetProperty("exit");
 
-        Assert.Equal("aboveBar", entry.GetProperty("barPosition").GetString());
-        Assert.Equal("arrowDown", entry.GetProperty("shape").GetString());
+        Assert.Equal("left", entry.GetProperty("barPosition").GetString());
+        Assert.Equal("triangleRight", entry.GetProperty("shape").GetString());
         Assert.Equal("Short", entry.GetProperty("label").GetString());
-        Assert.Equal("belowBar", exit.GetProperty("barPosition").GetString());
-        Assert.Equal("arrowUp", exit.GetProperty("shape").GetString());
+        Assert.Equal("right", exit.GetProperty("barPosition").GetString());
+        Assert.Equal("triangleLeft", exit.GetProperty("shape").GetString());
         Assert.Equal("Exit", exit.GetProperty("label").GetString());
     }
 
@@ -168,6 +168,37 @@ public sealed class TradeCandleChartTests
         using var payload = ReadPayload(ChartRenderer.Candles(trade, new BarQueryResult { Bars = bars, ResolvedInterval = "1m" }));
 
         Assert.Empty(payload.RootElement.GetProperty("trade").GetProperty("path").EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData(40, 44, 50)]
+    [InlineData(0, 4, 50)]
+    [InlineData(95, 99, 50)]
+    [InlineData(20, 80, 71)]
+    [InlineData(40, -1, 50)]
+    public void CandleFocusUsesFiftyActualBarsAndKeepsTheWholeTradeVisible(int entryIndex, int exitIndex, int expectedCount)
+    {
+        var start = Utc(2026, 9, 14, 13, 0);
+        // A session gap must not count as hundreds of empty candles.
+        var bars = Enumerable.Range(0, 100).Select(index => new Bar
+        {
+            EventUtc = start.AddMinutes(index + (index >= 50 ? 1000 : 0)),
+            Interval = "1m", Open = 5000, High = 5001, Low = 4999, Close = 5000
+        }).ToArray();
+        var trade = new Trade
+        {
+            Symbol = "MES", Direction = "Long", EntryPrice = 5000.25m,
+            EntryUtc = bars[entryIndex].EventUtc.AddSeconds(10),
+            ExitUtc = exitIndex < 0 ? null : bars[exitIndex].EventUtc.AddSeconds(20),
+            ExitPrice = exitIndex < 0 ? null : 5000.75m
+        };
+        using var document = ReadPayload(ChartRenderer.Candles(trade, bars));
+        var focus = document.RootElement.GetProperty("focus");
+        var from = focus.GetProperty("from").GetInt64();
+        var to = focus.GetProperty("to").GetInt64();
+        Assert.Equal(expectedCount, bars.Count(bar => bar.EventUtc.ToUnixTimeSeconds() >= from && bar.EventUtc.ToUnixTimeSeconds() <= to));
+        Assert.InRange(bars[entryIndex].EventUtc.ToUnixTimeSeconds(), from, to);
+        if (exitIndex >= 0) Assert.InRange(bars[exitIndex].EventUtc.ToUnixTimeSeconds(), from, to);
     }
 
     private static JsonDocument ReadPayload(string html)
@@ -471,6 +502,31 @@ public sealed class TradeCandleChartTests
             Assert.Contains("interval=2m", root.GetProperty("payload").GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
             Assert.Contains("/review?", root.GetProperty("payload").GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
             Assert.DoesNotContain("/trades/", root.GetProperty("payload").GetProperty("historyUrl").GetString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void CandleChartLoadsContextInBarsForFiveMinuteTimeframe()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var start = Utc(2026, 9, 14, 13, 0);
+            ImportBars(database, journal.Id, start, 300, "1m", includeTrade: true);
+            var trade = Assert.Single(database.GetAllTrades(journal.Id));
+            var page = new ReviewModel(new TradeReviewService(database), database);
+            var json = Assert.IsType<JsonResult>(page.OnGetCandleChart(journal.Id, trade.ReviewKey, "5m"));
+            using var document = JsonDocument.Parse(JsonSerializer.Serialize(json.Value));
+            // Even near the beginning of available history, load fifty bars after
+            // the exit rather than thirty minutes (only six five-minute candles).
+            Assert.True(document.RootElement.GetProperty("barCount").GetInt32() >= 50);
         }
         finally
         {

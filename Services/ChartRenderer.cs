@@ -655,9 +655,12 @@ public static partial class ChartRenderer
         var barDuration = ResolveBarDuration(orderedBars);
         var entryBar = FindContainingBar(orderedBars, trade.EntryUtc, barDuration);
         var exitBar = trade.ExitUtc.HasValue ? FindContainingBar(orderedBars, trade.ExitUtc.Value, barDuration) : null;
-        var chartPadding = TimeSpan.FromTicks(checked(barDuration.Ticks * 5));
-        var chartStart = trade.EntryUtc - chartPadding;
-        var chartEnd = (trade.ExitUtc ?? trade.EntryUtc) + chartPadding;
+        var entryIndex = Array.IndexOf(orderedBars, entryBar);
+        var exitIndex = exitBar is null ? entryIndex : Array.IndexOf(orderedBars, exitBar);
+        var firstTradeIndex = Math.Min(entryIndex, exitIndex);
+        var tradeBarCount = Math.Abs(exitIndex - entryIndex) + 1;
+        var visibleBarCount = Math.Min(orderedBars.Length, Math.Max(50, tradeBarCount + 10));
+        var firstVisibleIndex = Math.Clamp(firstTradeIndex - (visibleBarCount - tradeBarCount) / 2, 0, orderedBars.Length - visibleBarCount);
         var isLong = !trade.Direction.Equals("Short", StringComparison.OrdinalIgnoreCase);
         var entryColor = isLong ? Green : Red;
         var exitColor = trade.NetPnl > 0m ? Green : trade.NetPnl < 0m ? Red : Gold;
@@ -669,8 +672,8 @@ public static partial class ChartRenderer
                 exactTime = trade.ExitUtc.Value.ToUnixTimeSeconds(),
                 price = exitPrice,
                 color = exitColor,
-                shape = isLong ? "arrowDown" : "arrowUp",
-                barPosition = isLong ? "aboveBar" : "belowBar",
+                shape = "triangleLeft",
+                barPosition = "right",
                 label = "Exit"
             }
             : null;
@@ -698,8 +701,8 @@ public static partial class ChartRenderer
             }).ToArray(),
             focus = new
             {
-                from = chartStart.ToUnixTimeSeconds(),
-                to = chartEnd.ToUnixTimeSeconds()
+                from = orderedBars[firstVisibleIndex].EventUtc.ToUnixTimeSeconds(),
+                to = orderedBars[firstVisibleIndex + visibleBarCount - 1].EventUtc.ToUnixTimeSeconds()
             },
             trade = new
             {
@@ -711,8 +714,8 @@ public static partial class ChartRenderer
                     exactTime = trade.EntryUtc.ToUnixTimeSeconds(),
                     price = trade.EntryPrice,
                     color = entryColor,
-                    shape = isLong ? "arrowUp" : "arrowDown",
-                    barPosition = isLong ? "belowBar" : "aboveBar",
+                    shape = "triangleRight",
+                    barPosition = "left",
                     label = isLong ? "Long" : "Short"
                 },
                 exit,

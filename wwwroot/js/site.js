@@ -3232,6 +3232,7 @@ function renderLightweightChart(node) {
       },
       timeScale: {
         borderColor: "#30363d",
+        lockVisibleTimeRangeOnResize: true,
         rightOffset: 5,
         barSpacing: 7,
         timeVisible: true,
@@ -3273,23 +3274,6 @@ function renderLightweightChart(node) {
       lastValueVisible: false,
       priceLineVisible: false
     }, 1);
-    const pathOutline = chart.addSeries(library.LineSeries, {
-      color: "#000000",
-      lineWidth: 4,
-      lineStyle: 1,
-      crosshairMarkerVisible: false,
-      lastValueVisible: false,
-      priceLineVisible: false
-    });
-    const path = chart.addSeries(library.LineSeries, {
-      color: "#ffffff",
-      lineWidth: 2,
-      lineStyle: 1,
-      crosshairMarkerVisible: false,
-      lastValueVisible: false,
-      priceLineVisible: false
-    });
-
     const state = {
       node,
       bars: new Map(),
@@ -3303,18 +3287,13 @@ function renderLightweightChart(node) {
       chart,
       candles,
       volume,
-      pathOutline,
-      path,
       payload
     };
 
     normalizeLightweightBars(payload.bars || []).forEach(bar => state.bars.set(bar.time, bar));
-    const tradePath = normalizeLightweightPath(payload.trade?.path || []);
-    pathOutline.setData(tradePath);
-    path.setData(tradePath);
     applyLightweightData(state, false);
     addLightweightMarkers(state);
-    chart.timeScale().setVisibleRange({ from: payload.focus.from, to: payload.focus.to });
+    setLightweightTradeRange(state);
     if (chart.panes().length > 1) chart.panes()[1].setHeight(96);
 
     chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
@@ -3356,10 +3335,6 @@ function normalizeLightweightBars(bars) {
   })).filter(bar => Number.isFinite(bar.time) && Number.isFinite(bar.open) && Number.isFinite(bar.high) && Number.isFinite(bar.low) && Number.isFinite(bar.close));
 }
 
-function normalizeLightweightPath(path) {
-  return (Array.isArray(path) ? path : []).map(point => ({ time: Number(point.time), value: Number(point.value) })).filter(point => Number.isFinite(point.time) && Number.isFinite(point.value)).sort((left, right) => left.time - right.time);
-}
-
 function sortedLightweightBars(state) {
   return Array.from(state.bars.values()).sort((left, right) => left.time - right.time);
 }
@@ -3370,6 +3345,7 @@ function applyLightweightData(state, preserveRange, previousFirst) {
   const values = sortedLightweightBars(state);
   state.candles.setData(values.map(bar => ({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close })));
   state.volume.setData(values.map(bar => ({ time: bar.time, value: bar.volume, color: bar.close >= bar.open ? "#3fb95088" : "#f8514988" })));
+  state.executionDrawing?.setTrade(state.payload?.trade, values);
   if (!previousRange || oldFirst === undefined) return;
   const addedBefore = Math.max(0, values.findIndex(bar => bar.time === oldFirst));
   state.chart.timeScale().setVisibleLogicalRange({ from: previousRange.from + addedBefore, to: previousRange.to + addedBefore });
@@ -3438,20 +3414,15 @@ function applyLightweightTimeframeData(state, result) {
   if (!payload) {
     state.candles.setData([]);
     state.volume.setData([]);
-    state.pathOutline.setData([]);
-    state.path.setData([]);
-    state.markers?.setMarkers?.([]);
+    state.executionDrawing?.setTrade(null, []);
     state.historyReady = true;
     return;
   }
 
   normalizeLightweightBars(payload.bars || []).forEach(bar => state.bars.set(bar.time, bar));
-  const tradePath = normalizeLightweightPath(payload.trade?.path || []);
-  state.pathOutline.setData(tradePath);
-  state.path.setData(tradePath);
   applyLightweightData(state, false);
   addLightweightMarkers(state);
-  state.chart.timeScale().setVisibleRange({ from: payload.focus.from, to: payload.focus.to });
+  setLightweightTradeRange(state);
   state.historyReady = true;
 }
 
@@ -3478,34 +3449,26 @@ function updateLightweightTimeframeUi(state, result) {
 }
 
 function addLightweightMarkers(state) {
-  if (typeof window.LightweightCharts.createSeriesMarkers !== "function") return;
-  const trade = state.payload.trade || {};
-  const markers = [];
-  const addEvent = event => {
-    if (!event) return;
-    const time = Number(event.time);
-    if (!Number.isFinite(time)) return;
+  if (!state.executionDrawing) {
+    state.executionDrawing = new TradeExecutionDrawing();
+    state.candles.attachPrimitive(state.executionDrawing);
+  }
+  state.executionDrawing.setTrade(state.payload?.trade, sortedLightweightBars(state));
+}
 
-    markers.push({
-      id: event.label + "-bar",
-      time,
-      position: event.barPosition,
-      color: event.color,
-      shape: event.shape,
-      text: event.label,
-      size: 1
-    });
-  };
-  addEvent(trade.entry);
-  addEvent(trade.exit);
-  markers.sort((left, right) => left.time - right.time || String(left.id).localeCompare(String(right.id)));
-  if (state.markers?.setMarkers) state.markers.setMarkers(markers);
-  else state.markers = window.LightweightCharts.createSeriesMarkers(state.candles, markers);
+function setLightweightTradeRange(state) {
+  if (!state.payload?.focus) return;
+  const bars = sortedLightweightBars(state);
+  const from = bars.findIndex(bar => bar.time === state.payload.focus.from);
+  const to = bars.findIndex(bar => bar.time === state.payload.focus.to);
+  if (from < 0 || to < 0) return;
+  // Half-bar margins make the count exact and keep the outside triangles visible.
+  state.chart.timeScale().setVisibleLogicalRange({ from: from - 0.5, to: to + 0.5 });
 }
 
 function focusLightweightTrade(state) {
   if (!state.payload?.focus) return;
-  state.chart.timeScale().setVisibleRange({ from: state.payload.focus.from, to: state.payload.focus.to });
+  setLightweightTradeRange(state);
   state.candles.priceScale().applyOptions({ autoScale: true });
   setLightweightStatus(state, "");
 }

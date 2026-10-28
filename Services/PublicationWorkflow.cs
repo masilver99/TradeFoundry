@@ -20,6 +20,7 @@ public sealed class PublicationWorkflow(TradeFoundryDb database, PublicationExpo
         await Locked(journalId, async () =>
         {
             var destination = Destination(settings.DestinationUrl);
+            if (settings.GoogleTagScript.Length > 16000) throw new InvalidOperationException("Google tag script must be within 16,000 characters.");
             if (string.IsNullOrWhiteSpace(settings.Title) || settings.Title.Length > 150 || settings.Introduction.Length > 64000)
                 throw new InvalidOperationException("Provide a public title up to 150 characters and an introduction within the editor's 64,000-character limit.");
             PublicationContent.Validate(PublicationExportService.ConvertContent(settings.Introduction,

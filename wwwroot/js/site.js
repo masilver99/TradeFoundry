@@ -421,7 +421,7 @@ function initializeReviewAttachmentPaste() {
     };
 
     fileInput.addEventListener("change", () => showFile(fileInput.files?.[0]));
-    form.addEventListener("paste", event => {
+    (editor || form).addEventListener("paste", event => {
       const item = Array.from(event.clipboardData?.items || []).find(candidate => supportedTypes.has(String(candidate.type || "").toLowerCase()) && candidate.kind === "file");
       if (!item) return;
       const blob = item.getAsFile();

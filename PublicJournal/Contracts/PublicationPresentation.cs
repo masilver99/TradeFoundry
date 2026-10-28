@@ -22,7 +22,7 @@ public static class PublicationPresentation
         string Money(decimal? value) => value.HasValue ? $"{snapshot.Currency} {value.Value.ToString("N2", CultureInfo.InvariantCulture)}" : "Unavailable";
         string Tone(decimal value) => value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
         string DateLink(DateOnly date) => preview ? $"#day-{date:yyyy-MM-dd}" : $"{pageUrl}{(pageUrl.Contains('?') ? '&' : '?')}date={date:yyyy-MM-dd}&snapshot={snapshot.SnapshotId:D}#day-{date:yyyy-MM-dd}";
-        var html = new StringBuilder($"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{E(snapshot.Title)}</title><link rel=\"stylesheet\" href=\"{E(styleUrl)}\"></head><body><main>");
+        var html = new StringBuilder($"<!doctype html><html lang=\"en\"><head>{(preview ? "" : snapshot.GoogleTagScript)}<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{E(snapshot.Title)}</title><link rel=\"stylesheet\" href=\"{E(styleUrl)}\"></head><body><main>");
         html.Append($"<header><div class=\"eyebrow\">PUBLIC TRADING JOURNAL{(preview ? " · PUBLICATION PREVIEW" : "")}</div><h1>{E(snapshot.Title)}</h1><div class=\"metadata\"><span>{E(snapshot.Currency)} · {E(snapshot.TimeZone)}</span><span>{(preview ? "Snapshot prepared" : "Last published")} {(publishedUtc ?? snapshot.GeneratedUtc).ToString("MMM d, yyyy 'at' HH:mm 'UTC'", CultureInfo.InvariantCulture)}</span></div>");
         if (snapshot.IntroductionContent.Count > 0)
             html.Append($"<div class=\"introduction journal-content\">{PublicationContent.Render(snapshot.IntroductionContent, imageUrl)}</div>");

@@ -16,6 +16,7 @@ public sealed class PublishingModel(TradeFoundryDb database, PublicationWorkflow
     [BindProperty] public string DestinationUrl { get; set; } = "";
     [BindProperty] public string PublicTitle { get; set; } = "";
     [BindProperty] public string Introduction { get; set; } = "";
+    [BindProperty] public string GoogleTagScript { get; set; } = "";
     [BindProperty] public string PublishingToken { get; set; } = "";
     public Journal? Journal { get; private set; }
     public PublishingState State { get; private set; } = null!;
@@ -27,7 +28,7 @@ public sealed class PublishingModel(TradeFoundryDb database, PublicationWorkflow
         Journal = database.GetJournal(JournalId);
         if (Journal is null) return false;
         State = database.GetPublishingState(JournalId);
-        if (settings) { DestinationUrl = State.Settings.DestinationUrl; PublicTitle = State.Settings.Title; Introduction = IntroductionEditorState(State.Settings.Introduction); }
+        if (settings) { GoogleTagScript = State.Settings.GoogleTagScript; DestinationUrl = State.Settings.DestinationUrl; PublicTitle = State.Settings.Title; Introduction = IntroductionEditorState(State.Settings.Introduction); }
         return true;
     }
 
@@ -48,7 +49,7 @@ public sealed class PublishingModel(TradeFoundryDb database, PublicationWorkflow
 
     public Task<IActionResult> OnPostSaveAsync(CancellationToken ct) => Action(async () =>
     {
-        await workflow.SaveSettings(JournalId, new(DestinationUrl ?? "", PublicTitle ?? "", Introduction ?? ""), PublishingToken, ct);
+        await workflow.SaveSettings(JournalId, new(DestinationUrl ?? "", PublicTitle ?? "", Introduction ?? "", GoogleTagScript ?? ""), PublishingToken, ct);
     }, "Settings saved. Create a new preview before publishing.", ct);
 
     public Task<IActionResult> OnPostPreviewAsync(CancellationToken ct) => Action(() => workflow.Preview(JournalId, ct), "Preview prepared. Review the full snapshot below before publishing.", ct);

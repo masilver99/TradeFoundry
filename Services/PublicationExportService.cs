@@ -57,7 +57,7 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
         decimal cumulative = 0;
         var snapshot = new PublicationSnapshot
         {
-            JournalId = journal.Id, GeneratedUtc = now, AsOfDate = asOf, Title = settings.Title.Trim(),
+            JournalId = journal.Id, GeneratedUtc = now, AsOfDate = asOf, Title = settings.Title.Trim(), GoogleTagScript = settings.GoogleTagScript,
             IntroductionContent = ConvertContent(settings.Introduction,
                 _ => throw new InvalidOperationException("Introduction images are not supported.")),
             Currency = journal.Currency, TimeZone = journal.TimeZone, Days = days, Images = images,

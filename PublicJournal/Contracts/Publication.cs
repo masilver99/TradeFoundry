@@ -11,6 +11,7 @@ public sealed record PublicationSnapshot
     public Guid JournalId { get; init; }
     public DateTimeOffset GeneratedUtc { get; init; }
     public DateOnly AsOfDate { get; init; }
+    public string GoogleTagScript { get; init; } = "";
     public string Title { get; init; } = "";
     public string Introduction { get; init; } = "";
     public List<PublicationNode> IntroductionContent { get; init; } = [];

@@ -46,13 +46,13 @@ jobs:
 
       - name: Configure deployment access
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.PUBLIC_JOURNAL_DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.PUBLIC_JOURNAL_DEPLOY_KNOWN_HOSTS }}
           PUBLIC_JOURNAL_TOKEN: ${{ secrets.PUBLIC_JOURNAL_TOKEN }}
         run: |
           set -Eeuo pipefail
           test -n "$DEPLOY_USER" || { echo 'Set PUBLIC_JOURNAL_DEPLOY_USER Actions variable'; exit 1; }
-          test -n "$SSH_PRIVATE_KEY" || { echo 'Set DEPLOY_SSH_KEY Actions secret'; exit 1; }
+          test -n "$SSH_PRIVATE_KEY" || { echo 'Set PUBLIC_JOURNAL_DEPLOY_SSH_KEY Actions secret'; exit 1; }
           test -n "$KNOWN_HOSTS" || { echo 'Set PUBLIC_JOURNAL_DEPLOY_KNOWN_HOSTS Actions secret'; exit 1; }
           test -n "$PUBLIC_JOURNAL_TOKEN" || { echo 'Set PUBLIC_JOURNAL_TOKEN Actions secret'; exit 1; }
           umask 077

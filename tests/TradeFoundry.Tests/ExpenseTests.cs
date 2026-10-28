@@ -75,7 +75,7 @@ public sealed class ExpenseTests : IDisposable
     }
 
     [Fact]
-    public void ExpenseEditsAreAuditedAndStaleOrCrossJournalMutationsFail()
+    public void ExpenseEditsDoNotKeepHistoryAndStaleOrCrossJournalMutationsFail()
     {
         var expense = _db.CreateExpense(_journal.Id, Draft());
         var updated = _db.UpdateExpense(_journal.Id, expense.Id, 1, Draft(20m));
@@ -87,8 +87,7 @@ public sealed class ExpenseTests : IDisposable
         Assert.Null(_db.GetExpense(_journal.Id, expense.Id));
         Assert.IsType<NotFoundResult>(PageModel().OnPostSave(expense.Id, 2));
         Assert.Empty(_db.GetExpenses(_journal.Id, DateOnly.MinValue, DateOnly.MaxValue));
-        Assert.Equal(new[] { "deleted", "updated", "created" }, _db.GetExpenseHistory(_journal.Id, expense.Id).Select(h => h.Action));
-        Assert.Contains("20", _db.GetExpenseHistory(_journal.Id, expense.Id)[0].BeforeJson);
+        Assert.Empty(_db.GetExpenseHistory(_journal.Id, expense.Id));
     }
 
     [Fact]
@@ -150,7 +149,7 @@ public sealed class ExpenseTests : IDisposable
     [InlineData("image/jpeg", "jpeg")]
     [InlineData("image/png", "png")]
     [InlineData("image/webp", "RIFF0000WEBP")]
-    public async Task ReceiptFormatsArePrivateAndAudited(string type, string fixture)
+    public async Task ReceiptFormatsArePrivateWithoutHistory(string type, string fixture)
     {
         var bytes = fixture switch { "jpeg" => new byte[] { 255, 216, 255, 224 }, "png" => new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, _ => Encoding.ASCII.GetBytes(fixture) };
         var expense = _db.CreateExpense(_journal.Id, Draft());
@@ -161,17 +160,17 @@ public sealed class ExpenseTests : IDisposable
         Assert.Null(_service.GetReceiptPath(_other.Id, expense.Id, receipt.Id));
         Assert.Null(_service.GetReceiptPath(_journal.Id, Guid.NewGuid(), receipt.Id));
         Assert.Equal(1, _db.GetExpense(_journal.Id, expense.Id)!.ReceiptCount);
-        Assert.Contains(receipt.StorageKey, _db.GetExpenseHistory(_journal.Id, expense.Id)[0].AfterJson);
+        Assert.Empty(_db.GetExpenseHistory(_journal.Id, expense.Id));
         Assert.NotNull(NewDatabase().GetExpenseReceipts(_journal.Id, expense.Id).Single());
         var path = _service.GetReceiptPath(_journal.Id, expense.Id, receipt.Id)!;
         _service.RemoveReceipt(_journal.Id, expense.Id, receipt.Id, 2);
         Assert.False(File.Exists(path));
         Assert.Empty(_db.GetExpenseReceipts(_journal.Id, expense.Id));
-        Assert.Contains(receipt.StorageKey, _db.GetExpenseHistory(_journal.Id, expense.Id)[0].BeforeJson);
+        Assert.Empty(_db.GetExpenseHistory(_journal.Id, expense.Id));
     }
 
     [Fact]
-    public async Task DeletedExpensesHideReceiptsButRetainFilesAndHistory()
+    public async Task DeletedExpensesHideReceiptsAndDoNotWriteHistory()
     {
         var expense = _db.CreateExpense(_journal.Id, Draft());
         await using var stream = new MemoryStream("%PDF-1.7"u8.ToArray());
@@ -182,7 +181,7 @@ public sealed class ExpenseTests : IDisposable
         Assert.Null(_service.GetReceiptPath(_journal.Id, expense.Id, receipt.Id));
         Assert.IsType<NotFoundResult>(PageModel().OnGetReceipt(expense.Id, receipt.Id));
         Assert.True(File.Exists(path));
-        Assert.Equal(3, _db.GetExpenseHistory(_journal.Id, expense.Id).Count);
+        Assert.Empty(_db.GetExpenseHistory(_journal.Id, expense.Id));
     }
 
     [Fact]
@@ -216,6 +215,41 @@ public sealed class ExpenseTests : IDisposable
         var otherPage = PageModel(); otherPage.JournalId = _other.Id;
         Assert.IsType<NotFoundResult>(otherPage.OnGetReceipt(expense.Id, Guid.NewGuid()));
         Assert.Contains(CommandPaletteCatalog.Items, i => i.Title == "Expenses" && i.Route == "/expenses");
+    }
+
+    [Fact]
+    public void TaxEstimateUsesClosedNetProfitAndExpensesRegardlessOfLedgerFilters()
+    {
+        var timestamp = new DateTimeOffset(2025, 3, 31, 20, 0, 0, TimeSpan.Zero);
+        var parsed = new ParsedImport { SourceType = TradeFoundryConstants.SierraFills, SourceApplication = TradeFoundryConstants.SierraChart };
+        for (var i = 0; i < 2; i++)
+        {
+            var key = "tax-fill-" + i;
+            parsed.Records.Add(new ParsedRecord
+            {
+                SourceType = TradeFoundryConstants.SierraFills, SourceKey = key, RowNumber = i + 1, PayloadJson = "{}",
+                Fill = new FillDraft
+                {
+                    SourceType = TradeFoundryConstants.SierraFills, SourceKey = key, EventUtc = timestamp.AddMinutes(i),
+                    SourceTimeText = timestamp.AddMinutes(i).ToString("O"), Symbol = "MESM25", Instrument = "MES", Account = "SIM",
+                    Side = i == 0 ? "Buy" : "Sell", Quantity = 1, Price = i == 0 ? 5000m : 5100m,
+                    Fees = 1m, RowNumber = i + 1, PointValue = 5m, TickSize = .25m
+                }
+            });
+        }
+        _db.CommitImport(_journal.Id, "tax-fixture.txt", parsed, "flat_to_flat", "source");
+        var profit = Assert.Single(_db.GetAllTrades(_journal.Id)).NetPnl;
+        _db.CreateExpense(_journal.Id, Draft(100m) with { Date = new(2025, 3, 31) });
+        _db.CreateExpense(_journal.Id, Draft(50m) with { Date = new(2025, 4, 1) });
+        _db.CreateExpense(_journal.Id, Draft(999m)); // outside tax year
+        var model = new TaxLiabilityModel(_db) { JournalId = _journal.Id, TaxYear = 2025 };
+        Assert.IsType<PageResult>(model.OnGet());
+        Assert.Equal(profit, model.TaxQuarters[0].Profit);
+        Assert.Equal(100m, model.TaxQuarters[0].Expenses);
+        Assert.Equal(50m, model.TaxQuarters[1].Expenses);
+        Assert.Equal(profit - 150m, model.TaxNet);
+        Assert.Equal(Math.Round((profit - 150m) * .186m, 2), model.EstimatedTax);
+        Assert.Equal(model.EstimatedTax, model.ProjectedTax); // completed year is not extrapolated
     }
 
     private ExpensesModel PageModel() => new(_db, _service) { JournalId = _journal.Id, PageContext = new PageContext { HttpContext = new DefaultHttpContext() } };

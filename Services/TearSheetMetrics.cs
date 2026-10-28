@@ -687,12 +687,12 @@ public static class TearSheetMetrics
         var latestDate = ordered.Length == 0
             ? (DateOnly?)null
             : ordered.Max(trade => DateInZone(trade.ExitUtc!.Value, timeZone));
-        var all = BuildScSubsetStats(ordered);
-        var longs = BuildScSubsetStats(ordered.Where(trade => trade.Direction.Equals("Long", StringComparison.OrdinalIgnoreCase)).ToArray());
-        var shorts = BuildScSubsetStats(ordered.Where(trade => trade.Direction.Equals("Short", StringComparison.OrdinalIgnoreCase)).ToArray());
+        var all = BuildScSubsetStats(ordered, timeZone);
+        var longs = BuildScSubsetStats(ordered.Where(trade => trade.Direction.Equals("Long", StringComparison.OrdinalIgnoreCase)).ToArray(), timeZone);
+        var shorts = BuildScSubsetStats(ordered.Where(trade => trade.Direction.Equals("Short", StringComparison.OrdinalIgnoreCase)).ToArray(), timeZone);
         var daily = BuildScSubsetStats(latestDate.HasValue
             ? ordered.Where(trade => DateInZone(trade.ExitUtc!.Value, timeZone) == latestDate.Value).ToArray()
-            : Array.Empty<Trade>());
+            : Array.Empty<Trade>(), timeZone);
         var columns = new[] { all, longs, shorts, daily };
 
         return new TearSheetScStatistics
@@ -756,6 +756,11 @@ public static class TearSheetMetrics
                     ScIntegerRow("Max Consecutive Winners", columns, stats => stats.MaxConsecutiveWinners),
                     ScIntegerRow("Max Consecutive Losers", columns, stats => stats.MaxConsecutiveLosers)
                 }),
+                new TearSheetScSection("Day Streaks", new[]
+                {
+                    ScIntegerRow("Max winning days", columns, stats => stats.MaxWinningDays),
+                    ScIntegerRow("Max losing days", columns, stats => stats.MaxLosingDays)
+                }),
                 new TearSheetScSection("Time in Trade", new[]
                 {
                     ScDurationRow("Average Time In Trades", columns, stats => stats.AverageTimeSeconds),
@@ -783,13 +788,18 @@ public static class TearSheetMetrics
         };
     }
 
-    private static ScSubsetStats BuildScSubsetStats(IReadOnlyList<Trade> source)
+    private static ScSubsetStats BuildScSubsetStats(IReadOnlyList<Trade> source, TimeZoneInfo timeZone)
     {
         if (source.Count == 0) return new ScSubsetStats();
 
         var trades = source
             .OrderBy(trade => trade.ExitUtc)
             .ThenBy(trade => trade.Sequence)
+            .ToArray();
+        // Breakeven days neither extend nor interrupt day streaks.
+        var dailyNetPnl = BuildDaily(trades, timeZone)
+            .Select(day => day.NetPnl)
+            .Where(pnl => pnl != 0m)
             .ToArray();
         var netPnl = trades.Select(trade => trade.NetPnl).ToArray();
         var winners = trades.Where(trade => trade.NetPnl > 0m).ToArray();
@@ -857,6 +867,8 @@ public static class TearSheetMetrics
             LargestLoserPercent = largestLoser.HasValue && totalLoss != 0m ? Math.Abs(largestLoser.Value) / Math.Abs(totalLoss) * 100m : null,
             MaxConsecutiveWinners = MaxStreak(netPnl, positive: true),
             MaxConsecutiveLosers = MaxStreak(netPnl, positive: false),
+            MaxWinningDays = MaxStreak(dailyNetPnl, positive: true),
+            MaxLosingDays = MaxStreak(dailyNetPnl, positive: false),
             AverageTimeSeconds = durations.Length == 0 ? null : durations.Average(),
             AverageWinningTimeSeconds = winningDurations.Length == 0 ? null : winningDurations.Average(),
             AverageLosingTimeSeconds = losingDurations.Length == 0 ? null : losingDurations.Average(),
@@ -1593,6 +1605,8 @@ public static class TearSheetMetrics
         public decimal? LargestLoserPercent { get; init; }
         public int? MaxConsecutiveWinners { get; init; }
         public int? MaxConsecutiveLosers { get; init; }
+        public int? MaxWinningDays { get; init; }
+        public int? MaxLosingDays { get; init; }
         public double? AverageTimeSeconds { get; init; }
         public double? AverageWinningTimeSeconds { get; init; }
         public double? AverageLosingTimeSeconds { get; init; }

@@ -415,6 +415,8 @@ public sealed class JournalOverview
     public IReadOnlyList<string> Symbols { get; init; } = Array.Empty<string>();
     public IReadOnlyList<DailyPnl> DailyPnl { get; init; } = Array.Empty<DailyPnl>();
     public IReadOnlyList<EquityPoint> Equity { get; init; } = Array.Empty<EquityPoint>();
+    public EquityPoint? PeakProfit { get; init; }
+    public decimal? ProfitBelowPeak => PeakProfit?.CumulativePnl - NetPnl;
     public decimal NetPnl { get; init; }
     public decimal GrossPnl { get; init; }
     public decimal Points { get; init; }

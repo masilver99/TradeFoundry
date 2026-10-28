@@ -21,6 +21,55 @@ namespace TradeFoundry.Tests;
 public sealed class PublicationTests
 {
     [Fact]
+    public void IntroductionFormattingAndPublicTitleSurviveSnapshotSerializationAndRenderBelowTimezone()
+    {
+        const string state = """{"root":{"children":[{"type":"heading","tag":"h3","children":[{"type":"text","text":"Welcome","format":1}]},{"type":"paragraph","children":[{"type":"text","text":"<script>private</script>","format":2}]},{"type":"list","tag":"ul","children":[{"type":"listitem","children":[{"type":"text","text":"My process"}]}]}]}}""";
+        var snapshot = PublicationExportService.BuildSnapshot(Journal(), [], new(),
+            new Dictionary<DateOnly, List<PublicationNode>>(), [], new(Title: "My public title", Introduction: state), DateTimeOffset.UtcNow);
+        var restored = JsonSerializer.Deserialize<PublicationSnapshot>(JsonSerializer.Serialize(snapshot, PublicationJson.Options), PublicationJson.Options)!;
+        PublicationValidation.Validate(restored);
+        foreach (var preview in new[] { false, true })
+        {
+            var html = PublicationPresentation.Document(restored, null, _ => "", "/", "/publication.css", preview: preview);
+            Assert.Contains("<h1>My public title</h1>", html);
+            Assert.Contains("PUBLIC TRADING JOURNAL", html);
+            Assert.Contains("EQUITY CURVE", html);
+            Assert.Contains("<h3><strong>Welcome</strong></h3>", html);
+            Assert.Contains("<ul><li>My process</li></ul>", html);
+            Assert.Contains("<em>&lt;script&gt;private&lt;/script&gt;</em>", html);
+            Assert.DoesNotContain("<script>", html);
+            Assert.DoesNotContain("PRIVATE-JOURNAL", html);
+            Assert.True(html.IndexOf("class=\"metadata\"", StringComparison.Ordinal) < html.IndexOf("<h3><strong>Welcome", StringComparison.Ordinal));
+            Assert.True(html.IndexOf("<h3><strong>Welcome", StringComparison.Ordinal) < html.IndexOf("class=\"metrics\"", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void OlderPlainTextIntroductionsStillPublishAndExistingSnapshotsStillRender()
+    {
+        var snapshot = PublicationExportService.BuildSnapshot(Journal(), [], new(),
+            new Dictionary<DateOnly, List<PublicationNode>>(), [], new(Title: "Legacy", Introduction: "Hello <world>"), DateTimeOffset.UtcNow);
+        Assert.Contains("<p>Hello &lt;world&gt;</p>", PublicationPresentation.Document(snapshot, null, _ => "", "/", "/publication.css"));
+        var legacy = snapshot with { IntroductionContent = [], Introduction = "Earlier <introduction>" };
+        Assert.Contains("Earlier &lt;introduction&gt;", PublicationPresentation.Document(legacy, null, _ => "", "/", "/publication.css"));
+    }
+
+    [Fact]
+    public void IntroductionRejectsUnsafeLinksAndImages()
+    {
+        var snapshot = PublicationExportService.BuildSnapshot(Journal(), [], new(),
+            new Dictionary<DateOnly, List<PublicationNode>>(), [], new(Title: "Safe"), DateTimeOffset.UtcNow);
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with
+        {
+            IntroductionContent = [new() { Type = "link", Url = "javascript:alert(1)" }]
+        }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with
+        {
+            IntroductionContent = [new() { Type = "image", ImageId = "missing" }]
+        }));
+    }
+
+    [Fact]
     public void ExportUsesJournalDateBoundariesRealizedFeesAndCashFlowBalanceWithoutPrivateFields()
     {
         var journal = Journal("America/New_York");

@@ -43,8 +43,8 @@ else
     var overview = Model.Overview;
     var account = Model.Account;
     var accountBalance = account?.CurrentBalance;
-    var accountProfit = account?.RealizedProfit ?? 0m;
     var accountTwr = account?.RealizedTwrPercent;
+    var peakDaysAgo = overview.PeakProfit is null ? 0 : Math.Max(0, DateOnly.FromDateTime(TimeZoneCatalog.Convert(DateTimeOffset.UtcNow, overview.Journal.TimeZone).DateTime).DayNumber - DateOnly.FromDateTime(TimeZoneCatalog.Convert(overview.PeakProfit.ExitUtc, overview.Journal.TimeZone).DateTime).DayNumber);
     <div class="d-flex flex-wrap gap-2 mb-3">
         <a class="btn btn-primary" href="@($"/journal/{overview.Journal.Id:D}/imports")">Import records</a>
         <a class="btn btn-outline-secondary" href="@($"/journal/{overview.Journal.Id:D}/trades")">Open trade ledger</a>
@@ -53,14 +53,29 @@ else
     </div>
 
     <section id="overview-metrics" class="row row-cards mb-3" aria-label="Journal metrics">
-        <div class="col-sm-6 col-xl-2"><a class="card tf-card tf-metric tf-metric-account tf-account-summary-card d-block" href="@($"/journal/{overview.Journal.Id:D}/account")"><div class="card-body"><div class="tf-metric-label">Account balance</div><div class="tf-metric-value @(accountBalance.HasValue && accountBalance.Value < 0m ? "negative" : "positive")">@(accountBalance?.ToString("C2") ?? "—")</div><div class="tf-metric-note">@(accountTwr.HasValue ? $"{accountTwr.Value:+0.00;-0.00;0.00}% realized TWR · {accountProfit:C2} profit" : $"{accountProfit:C2} realized · TWR unavailable")</div><div class="tf-account-card-link">Open account ledger →</div></div></a></div>
-        <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric tf-metric-accent"><div class="card-body"><div class="tf-metric-label">Net P&amp;L</div><div class="tf-metric-value @(overview.NetPnl >= 0 ? "positive" : "negative")">@overview.NetPnl.ToString("C2")</div><div class="tf-metric-note">All imported trades</div></div></div></div>
+        <div class="col-sm-6 col-xl-2"><a class="card tf-card tf-metric tf-metric-account tf-account-summary-card d-block" href="@($"/journal/{overview.Journal.Id:D}/account")"><div class="card-body"><div class="tf-metric-label">Account balance</div><div class="tf-metric-value @(accountBalance.HasValue && accountBalance.Value < 0m ? "negative" : "positive")">@(accountBalance?.ToString("C2") ?? "—")</div><div class="tf-metric-note">@(accountTwr.HasValue ? $"{accountTwr.Value:+0.00;-0.00;0.00}% realized TWR" : "TWR unavailable")</div><div class="tf-account-card-link">Open account ledger →</div></div></a></div>
+        <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric tf-metric-accent"><div class="card-body"><div class="tf-metric-label">Net P&amp;L</div><div class="tf-metric-value @(overview.NetPnl >= 0 ? "positive" : "negative")">@overview.NetPnl.ToString("C2")</div></div></div></div>
+
+        <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body">
+            <div class="tf-metric-label">Peak profit</div>
+            <div class="tf-metric-value @(overview.PeakProfit?.CumulativePnl < 0m ? "negative" : "positive")">@(overview.PeakProfit?.CumulativePnl.ToString("C2") ?? "—")</div>
+            @if (overview.PeakProfit is { } peak)
+            {
+                <div class="tf-metric-note">@(peakDaysAgo == 0 ? "Today" : peakDaysAgo == 1 ? "1 day ago" : $"{peakDaysAgo:N0} days ago") · @TimeZoneCatalog.Format(peak.ExitUtc, overview.Journal.TimeZone, "MMM d, yyyy HH:mm")</div>
+                <div class="tf-metric-note">@(overview.ProfitBelowPeak > 0m ? $"{overview.ProfitBelowPeak:C2} below peak" : "Current profit is at peak")</div>
+            }
+            else
+            {
+                <div class="tf-metric-note">No trades yet</div>
+            }
+        </div></div></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Points</div><div class="tf-metric-value">@overview.Points.ToString("0.##")</div><div class="tf-metric-note">Direction-adjusted</div><div class="tf-metric-note">Fee-adjusted @overview.FeeAdjustedPoints.ToString("0.##") points</div></div></div></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Trading days</div><div class="tf-metric-value">@overview.TradingDays</div><div class="tf-metric-note">Distinct days with a trade entry</div></div></div></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Closed trades</div><div class="tf-metric-value">@overview.ClosedTradeCount</div><div class="tf-metric-note">@overview.OpenTradeCount open</div></div></div></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Win rate</div><div class="tf-metric-value">@overview.WinRate.ToString("0.0")%</div><div class="tf-metric-note">@overview.WinningTrades wins · @overview.LosingTrades losses</div></div></div></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Profit factor</div><div class="tf-metric-value">@(overview.ProfitFactor == decimal.MaxValue ? "∞" : overview.ProfitFactor.ToString("0.00"))</div><div class="tf-metric-note">Winners ÷ losers</div></div></div></div>
         <div class="col-sm-6 col-xl-2"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Fees</div><div class="tf-metric-value">@overview.Fees.ToString("C2")</div><div class="tf-metric-note">Exchange @overview.ExchangeFees.ToString("C2") · NFA @overview.NfaFees.ToString("C2") · Clearing @overview.ClearingFees.ToString("C2")<br /><span class="text-secondary">All-in overrides are included in total</span></div></div></div></div>
+
     </section>
 
     <section id="overview-charts" class="row row-cards mb-3">

@@ -55,7 +55,9 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
         decimal cumulative = 0;
         var snapshot = new PublicationSnapshot
         {
-            JournalId = journal.Id, GeneratedUtc = now, AsOfDate = asOf, Title = settings.Title.Trim(), Introduction = settings.Introduction.Trim(),
+            JournalId = journal.Id, GeneratedUtc = now, AsOfDate = asOf, Title = settings.Title.Trim(),
+            IntroductionContent = ConvertContent(settings.Introduction,
+                _ => throw new InvalidOperationException("Introduction images are not supported.")),
             Currency = journal.Currency, TimeZone = journal.TimeZone, Days = days, Images = images,
             Months = days.GroupBy(d => new DateOnly(d.Date.Year, d.Date.Month, 1)).Select(g => new PublicationMonth(g.Key, g.Sum(d => d.NetPnl), g.Sum(d => d.Trades.Count))).ToList(),
             Equity = days.Where(d => d.Trades.Count > 0).Select(d => new PublicationEquityPoint(d.Date, cumulative += d.NetPnl)).ToList(),

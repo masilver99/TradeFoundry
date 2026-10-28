@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="~/css/expenses.css" asp-append-version="true" />
 <section class="tf-page-intro mb-3">
     <div><div class="tf-kicker">TRADING OPERATING COSTS</div><h1>Expenses</h1><p class="tf-lede">Keep tools, software, data, and other trading expenses together with their receipts.</p></div>
-    <div class="tf-expense-actions"><a class="btn btn-primary" href="@formUrl#expense-form">Add expense</a><button class="btn btn-outline-secondary" type="button" data-expense-categories-open>Manage categories</button></div>
+    <div class="tf-expense-actions"><a class="btn btn-primary" href="@formUrl&add=true" data-expense-open>Add expense</a><button class="btn btn-outline-secondary" type="button" data-expense-categories-open>Manage categories</button></div>
 </section>
 @if (TempData["ExpenseMessage"] is string message)
 {
@@ -34,6 +34,9 @@
     }
     <p class="text-secondary small mt-2 mb-0">Expenses are tracked separately from trading P&amp;L and account balances. Totals include every matching expense, across all pages.</p>
 </div></section>
+<dialog id="expense-editor" class="tf-expense-drawer" aria-labelledby="expense-editor-title" data-open="@(editing is not null || Model.EditorOpen || Request.Query["add"] == "true" ? "true" : "false")">
+<div class="tf-expense-drawer-heading"><h2 id="expense-editor-title">@(editing is null ? "Add expense" : "Edit expense")</h2><button type="button" class="btn btn-outline-secondary" data-expense-close>Close</button></div>
+<div asp-validation-summary="All" class="text-danger mb-3" aria-live="assertive"></div>
 <section class="card tf-card mb-3" id="expense-form">
     <div class="card-header"><h2 class="tf-card-title">@(editing is null ? "Add expense" : "Edit expense")</h2></div>
     <div class="card-body"><form method="post" action="@formUrl&handler=Save" class="row g-3">
@@ -45,7 +48,7 @@
         <div class="col-sm-6 col-lg-3"><label class="form-label" asp-for="Input.Vendor">Vendor <span class="text-secondary">(optional)</span></label><input asp-for="Input.Vendor" class="form-control" maxlength="180" /></div>
         <div class="col-12"><label class="form-label" asp-for="Input.Description">Description</label><input asp-for="Input.Description" class="form-control" maxlength="250" required placeholder="Monthly charting subscription…" /></div>
         <div class="col-12"><label class="form-label" asp-for="Input.Notes">Notes <span class="text-secondary">(optional)</span></label><textarea asp-for="Input.Notes" class="form-control" maxlength="2000" rows="2"></textarea></div>
-        <div class="col-12 tf-expense-actions"><button class="btn btn-primary" type="submit" disabled="@Model.SaveConflict">@(editing is null ? "Save expense" : "Save changes")</button>@if (Model.SaveConflict){<a class="btn btn-outline-primary" href="@formUrl&edit=@editing?.Id#expense-form">Reload current expense</a>}@if (editing is not null){<a class="btn btn-outline-secondary" href="@formUrl#expense-form">Cancel edit</a><span class="text-secondary small">Revision @editing.Revision</span>}else{<span class="text-secondary small">Save your expense to attach receipts.</span>}</div>
+        <div class="col-12 tf-expense-actions"><button class="btn btn-primary" type="submit" disabled="@Model.SaveConflict">@(editing is null ? "Save expense" : "Save changes")</button>@if (Model.SaveConflict){<a class="btn btn-outline-primary" href="@formUrl&edit=@editing?.Id#expense-form">Reload current expense</a>}@if (editing is not null){<a class="btn btn-outline-secondary" href="@formUrl">Cancel edit</a>}else{<span class="text-secondary small">Save your expense to attach receipts.</span>}</div>
     </form></div>
 </section>
 @if (editing is not null)
@@ -68,14 +71,15 @@
         @if (Model.Receipts.Count == 0){<p class="text-secondary mt-3 mb-0">No receipts attached yet.</p>}
     </div></section>
 }
+</dialog>
 <section class="card tf-card" id="expense-ledger"><div class="card-header"><h2 class="tf-card-title">Expense ledger</h2></div>
-    @if (Model.Rows.Count == 0){<div class="tf-empty m-3"><strong>No matching expenses.</strong>Add an expense above or adjust the filters.</div>}
+    @if (Model.Rows.Count == 0){<div class="tf-empty m-3"><strong>No matching expenses.</strong>Use Add expense or adjust the filters.</div>}
     else
     {
         <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-expense-table"><thead><tr><th>Date</th><th>Vendor / description</th><th>Category</th><th>Amount</th><th>Receipts</th><th>Actions</th></tr></thead><tbody>
         @foreach (var expense in Model.Rows)
         {
-            <tr><td>@expense.Details.Date.ToString("MMM d, yyyy")</td><td><strong>@expense.Details.Description</strong>@if (!string.IsNullOrWhiteSpace(expense.Details.Vendor)){<small>@expense.Details.Vendor</small>}</td><td>@expense.CategoryName</td><td class="text-nowrap">@expense.Details.Amount.ToString("N2") @expense.Currency</td><td><a href="@formUrl&edit=@expense.Id#expense-receipts">@expense.ReceiptCount receipt(s)</a></td><td><div class="tf-expense-actions"><a class="btn btn-sm btn-outline-secondary" href="@formUrl&edit=@expense.Id#expense-form">Edit</a><form method="post" action="@formUrl&handler=Delete" data-expense-confirm="Delete this expense? Its history and receipts will be retained.">@Html.AntiForgeryToken()<input type="hidden" name="expenseId" value="@expense.Id" /><input type="hidden" name="expectedRevision" value="@expense.Revision" /><button class="btn btn-sm btn-outline-danger" type="submit">Delete</button></form></div></td></tr>
+            <tr><td>@expense.Details.Date.ToString("MMM d, yyyy")</td><td><strong>@expense.Details.Description</strong>@if (!string.IsNullOrWhiteSpace(expense.Details.Vendor)){<small>@expense.Details.Vendor</small>}</td><td>@expense.CategoryName</td><td class="text-nowrap">@expense.Details.Amount.ToString("N2") @expense.Currency</td><td><a href="@formUrl&edit=@expense.Id#expense-receipts">@expense.ReceiptCount receipt(s)</a></td><td><div class="tf-expense-actions"><a class="btn btn-sm btn-outline-secondary" href="@formUrl&edit=@expense.Id#expense-form">Edit</a><form method="post" action="@formUrl&handler=Delete" data-expense-confirm="Delete this expense?">@Html.AntiForgeryToken()<input type="hidden" name="expenseId" value="@expense.Id" /><input type="hidden" name="expectedRevision" value="@expense.Revision" /><button class="btn btn-sm btn-outline-danger" type="submit">Delete</button></form></div></td></tr>
         }
         </tbody></table></div>
     }

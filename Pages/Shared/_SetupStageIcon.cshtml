@@ -1,0 +1,21 @@
+@model TradeFoundry.Core.SetupCriterionStage
+<svg xmlns="http://www.w3.org/2000/svg" class="tf-setup-stage-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    @switch (Model)
+    {
+        case TradeFoundry.Core.SetupCriterionStage.Context:
+            <circle cx="12" cy="12" r="9" /><path d="m16 8-3 5-5 3 3-5z" />
+            break;
+        case TradeFoundry.Core.SetupCriterionStage.Setup:
+            <path d="m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5" />
+            break;
+        case TradeFoundry.Core.SetupCriterionStage.Trigger:
+            <path d="m13 2-9 12h7l-1 8 10-13h-7z" />
+            break;
+        case TradeFoundry.Core.SetupCriterionStage.Management:
+            <path d="M4 4v4m0 4v8M12 4v8m0 4v4M20 4v2m0 4v10M1 8h6m2 8h6m2-10h6" />
+            break;
+        default:
+            <path d="M10 4H4v16h6M14 8l4 4-4 4M8 12h12" />
+            break;
+    }
+</svg>

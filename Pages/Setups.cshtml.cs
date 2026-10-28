@@ -33,6 +33,8 @@ public sealed class SetupsModel : PageModel
     [BindProperty] public string EditDetailedDescription { get; set; } = string.Empty;
     [BindProperty] public string EditCategory { get; set; } = string.Empty;
     [BindProperty] public List<CriterionInput> VersionCriteria { get; set; } = new();
+    [BindProperty] public string? VersionNotes { get; set; }
+    public string? OpenEditor { get; private set; }
 
     public Journal? Journal { get; private set; }
     public IReadOnlyList<TradingSetupSummary> Setups { get; private set; } = Array.Empty<TradingSetupSummary>();
@@ -71,11 +73,11 @@ public sealed class SetupsModel : PageModel
         }
         catch (ArgumentException exception)
         {
-            return PageWithError(exception.Message);
+            return PageWithError(exception.Message, "create");
         }
         catch (InvalidOperationException exception)
         {
-            return PageWithError(exception.Message);
+            return PageWithError(exception.Message, "create");
         }
     }
 
@@ -98,12 +100,12 @@ public sealed class SetupsModel : PageModel
         catch (ArgumentException exception)
         {
             SetupId = setupId;
-            return PageWithError(exception.Message);
+            return PageWithError(exception.Message, "metadata");
         }
         catch (InvalidOperationException exception)
         {
             SetupId = setupId;
-            return PageWithError(exception.Message);
+            return PageWithError(exception.Message, "metadata");
         }
     }
 
@@ -119,12 +121,12 @@ public sealed class SetupsModel : PageModel
         catch (ArgumentException exception)
         {
             SetupId = setupId;
-            return PageWithError(exception.Message);
+            return PageWithError(exception.Message, "criteria");
         }
         catch (InvalidOperationException exception)
         {
             SetupId = setupId;
-            return PageWithError(exception.Message);
+            return PageWithError(exception.Message, "criteria");
         }
     }
 
@@ -140,12 +142,12 @@ public sealed class SetupsModel : PageModel
         catch (ArgumentException exception)
         {
             SetupId = setupId;
-            return PageWithError(exception.Message);
+            return PageWithError(exception.Message, "criteria");
         }
         catch (InvalidOperationException exception)
         {
             SetupId = setupId;
-            return PageWithError(exception.Message);
+            return PageWithError(exception.Message, "criteria");
         }
     }
 
@@ -172,13 +174,13 @@ public sealed class SetupsModel : PageModel
         return RedirectToPage(new { journalId = JournalId, setupId });
     }
 
-    private void Load()
+    private void Load(string? preserveEditor = null)
     {
         Journal = _database.GetJournal(JournalId);
         if (Journal is null) return;
         Setups = _setups.GetSetups(JournalId, includeInactive: true);
         Performance = _setups.GetPerformance(JournalId);
-        var selectedId = SetupId ?? Setups.FirstOrDefault()?.Id;
+        var selectedId = SetupId;
         if (selectedId.HasValue)
         {
             SelectedSetup = _setups.GetSetup(JournalId, selectedId.Value);
@@ -187,19 +189,27 @@ public sealed class SetupsModel : PageModel
 
         if (SelectedSetup is not null)
         {
-            EditName = SelectedSetup.Setup.Name;
-            EditShortDescription = SelectedSetup.Setup.ShortDescription;
-            EditDetailedDescription = SelectedSetup.Setup.DetailedDescription;
-            EditCategory = SelectedSetup.Setup.Category;
-            VersionCriteria = SelectedSetup.CurrentVersion?.Criteria.Select(CriterionInput.From).ToList() ?? new();
+            if (preserveEditor != "metadata")
+            {
+                EditName = SelectedSetup.Setup.Name;
+                EditShortDescription = SelectedSetup.Setup.ShortDescription;
+                EditDetailedDescription = SelectedSetup.Setup.DetailedDescription;
+                EditCategory = SelectedSetup.Setup.Category;
+            }
+            if (preserveEditor != "criteria")
+            {
+                VersionCriteria = SelectedSetup.CurrentVersion?.Criteria.Select(CriterionInput.From).ToList() ?? new();
+                VersionNotes = CanEditCurrentVersion ? CurrentVersion?.Notes : null;
+            }
         }
-        if (NewCriteria.Count == 0) NewCriteria.Add(new CriterionInput());
-        if (VersionCriteria.Count == 0) VersionCriteria.Add(new CriterionInput());
+        if (NewCriteria.Count == 0 && preserveEditor != "create") NewCriteria.Add(new CriterionInput());
+        if (VersionCriteria.Count == 0 && preserveEditor != "criteria") VersionCriteria.Add(new CriterionInput());
     }
 
-    private IActionResult PageWithError(string message)
+    private IActionResult PageWithError(string message, string editor)
     {
-        Load();
+        Load(editor);
+        OpenEditor = editor;
         FlashMessage = message;
         FlashKind = "error";
         return Page();

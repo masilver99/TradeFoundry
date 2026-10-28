@@ -1235,6 +1235,15 @@ public sealed partial class TradeFoundryDb
         }
         equity.Reverse();
 
+        EquityPoint? peakProfit = null;
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $"WITH running AS (SELECT t.id, COALESCE(t.exit_utc, t.entry_utc) AS occurred_utc, t.sequence, SUM({EffectiveNetPnlSql}) OVER (ORDER BY COALESCE(t.exit_utc, t.entry_utc), t.sequence, t.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pnl FROM {TradeFrom} WHERE t.journal_id = $journal) SELECT occurred_utc, cumulative_pnl FROM running ORDER BY cumulative_pnl DESC, occurred_utc DESC, sequence DESC, id DESC LIMIT 1";
+            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            using var reader = command.ExecuteReader();
+            if (reader.Read()) peakProfit = new EquityPoint { ExitUtc = ParseDate(reader.GetString(0)), CumulativePnl = AggregateDecimal(reader, 1) };
+        }
+
         var profitFactor = losingPnl == 0m ? (winningPnl > 0m ? decimal.MaxValue : 0m) : winningPnl / losingPnl;
         return new JournalOverview
         {
@@ -1244,6 +1253,7 @@ public sealed partial class TradeFoundryDb
             Symbols = symbols.OrderBy(x => x).ToArray(),
             DailyPnl = dailyPnl,
             Equity = equity,
+            PeakProfit = peakProfit,
             NetPnl = netPnl,
             GrossPnl = grossPnl,
             Points = points,

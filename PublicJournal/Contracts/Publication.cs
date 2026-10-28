@@ -13,6 +13,7 @@ public sealed record PublicationSnapshot
     public DateOnly AsOfDate { get; init; }
     public string Title { get; init; } = "";
     public string Introduction { get; init; } = "";
+    public List<PublicationNode> IntroductionContent { get; init; } = [];
     public string Currency { get; init; } = "USD";
     public string TimeZone { get; init; } = "UTC";
     public PublicationDashboard Dashboard { get; init; } = new();

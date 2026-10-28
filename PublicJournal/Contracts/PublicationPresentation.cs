@@ -22,7 +22,12 @@ public static class PublicationPresentation
         string Tone(decimal value) => value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
         string DateLink(DateOnly date) => preview ? $"#day-{date:yyyy-MM-dd}" : $"{pageUrl}{(pageUrl.Contains('?') ? '&' : '?')}date={date:yyyy-MM-dd}&snapshot={snapshot.SnapshotId:D}#day-{date:yyyy-MM-dd}";
         var html = new StringBuilder($"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{E(snapshot.Title)}</title><link rel=\"stylesheet\" href=\"{E(styleUrl)}\"></head><body><main>");
-        html.Append($"<header><div class=\"eyebrow\">TRADING JOURNAL{(preview ? " · PUBLICATION PREVIEW" : "")}</div><h1>{E(snapshot.Title)}</h1><p class=\"introduction\">{E(snapshot.Introduction)}</p><div class=\"metadata\"><span>{E(snapshot.Currency)} · {E(snapshot.TimeZone)}</span><span>{(preview ? "Snapshot prepared" : "Last published")} {(publishedUtc ?? snapshot.GeneratedUtc).ToString("MMM d, yyyy 'at' HH:mm 'UTC'", CultureInfo.InvariantCulture)}</span></div></header>");
+        html.Append($"<header><div class=\"eyebrow\">PUBLIC TRADING JOURNAL{(preview ? " · PUBLICATION PREVIEW" : "")}</div><h1>{E(snapshot.Title)}</h1><div class=\"metadata\"><span>{E(snapshot.Currency)} · {E(snapshot.TimeZone)}</span><span>{(preview ? "Snapshot prepared" : "Last published")} {(publishedUtc ?? snapshot.GeneratedUtc).ToString("MMM d, yyyy 'at' HH:mm 'UTC'", CultureInfo.InvariantCulture)}</span></div>");
+        if (snapshot.IntroductionContent.Count > 0)
+            html.Append($"<div class=\"introduction journal-content\">{PublicationContent.Render(snapshot.IntroductionContent, imageUrl)}</div>");
+        else if (!string.IsNullOrWhiteSpace(snapshot.Introduction))
+            html.Append($"<p class=\"introduction\">{E(snapshot.Introduction)}</p>");
+        html.Append("</header>");
         html.Append("<section aria-label=\"Performance dashboard\" class=\"metrics\">");
         void Metric(string label, string value, string? note = null) => html.Append($"<article class=\"metric\"><span>{E(label)}</span><strong>{E(value)}</strong>{(note is null ? "" : $"<small>{E(note)}</small>")}</article>");
         Metric("Calculated account balance", Money(snapshot.Dashboard.Balance), snapshot.Dashboard.BalanceNote);
@@ -31,7 +36,7 @@ public static class PublicationPresentation
         Metric("Completed trades", snapshot.Dashboard.CompletedTrades.ToString("N0", CultureInfo.InvariantCulture));
         Metric("Win rate", snapshot.Dashboard.WinRate is { } rate ? $"{rate:0.0}%" : "Unavailable");
         Metric("Profit factor", snapshot.Dashboard.ProfitFactor is { } factor ? factor.ToString("0.00", CultureInfo.InvariantCulture) : "Unavailable", snapshot.Dashboard.ProfitFactor.HasValue ? "Winning net P&L ÷ losing net P&L" : "Requires realized losses");
-        html.Append("</section><section class=\"panel curve\" aria-labelledby=\"curve-title\"><div class=\"section-heading\"><div><div class=\"eyebrow\">PERFORMANCE</div><h2 id=\"curve-title\">Cumulative realized net P&amp;L</h2></div></div><p class=\"muted\">Daily closing results after fees. Deposits and withdrawals are excluded.</p>");
+        html.Append("</section><section class=\"panel curve\" aria-labelledby=\"curve-title\"><div class=\"section-heading\"><div><div class=\"eyebrow\">EQUITY CURVE</div><h2 id=\"curve-title\">Cumulative realized net P&amp;L</h2></div></div><p class=\"muted\">Daily closing results after fees. Deposits and withdrawals are excluded.</p>");
         if (snapshot.Equity.Count == 0) html.Append("<p class=\"empty\">No completed trades have been published.</p>");
         else
         {

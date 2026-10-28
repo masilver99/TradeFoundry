@@ -16,6 +16,8 @@ public static class PublicationValidation
         if (snapshot.Days is null || snapshot.Months is null || snapshot.Equity is null || snapshot.Images is null || snapshot.Dashboard is null
             || snapshot.Days.Count > 100_000 || snapshot.Images.Count > 10_000)
             throw new InvalidOperationException("Publication collections are missing or too large.");
+        if (snapshot.IntroductionContent is null) throw new InvalidOperationException("Introduction content is missing.");
+        PublicationContent.Validate(snapshot.IntroductionContent, new HashSet<string>());
         var imageIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var image in snapshot.Images)
         {

@@ -1545,6 +1545,11 @@ function initializePeriodSummary() {
   }));
 
   const taxInput = document.querySelector("#period-summary-tax-rate");
+  const taxStorageKey = `tf-history-tax-rate:${location.pathname.split("/")[2]}`;
+  try {
+    const saved = localStorage.getItem(taxStorageKey);
+    if (taxInput && saved !== null && Number.isFinite(Number(saved)) && Number(saved) >= 0) taxInput.value = saved;
+  } catch {}
   const effectiveRate = document.querySelector("[data-period-summary-effective-rate]");
   const taxCells = rows.map(row => ({ row, cell: row.querySelector(".tf-period-summary-tax-cell") })).filter(item => item.cell);
   const longTermShare = Number(table.dataset.periodSummaryLongTermShare || ".6");
@@ -1555,6 +1560,7 @@ function initializePeriodSummary() {
     if (!taxInput) return;
     const enteredRate = Math.max(Number.parseFloat(taxInput.value) || 0, 0) / 100;
     const rate = longTermShare * longTermRate + shortTermShare * enteredRate;
+    try { localStorage.setItem(taxStorageKey, String(enteredRate * 100)); } catch {}
     if (effectiveRate) effectiveRate.textContent = `${(rate * 100).toFixed(1)}%`;
     taxCells.forEach(({ row, cell }) => {
       const netPnl = Number.parseFloat(row.dataset.netPnl || "0") || 0;

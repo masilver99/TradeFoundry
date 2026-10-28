@@ -1,5 +1,6 @@
 @page "/journal/{journalId:guid}/indicators"
 @model TradeFoundry.Pages.IndicatorsModel
+@using TradeFoundry.Core
 @{
     ViewData["Title"] = "Indicators";
     ViewData["PageKicker"] = "TRADEFOUNDRY / INDICATORS";
@@ -15,6 +16,7 @@
 @if (Model.Overview is not null)
 {
     var overview = Model.Overview;
+    var peakDaysAgo = overview.PeakProfit is null ? 0 : Math.Max(0, DateOnly.FromDateTime(TimeZoneCatalog.Convert(DateTimeOffset.UtcNow, overview.Journal.TimeZone).DateTime).DayNumber - DateOnly.FromDateTime(TimeZoneCatalog.Convert(overview.PeakProfit.ExitUtc, overview.Journal.TimeZone).DateTime).DayNumber);
     <nav class="tf-chart-index tf-analysis-index tf-indicator-page-index" data-indicator-index aria-label="Indicator sections">
         <a href="#indicator-key" data-indicator-target="indicator-key">Key</a>
         @foreach (var group in Model.Indicators.Groups)
@@ -43,6 +45,22 @@
             {
                 var indicator = Model.Indicators.Key[indicatorIndex];
                 var helpId = $"indicator-help-key-{indicatorIndex}";
+                @if (indicatorIndex == 3)
+                {
+                    <article class="tf-indicator-card tf-indicator-card-key">
+                        <div class="tf-indicator-label">Peak profit</div>
+                        <div class="tf-indicator-value @(overview.PeakProfit?.CumulativePnl < 0m ? "negative" : "positive")">@(overview.PeakProfit?.CumulativePnl.ToString("C2") ?? "—")</div>
+                        @if (overview.PeakProfit is { } peak)
+                        {
+                            <div class="tf-indicator-note">@(peakDaysAgo == 0 ? "Today" : peakDaysAgo == 1 ? "1 day ago" : $"{peakDaysAgo:N0} days ago") · @TimeZoneCatalog.Format(peak.ExitUtc, overview.Journal.TimeZone, "MMM d, yyyy HH:mm")</div>
+                            <div class="tf-indicator-note">@(overview.ProfitBelowPeak > 0m ? $"{overview.ProfitBelowPeak:C2} below peak" : "Current profit is at peak")</div>
+                        }
+                        else
+                        {
+                            <div class="tf-indicator-note">No trades yet</div>
+                        }
+                    </article>
+                }
                 <article class="tf-indicator-card tf-indicator-card-key">
                     <div class="tf-indicator-label-row">
                         <div class="tf-indicator-label">@indicator.Label</div>

@@ -1,0 +1,33 @@
+@page "/journal/{journalId:guid}/tax-liability"
+@model TradeFoundry.Pages.TaxLiabilityModel
+@{
+    ViewData["Title"] = "Tax Liability";
+    ViewData["ActiveNav"] = "tax-liability";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / TAX LIABILITY";
+}
+<link rel="stylesheet" href="~/css/expenses.css" asp-append-version="true" />
+<section class="tf-page-intro mb-3"><div><div class="tf-kicker">TRADING TAX ESTIMATES</div><h1>Tax Liability</h1><p class="tf-lede">Quarterly reserves and an annual outlook using your History tax rate.</p></div></section>
+<div asp-validation-summary="All" class="text-danger mb-3"></div>
+<section data-tax-liability data-journal-id="@Model.JournalId" data-projected-net="@(Model.ProjectedNet.ToString(System.Globalization.CultureInfo.InvariantCulture))" class="card tf-card mb-3" aria-labelledby="tax-title"><div class="card-body">
+    <div class="tf-section-heading"><h2 id="tax-title" class="tf-card-title">Tax liability</h2><span class="text-secondary">As of @Model.TaxAsOf.ToString("MMM d, yyyy") · @Model.Journal!.Currency</span></div>
+    <p class="text-secondary mt-2">Plan a tax reserve from this journal’s closed-trade net P&amp;L, after trading fees, less recorded expenses. </p>
+    <p>Effective tax rate: <strong data-tax-effective-rate>18.6%</strong> <a href="/journal/@Model.JournalId/analytics#period-summary-tax-rate">Change rate in History</a></p>
+    <form method="get" action="@Model.BaseUrl" class="tf-expense-actions mb-3">
+        <div><label class="form-label" for="TaxYear">Calendar year</label><input asp-for="TaxYear" type="number" class="form-control" min="2000" max="@DateTime.UtcNow.Year" required /></div>
+        <button class="btn btn-outline-primary align-self-end" type="submit">Update year</button>
+    </form>
+    @if (Model.TaxRate.HasValue)
+    {
+        <div class="tf-expense-summary mb-3"><div><span class="text-secondary">Tax reserve to date</span><div class="tf-metric-value"><span data-tax-base="@Model.TaxNet.ToString(System.Globalization.CultureInfo.InvariantCulture)">@Model.EstimatedTax.ToString("N2")</span></div></div><div><span class="text-secondary">Projected annual tax</span><div class="tf-metric-value"><span data-tax-projection="1">@Model.ProjectedTax.ToString("N2")</span></div></div><div><span class="text-secondary">Projected quarterly reserve (annual ÷ 4)</span><div class="tf-metric-value"><span data-tax-projection="4">@((Model.ProjectedTax / 4m).ToString("N2"))</span></div></div></div>
+    }
+    else { <p class="text-secondary">Enter an effective rate to see tax estimates.</p> }
+    <div class="tf-table-wrap"><table class="table tf-table"><thead><tr><th>Calendar quarter</th><th>Trading net P&amp;L</th><th>Expenses</th><th>Net after expenses</th><th>Estimated reserve</th></tr></thead><tbody>
+    @foreach (var quarter in Model.TaxQuarters)
+    {
+        <tr><td>Q@(quarter.Quarter)</td><td>@quarter.Profit.ToString("N2")</td><td>@quarter.Expenses.ToString("N2")</td><td>@((quarter.Profit - quarter.Expenses).ToString("N2"))</td><td data-tax-base="@((quarter.Profit - quarter.Expenses).ToString(System.Globalization.CultureInfo.InvariantCulture))">@(Model.TaxRate.HasValue ? (Math.Max(0m, quarter.Profit - quarter.Expenses) * Model.TaxRate.Value / 100m).ToString("N2") : "—")</td></tr>
+    }
+    </tbody></table></div>
+    <p class="text-secondary small mb-0">Planning estimate only. Assumes all included expenses are deductible. Annual projection scales calendar year-to-date net results by elapsed days; future results may differ. Quarterly rows are independent reserves and may not sum to annual tax when losses offset profits. Excludes other income, tax brackets, special futures treatment, credits, withholding, prior payments, and payment deadlines. This is not an amount due or a filing calculation.</p>
+    @if (Model.ExcludedTaxExpenses > 0) { <p class="text-warning mt-2 mb-0">@Model.ExcludedTaxExpenses expense(s) in other currencies excluded; no exchange conversion is applied.</p> }
+</div></section>
+@section Scripts {<script src="~/js/tax-liability.js" asp-append-version="true"></script>}

@@ -29,6 +29,7 @@ public sealed class ExpensesModel(TradeFoundryDb database, ExpenseService servic
     public IReadOnlyList<ExpenseReceipt> Receipts { get; private set; } = [];
     public int PageCount => Math.Max(1, (Matches.Count + 24) / 25);
     public bool CategoryDialogOpen { get; private set; }
+    public bool EditorOpen { get; private set; }
     public bool SaveConflict { get; private set; }
     public string BaseUrl => $"/journal/{JournalId:D}/expenses";
     public string FilterUrl(int page = 1) => $"{BaseUrl}?start={Start:yyyy-MM-dd}&end={End:yyyy-MM-dd}&category={Category}&pageNumber={page}";
@@ -65,14 +66,15 @@ public sealed class ExpensesModel(TradeFoundryDb database, ExpenseService servic
     public IActionResult OnPostSave(Guid? expenseId, int expectedRevision)
     {
         Edit = expenseId;
+        EditorOpen = true;
         if (!Load()) return NotFound();
         if (expenseId.HasValue && Editing is null) return NotFound();
         if (!ModelState.IsValid) return Page();
         try
         {
             var saved = expenseId.HasValue ? database.UpdateExpense(JournalId, expenseId.Value, expectedRevision, Input) : database.CreateExpense(JournalId, Input);
-            TempData["ExpenseMessage"] = expenseId.HasValue ? "Expense updated." : "Expense added. You can attach receipts below.";
-            return Redirect($"{FilterUrl(PageNumber)}&edit={saved.Id:D}#expense-form");
+            TempData["ExpenseMessage"] = expenseId.HasValue ? "Expense updated." : "Expense added.";
+            return Redirect($"{FilterUrl(PageNumber)}#expense-ledger");
         }
         catch (InvalidOperationException e) { SaveConflict = e is ExpenseConflictException; ModelState.AddModelError(string.Empty, e.Message); return Page(); }
     }
@@ -85,6 +87,7 @@ public sealed class ExpensesModel(TradeFoundryDb database, ExpenseService servic
     public async Task<IActionResult> OnPostAttachAsync(Guid expenseId, int expectedRevision, CancellationToken cancellationToken)
     {
         Edit = expenseId;
+        EditorOpen = true;
         if (!Load()) return NotFound();
         if (Editing is null) return NotFound();
         Input = Editing.Details with { };

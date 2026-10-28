@@ -9,6 +9,62 @@ namespace TradeFoundry.Tests;
 public sealed class TradingSetupTests
 {
     [Fact]
+    public void FailedMetadataSavePreservesSubmittedEditorValues()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Test", "live", "", "UTC", "USD", "flat_to_flat");
+            var service = new TradingSetupService(database);
+            var setup = service.CreateSetup(journal.Id, new TradingSetupDraft { Name = "Original" }, []);
+            var page = new TradeFoundry.Pages.SetupsModel(database, service)
+            {
+                JournalId = journal.Id, EditName = "", EditCategory = "Changed category",
+                EditShortDescription = "Changed description", EditDetailedDescription = "Unsaved notes"
+            };
+            Assert.IsType<Microsoft.AspNetCore.Mvc.RazorPages.PageResult>(page.OnPostUpdateMetadata(setup.Setup.Id));
+            Assert.Equal("metadata", page.OpenEditor);
+            Assert.Equal("", page.EditName);
+            Assert.Equal("Changed category", page.EditCategory);
+            Assert.Equal("Changed description", page.EditShortDescription);
+            Assert.Equal("Unsaved notes", page.EditDetailedDescription);
+            Assert.Equal("Original", page.SelectedSetup!.Setup.Name);
+        }
+        finally { DeleteDirectory(directory); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailedCriteriaSavePreservesCriteriaAndNotes(bool createVersion)
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Test", "live", "", "UTC", "USD", "flat_to_flat");
+            var service = new TradingSetupService(database);
+            var setup = service.CreateSetup(journal.Id, new TradingSetupDraft { Name = "Original" }, []);
+            var input = new TradeFoundry.Pages.SetupsModel.CriterionInput { Name = "Changed criterion", RuleMetadataJson = "invalid JSON" };
+            var page = new TradeFoundry.Pages.SetupsModel(database, service)
+            {
+                JournalId = journal.Id, VersionCriteria = [input], VersionNotes = "Unsaved version notes"
+            };
+            var result = createVersion ? page.OnPostCreateVersion(setup.Setup.Id, page.VersionNotes)
+                : page.OnPostUpdateCurrentVersion(setup.Setup.Id, page.VersionNotes);
+            Assert.IsType<Microsoft.AspNetCore.Mvc.RazorPages.PageResult>(result);
+            Assert.Equal("criteria", page.OpenEditor);
+            Assert.Same(input, Assert.Single(page.VersionCriteria));
+            Assert.Equal("Unsaved version notes", page.VersionNotes);
+            Assert.Single(service.GetSetup(journal.Id, setup.Setup.Id)!.Versions);
+        }
+        finally { DeleteDirectory(directory); }
+    }
+
+    [Fact]
     public void SetupDefinitionsVersionCriteriaAndHistoricalEvaluationsRemainSeparate()
     {
         var directory = NewDirectory();

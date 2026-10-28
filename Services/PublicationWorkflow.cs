@@ -20,8 +20,10 @@ public sealed class PublicationWorkflow(TradeFoundryDb database, PublicationExpo
         await Locked(journalId, async () =>
         {
             var destination = Destination(settings.DestinationUrl);
-            if (string.IsNullOrWhiteSpace(settings.Title) || settings.Title.Length > 150 || settings.Introduction.Length > 5000)
-                throw new InvalidOperationException("Provide a public title up to 150 characters and an introduction up to 5,000 characters.");
+            if (string.IsNullOrWhiteSpace(settings.Title) || settings.Title.Length > 150 || settings.Introduction.Length > 64000)
+                throw new InvalidOperationException("Provide a public title up to 150 characters and an introduction within the editor's 64,000-character limit.");
+            PublicationContent.Validate(PublicationExportService.ConvertContent(settings.Introduction,
+                _ => throw new InvalidOperationException("Introduction images are not supported.")), new HashSet<string>());
             var current = database.GetPublishingState(journalId);
             var secret = string.IsNullOrWhiteSpace(token) ? current.ProtectedToken : _protector.Protect(token.Trim());
             if (string.IsNullOrWhiteSpace(secret)) throw new InvalidOperationException("Enter the website's publishing token.");

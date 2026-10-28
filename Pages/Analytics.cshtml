@@ -10,7 +10,7 @@
     ViewData["UsesPlotly"] = Model.Trades.Count > 0 || Model.OrderEvents.Count > 0 || Model.AccountBalances.Count > 0 || Model.BenchmarkPoints.Count > 0;
 
     string FormatPeriodCurrency(decimal? value) => value.HasValue ? value.Value.ToString("C2") : "—";
-    string FormatPeriodFees(decimal? value) => value.HasValue ? $"-{Math.Abs(value.Value).ToString("C2")}" : "—";
+    decimal? PeriodReturn(decimal netPnl) => Model.Overview?.StartingEquity is > 0m ? netPnl / Model.Overview.StartingEquity.Value : null;
     string FormatPeriodPercent(decimal? value) => value.HasValue ? $"{value.Value * 100m:0.0}%" : "—";
     string FormatPeriodRatio(decimal? value) => value.HasValue ? value.Value.ToString("0.00") : "—";
     string EdgeMoney(decimal? value) => value.HasValue ? value.Value.ToString("C2", CultureInfo.CurrentCulture) : "—";
@@ -142,8 +142,6 @@
         {
             <div class="chart-empty">No completed-trade period data is available yet.</div>
         }
-        else
-        {
             <p class="tf-period-summary-intro">@Model.PeriodSummary.YearCount year(s), @Model.PeriodSummary.QuarterCount quarter(s), and @Model.PeriodSummary.MonthCount month(s) of trading data. Expand a year to inspect quarters, months, weeks, and days.</p>
             <div class="tf-period-summary-toolbar">
                 <label for="period-summary-tax-rate">Tax rate (%) <input id="period-summary-tax-rate" type="number" min="0" step="0.1" value="@((Model.PeriodSummary.DefaultTaxRate * 100m).ToString("0.#", CultureInfo.InvariantCulture))" /></label>
@@ -163,7 +161,7 @@
                             <th scope="col">Avg / Trade</th>
                             <th scope="col">Win %</th>
                             <th scope="col">Profit Factor</th>
-                            <th scope="col">Total fees</th>
+                            <th scope="col" title="Net profit as a percentage of journal starting equity">% Return</th>
                             <th scope="col">Avg Hold</th>
                             <th scope="col">Best Trade</th>
                             <th scope="col">Worst Trade</th>
@@ -206,7 +204,7 @@
                                 <td class="@(periodRow.AveragePnlPerTrade.HasValue ? PeriodTone(periodRow.AveragePnlPerTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.AveragePnlPerTrade)</td>
                                 <td>@FormatPeriodPercent(periodRow.WinRate)</td>
                                 <td>@FormatPeriodRatio(periodRow.ProfitFactor)</td>
-                                <td class="negative">@FormatPeriodFees(periodRow.TotalFees)</td>
+                                <td class="@(PeriodReturn(periodRow.NetPnl).HasValue ? periodTone : "muted")">@FormatPeriodPercent(PeriodReturn(periodRow.NetPnl))</td>
                                 <td>@FormatPeriodDuration(periodRow.AverageHoldSeconds)</td>
                                 <td class="@(periodRow.BestTrade.HasValue ? PeriodTone(periodRow.BestTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.BestTrade)</td>
                                 <td class="@(periodRow.WorstTrade.HasValue ? PeriodTone(periodRow.WorstTrade.Value) : "muted")">@FormatPeriodCurrency(periodRow.WorstTrade)</td>
@@ -215,7 +213,6 @@
                     </tbody>
                 </table>
             </div>
-        }
     </section>
 
     <div class="tf-history-calendar">

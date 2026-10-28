@@ -27,9 +27,22 @@ public sealed class PublishingModel(TradeFoundryDb database, PublicationWorkflow
         Journal = database.GetJournal(JournalId);
         if (Journal is null) return false;
         State = database.GetPublishingState(JournalId);
-        if (settings) { DestinationUrl = State.Settings.DestinationUrl; PublicTitle = State.Settings.Title; Introduction = State.Settings.Introduction; }
+        if (settings) { DestinationUrl = State.Settings.DestinationUrl; PublicTitle = State.Settings.Title; Introduction = IntroductionEditorState(State.Settings.Introduction); }
         return true;
     }
+
+    // Preserve older plain-text introductions when loading them into the rich editor.
+    private static string IntroductionEditorState(string text) => string.IsNullOrWhiteSpace(text) || text.TrimStart().StartsWith('{')
+        ? text
+        : System.Text.Json.JsonSerializer.Serialize(new
+        {
+            root = new
+            {
+                type = "root", version = 1, format = "", indent = 0, direction = (string?)null,
+                children = new[] { new { type = "paragraph", version = 1, format = "", indent = 0, direction = (string?)null,
+                    children = new[] { new { type = "text", version = 1, text, format = 0, style = "", mode = "normal", detail = 0 } } } }
+            }
+        });
 
     public IActionResult OnGet() => Load() ? Page() : NotFound();
 

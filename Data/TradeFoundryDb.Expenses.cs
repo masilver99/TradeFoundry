@@ -136,18 +136,11 @@ public sealed partial class TradeFoundryDb
         var expense = new Expense { Id = Guid.NewGuid(), JournalId = journalId, Details = ValidateExpenseDraft(connection, transaction, journalId, draft), Currency = journal.Currency, Revision = 1, CreatedUtc = DateTimeOffset.UtcNow, UpdatedUtc = DateTimeOffset.UtcNow };
         using var insert = ExpenseCommand(connection, transaction, "INSERT INTO expenses(id,journal_id,category_id,expense_date,details_json,currency,revision,created_utc,updated_utc) VALUES($id,$journal,$category,$date,$details,$currency,1,$created,$updated)", ("$id", expense.Id.ToString()), ("$journal", journalId.ToString()), ("$category", expense.Details.CategoryId.ToString()), ("$date", expense.Details.Date.ToString("yyyy-MM-dd")), ("$details", JsonSerializer.Serialize(expense.Details)), ("$currency", expense.Currency), ("$created", expense.CreatedUtc.ToString("O")), ("$updated", expense.UpdatedUtc.ToString("O")));
         insert.ExecuteNonQuery();
-        WriteExpenseHistory(connection, transaction, expense, "created", "{}", JsonSerializer.Serialize(expense));
         transaction.Commit();
         return GetExpense(journalId, expense.Id)!;
     }
 
-    private static void WriteExpenseHistory(SqliteConnection connection, SqliteTransaction transaction, Expense expense, string action, string before, string after)
-    {
-        using var command = ExpenseCommand(connection, transaction, "INSERT INTO expense_history VALUES($id,$journal,$expense,$revision,$action,$before,$after,$created)", ("$id", Guid.NewGuid().ToString()), ("$journal", expense.JournalId.ToString()), ("$expense", expense.Id.ToString()), ("$revision", expense.Revision), ("$action", action), ("$before", before), ("$after", after), ("$created", expense.UpdatedUtc.ToString("O")));
-        command.ExecuteNonQuery();
-    }
-
-    private Expense MutateExpense(Guid journalId, Guid id, int expectedRevision, string action, Func<SqliteConnection, SqliteTransaction, Expense, Expense> mutate, ExpenseReceipt? receiptEvidence = null)
+    private Expense MutateExpense(Guid journalId, Guid id, int expectedRevision, Func<SqliteConnection, SqliteTransaction, Expense, Expense> mutate)
     {
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
@@ -156,15 +149,12 @@ public sealed partial class TradeFoundryDb
         var updated = mutate(connection, transaction, current) with { Revision = current.Revision + 1, UpdatedUtc = DateTimeOffset.UtcNow };
         using var command = ExpenseCommand(connection, transaction, "UPDATE expenses SET category_id=$category,expense_date=$date,details_json=$details,revision=$revision,updated_utc=$updated,deleted_utc=$deleted WHERE id=$id AND journal_id=$journal AND revision=$expected AND deleted_utc IS NULL", ("$category", updated.Details.CategoryId.ToString()), ("$date", updated.Details.Date.ToString("yyyy-MM-dd")), ("$details", JsonSerializer.Serialize(updated.Details)), ("$revision", updated.Revision), ("$updated", updated.UpdatedUtc.ToString("O")), ("$deleted", updated.DeletedUtc?.ToString("O")), ("$id", id.ToString()), ("$journal", journalId.ToString()), ("$expected", expectedRevision));
         if (command.ExecuteNonQuery() != 1) throw new ExpenseConflictException();
-        var before = receiptEvidence is null ? JsonSerializer.Serialize(current) : JsonSerializer.Serialize(new { Expense = current, Receipt = action == "receipt_removed" ? receiptEvidence : null });
-        var after = receiptEvidence is null ? JsonSerializer.Serialize(updated) : JsonSerializer.Serialize(new { Expense = updated, Receipt = action == "receipt_added" ? receiptEvidence : null });
-        WriteExpenseHistory(connection, transaction, updated, action, before, after);
         transaction.Commit();
         return updated;
     }
 
-    public Expense UpdateExpense(Guid journalId, Guid id, int revision, ExpenseDraft draft) => MutateExpense(journalId, id, revision, "updated", (c, t, e) => e with { Details = ValidateExpenseDraft(c, t, journalId, draft, e.Details.CategoryId) });
-    public void DeleteExpense(Guid journalId, Guid id, int revision) => MutateExpense(journalId, id, revision, "deleted", (_, _, e) => e with { DeletedUtc = DateTimeOffset.UtcNow });
+    public Expense UpdateExpense(Guid journalId, Guid id, int revision, ExpenseDraft draft) => MutateExpense(journalId, id, revision, (c, t, e) => e with { Details = ValidateExpenseDraft(c, t, journalId, draft, e.Details.CategoryId) });
+    public void DeleteExpense(Guid journalId, Guid id, int revision) => MutateExpense(journalId, id, revision, (_, _, e) => e with { DeletedUtc = DateTimeOffset.UtcNow });
 
     public IReadOnlyList<ExpenseReceipt> GetExpenseReceipts(Guid journalId, Guid expenseId)
     {
@@ -176,22 +166,22 @@ public sealed partial class TradeFoundryDb
         return results;
     }
 
-    public void AddExpenseReceipt(ExpenseReceipt receipt, int revision) => MutateExpense(receipt.JournalId, receipt.ExpenseId, revision, "receipt_added", (connection, transaction, expense) =>
+    public void AddExpenseReceipt(ExpenseReceipt receipt, int revision) => MutateExpense(receipt.JournalId, receipt.ExpenseId, revision, (connection, transaction, expense) =>
     {
         using var command = ExpenseCommand(connection, transaction, "INSERT INTO expense_receipts VALUES($id,$journal,$expense,$key,$name,$type,$length,$created)", ("$id", receipt.Id.ToString()), ("$journal", receipt.JournalId.ToString()), ("$expense", receipt.ExpenseId.ToString()), ("$key", receipt.StorageKey), ("$name", receipt.OriginalFileName), ("$type", receipt.ContentType), ("$length", receipt.Length), ("$created", receipt.CreatedUtc.ToString("O")));
         command.ExecuteNonQuery();
         return expense with { ReceiptCount = expense.ReceiptCount + 1 };
-    }, receipt);
+    });
 
     public ExpenseReceipt RemoveExpenseReceipt(Guid journalId, Guid expenseId, Guid receiptId, int revision)
     {
         var receipt = GetExpenseReceipts(journalId, expenseId).FirstOrDefault(r => r.Id == receiptId) ?? throw new InvalidOperationException("Receipt was not found.");
-        MutateExpense(journalId, expenseId, revision, "receipt_removed", (connection, transaction, expense) =>
+        MutateExpense(journalId, expenseId, revision, (connection, transaction, expense) =>
         {
             using var command = ExpenseCommand(connection, transaction, "DELETE FROM expense_receipts WHERE journal_id=$journal AND expense_id=$expense AND id=$id", ("$journal", journalId.ToString()), ("$expense", expenseId.ToString()), ("$id", receiptId.ToString()));
             if (command.ExecuteNonQuery() != 1) throw new ExpenseConflictException();
             return expense with { ReceiptCount = expense.ReceiptCount - 1 };
-        }, receipt);
+        });
         return receipt;
     }
 

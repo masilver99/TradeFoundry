@@ -23,8 +23,6 @@ dotnet run --project PublicJournal/App/TradeFoundry.PublicJournal.csproj --urls 
 
 In TradeFoundry, open **Publishing** for the journal. Save the destination and the same secret token, create a preview, inspect it, and select **Publish this exact snapshot**. Publishing includes the entire journal history, all daily writing, and referenced daily journal images, including today's saved entry. Open trades, private trade reviews, imports, receipts, and unrelated attachments are excluded. No upload occurs until Publish is selected. Local edits require another preview and publication.
 
-The **Title** setting supplies the public page heading instead of the private journal name. **Introduction** uses the Daily Journal formatting editor and Markdown shortcuts; its formatted HTML appears below the title and timezone. Existing plain-text introductions remain editable. Save settings and create a new preview after editing either field. Update both TradeFoundry and the public reader before publishing rich introductions; older readers reject snapshots containing the new introduction content field.
-
 The private preview is stored beside publishing settings in `journal.db`; it contains the complete outgoing data and copied images. Tokens are protected using ASP.NET Data Protection. Preserve TradeFoundry's data-protection keys across restarts, container replacements, and restores, or re-enter the token. Preview content is not a live view of subsequent local edits. Saving settings clears the preview.
 
 ## Docker and HTTPS

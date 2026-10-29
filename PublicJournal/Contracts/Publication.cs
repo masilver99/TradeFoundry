@@ -26,6 +26,8 @@ public sealed record PublicationSnapshot
 
 public sealed record PublicationDashboard
 {
+    public string? Alpha { get; init; }
+    public string? AnnualizedAlpha { get; init; }
     public decimal? Balance { get; init; }
     public string BalanceNote { get; init; } = "";
     public decimal LifetimeNetPnl { get; init; }
@@ -93,3 +95,4 @@ public static class PublicationJson
     public const int MaxUploadBytes = 128 * 1024 * 1024;
     public const int MaxImageBytes = 10 * 1024 * 1024;
 }
+

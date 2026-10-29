@@ -34,7 +34,10 @@ public static class PublicationPresentation
         Metric("Calculated account balance", Money(snapshot.Dashboard.Balance), snapshot.Dashboard.BalanceNote);
         Metric("Lifetime net trading profit", Money(snapshot.Dashboard.LifetimeNetPnl), "After trading fees");
         Metric($"{snapshot.AsOfDate.ToString("MMMM yyyy", CultureInfo.InvariantCulture)} net profit", Money(snapshot.Dashboard.CurrentMonthNetPnl), $"As of {snapshot.AsOfDate:yyyy-MM-dd}");
+        var activeDays = snapshot.Days.Where(d => d.Trades.Count > 0).OrderBy(d => d.Date).ToArray();
+        Metric("Trading since", activeDays.Length > 0 ? activeDays[0].Date.ToString("MMM d, yyyy", CultureInfo.InvariantCulture) : "Unavailable", $"{activeDays.Length:N0} trading days with completed trades");
         Metric("Completed trades", snapshot.Dashboard.CompletedTrades.ToString("N0", CultureInfo.InvariantCulture));
+        Metric("Alpha", snapshot.Dashboard.Alpha ?? "Unavailable", $"Alpha (ann) {snapshot.Dashboard.AnnualizedAlpha ?? "Unavailable"}");
         Metric("Win rate", snapshot.Dashboard.WinRate is { } rate ? $"{rate:0.0}%" : "Unavailable");
         Metric("Profit factor", snapshot.Dashboard.ProfitFactor is { } factor ? factor.ToString("0.00", CultureInfo.InvariantCulture) : "Unavailable", snapshot.Dashboard.ProfitFactor.HasValue ? "Winning net P&L ÷ losing net P&L" : "Requires realized losses");
         html.Append("</section><section class=\"panel curve\" aria-labelledby=\"curve-title\"><div class=\"section-heading\"><div><div class=\"eyebrow\">EQUITY CURVE</div><h2 id=\"curve-title\">Cumulative realized net P&amp;L</h2></div></div><p class=\"muted\">Daily closing results after fees. Deposits and withdrawals are excluded.</p>");
@@ -56,6 +59,21 @@ public static class PublicationPresentation
             }
             html.Append($"<polyline class=\"equity-line\" points=\"{string.Join(" ", values.Select((value, index) => $"{N(X(index))},{N(Y(value))}"))}\"/>");
             html.Append($"<text x=\"85\" y=\"287\">{snapshot.Equity[0].Date:yyyy-MM-dd}</text><text x=\"975\" y=\"287\" text-anchor=\"end\">{snapshot.Equity[^1].Date:yyyy-MM-dd}</text></svg>");
+        }
+        html.Append("</section><section class=\"panel curve trade-results\" aria-labelledby=\"results-title\"><h2 id=\"results-title\">Trade P&amp;L</h2><p class=\"muted\">One bar per completed trade, after fees, ordered by trading date.</p>");
+        var results = activeDays.SelectMany(d => d.Trades.Select(t => (Date: d.Date, Trade: t))).ToArray();
+        if (results.Length == 0) html.Append("<p class=\"empty\">No completed trades have been published.</p>");
+        else
+        {
+            var scale = Math.Max(1m, results.Max(r => Math.Abs(r.Trade.NetPnl)));
+            html.Append("<div class=\"pnl-bars\" role=\"img\" aria-label=\"Net profit and loss per completed trade\">");
+            for (var i = 0; i < results.Length; i++)
+            {
+                var row = results[i];
+                var height = Math.Max(1m, Math.Abs(row.Trade.NetPnl) / scale * 100).ToString("0.##", CultureInfo.InvariantCulture);
+                html.Append($"<div class=\"pnl-column\"><div class=\"pnl-half gain\">{(row.Trade.NetPnl >= 0 ? $"<span style=\"height:{height}%\"></span>" : "")}</div><div class=\"pnl-half loss\">{(row.Trade.NetPnl < 0 ? $"<span style=\"height:{height}%\"></span>" : "")}</div><span class=\"pnl-tooltip\">Trade {i + 1} · {row.Date:yyyy-MM-dd} · {E(row.Trade.Symbol)} · {E(Money(row.Trade.NetPnl))}</span></div>");
+            }
+            html.Append("</div><p class=\"muted\">Trades run left to right. Hover a bar for its result.</p>");
         }
         html.Append("</section><section class=\"calendar-section\" aria-labelledby=\"calendar-title\"><div class=\"eyebrow\">DAY BY DAY</div><h2 id=\"calendar-title\">Monthly performance</h2>");
         var dayLookup = snapshot.Days.ToDictionary(d => d.Date);
@@ -116,3 +134,5 @@ public static class PublicationPresentation
 
     private static string TradeCount(int count) => $"{count} {(count == 1 ? "trade" : "trades")}";
 }
+
+

@@ -5,7 +5,7 @@ using TradeFoundry.Publishing;
 
 namespace TradeFoundry.Services;
 
-public sealed class PublicationExportService(TradeFoundryDb database, DailyJournalImageService images)
+public sealed class PublicationExportService(TradeFoundryDb database, DailyJournalImageService images, BenchmarkRefreshService? benchmarkRefresh = null)
 {
     public PublicationSnapshot Build(Guid journalId, PublishingSettings settings)
     {
@@ -30,7 +30,15 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
                 { throw new InvalidOperationException($"The journal image in entry {entry.Date:yyyy-MM-dd} could not be read. Check that the image is available and TradeFoundry has permission to read it.", ex); }
                 return key;
             }));
-        return BuildSnapshot(journal, trades, account, entries, sourceImages.Values.ToList(), settings, DateTimeOffset.UtcNow, BuildTradeChart);
+        var snapshot = BuildSnapshot(journal, trades, account, entries, sourceImages.Values.ToList(), settings, DateTimeOffset.UtcNow, BuildTradeChart);
+        var indicators = TearSheetMetrics.Build(trades, [], database.GetAccountBalanceEvents(journalId),
+            database.GetBenchmarkPoints(journalId, benchmarkRefresh?.DefaultSymbol ?? "^GSPC"), journal.StartingEquity, journal.TimeZone, journal.Currency);
+        var metrics = indicators.Groups.SelectMany(group => group.Indicators).ToArray();
+        return snapshot with { Dashboard = snapshot.Dashboard with
+        {
+            Alpha = metrics.FirstOrDefault(metric => metric.Label == "Alpha")?.Value,
+            AnnualizedAlpha = metrics.FirstOrDefault(metric => metric.Label == "Alpha (ann.)")?.Value
+        }};
     }
 
     public static PublicationSnapshot BuildSnapshot(Journal journal, IEnumerable<Trade> trades, AccountSummary account,
@@ -147,3 +155,5 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
         }
     }
 }
+
+

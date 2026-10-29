@@ -5,7 +5,7 @@ using TradeFoundry.Publishing;
 
 namespace TradeFoundry.Services;
 
-public sealed class PublicationExportService(TradeFoundryDb database, DailyJournalImageService images, BenchmarkRefreshService? benchmarkRefresh = null)
+public sealed class PublicationExportService(TradeFoundryDb database, DailyJournalImageService images, Microsoft.Extensions.Options.IOptions<BenchmarkOptions>? benchmarkOptions = null)
 {
     public PublicationSnapshot Build(Guid journalId, PublishingSettings settings)
     {
@@ -32,7 +32,7 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
             }));
         var snapshot = BuildSnapshot(journal, trades, account, entries, sourceImages.Values.ToList(), settings, DateTimeOffset.UtcNow, BuildTradeChart);
         var indicators = TearSheetMetrics.Build(trades, [], database.GetAccountBalanceEvents(journalId),
-            database.GetBenchmarkPoints(journalId, benchmarkRefresh?.DefaultSymbol ?? "^GSPC"), journal.StartingEquity, journal.TimeZone, journal.Currency);
+            database.GetBenchmarkPoints(journalId, benchmarkOptions?.Value.DefaultSymbol ?? "^GSPC"), journal.StartingEquity, journal.TimeZone, journal.Currency);
         var metrics = indicators.Groups.SelectMany(group => group.Indicators).ToArray();
         return snapshot with { Dashboard = snapshot.Dashboard with
         {
@@ -155,5 +155,6 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
         }
     }
 }
+
 
 

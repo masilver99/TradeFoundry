@@ -20,3 +20,4 @@ output/playwright/
 *.user
 *.suo
 PublicJournal/.env
+.tradefoundry-data

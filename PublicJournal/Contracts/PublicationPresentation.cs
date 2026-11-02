@@ -70,8 +70,11 @@ public static class PublicationPresentation
             for (var i = 0; i < results.Length; i++)
             {
                 var row = results[i];
-                var height = Math.Max(1m, Math.Abs(row.Trade.NetPnl) / scale * 100).ToString("0.##", CultureInfo.InvariantCulture);
-                html.Append($"<div class=\"pnl-column\"><div class=\"pnl-half gain\">{(row.Trade.NetPnl >= 0 ? $"<span style=\"height:{height}%\"></span>" : "")}</div><div class=\"pnl-half loss\">{(row.Trade.NetPnl < 0 ? $"<span style=\"height:{height}%\"></span>" : "")}</div><span class=\"pnl-tooltip\">Trade {i + 1} · {row.Date:yyyy-MM-dd} · {E(row.Trade.Symbol)} · {E(Money(row.Trade.NetPnl))}</span></div>");
+                // Geometry attributes remain effective when CSP blocks inline styles.
+                var magnitude = row.Trade.NetPnl == 0 ? 0m : Math.Max(1m, Math.Abs(row.Trade.NetPnl) / scale * 100);
+                var height = magnitude.ToString("0.##", CultureInfo.InvariantCulture);
+                var y = (row.Trade.NetPnl >= 0 ? 100m - magnitude : 100m).ToString("0.##", CultureInfo.InvariantCulture);
+                html.Append($"<div class=\"pnl-column\"><svg class=\"pnl-bar\" viewBox=\"0 0 10 200\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><line class=\"pnl-zero\" x1=\"0\" x2=\"10\" y1=\"100\" y2=\"100\"/><rect class=\"{Tone(row.Trade.NetPnl)}\" x=\"1\" y=\"{y}\" width=\"8\" height=\"{height}\"/></svg><span class=\"pnl-tooltip\">Trade {i + 1} · {row.Date:yyyy-MM-dd} · {E(row.Trade.Symbol)} · {E(Money(row.Trade.NetPnl))}</span></div>");
             }
             html.Append("</div><p class=\"muted\">Trades run left to right. Hover a bar for its result.</p>");
         }

@@ -23,6 +23,14 @@ public class TradesModel : PageModel
 
     public Journal? Journal { get; private set; }
     public PagedResult<Trade> Results { get; private set; } = new();
+    public IReadOnlySet<DateOnly> DailyJournalEntryDates { get; private set; } = new HashSet<DateOnly>();
+
+    public DateOnly GetReviewDate(Trade trade)
+    {
+        var timestamp = trade.ExitUtc.HasValue && trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase)
+            ? trade.ExitUtc.Value : trade.EntryUtc;
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timestamp, TimeZoneCatalog.Resolve(Journal?.TimeZone)).DateTime);
+    }
 
     public IActionResult OnGet()
     {
@@ -39,6 +47,7 @@ public class TradesModel : PageModel
             Status = Status,
             Sort = Sort
         });
+        DailyJournalEntryDates = _database.GetDailyJournalEntryDates(JournalId, Results.Items.Select(GetReviewDate));
         return Page();
     }
 }

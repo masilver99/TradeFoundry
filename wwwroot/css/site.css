@@ -239,6 +239,8 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-table .row-link:hover { color: var(--tf-blue); }
 .tf-review-indicators-column, .tf-review-indicators-cell { width: 42px; min-width: 42px; padding-right: 4px !important; padding-left: 10px !important; text-align: center; }
 .tf-review-indicators-cell .tf-review-indicators { margin-right: 0; }
+.tf-ledger-indicators { display: inline-flex; align-items: center; gap: 5px; vertical-align: middle; }
+.tf-daily-journal-indicator { color: var(--tf-gold); }
 .tf-review-indicators { display: inline-flex; align-items: center; gap: 5px; margin-right: 6px; color: var(--tf-blue); vertical-align: middle; }
 .tf-review-indicator { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; }
 .tf-review-indicator svg { width: 15px; height: 15px; }

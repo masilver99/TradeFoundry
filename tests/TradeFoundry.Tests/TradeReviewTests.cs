@@ -420,9 +420,18 @@ public sealed class TradeReviewTests
             Assert.Equal(1, saved.Entry.Revision);
             Assert.Equal("Market was quiet.", reviews.GetDay(journal.Id, date).DailyJournal.Text);
 
+            Assert.Contains(date, database.GetDailyJournalEntryDates(journal.Id, [date, date, date.AddDays(1)]));
+            Assert.Empty(database.GetDailyJournalEntryDates(journal.Id, [date.AddDays(1)]));
+            var otherJournal = database.CreateJournal("Paper", "paper", string.Empty, "UTC", "USD", "flat_to_flat");
+            Assert.Empty(database.GetDailyJournalEntryDates(otherJournal.Id, [date]));
+            database.SaveDailyJournal(journal.Id, date.AddDays(1), "{\"root\":{\"type\":\"root\",\"children\":[{\"type\":\"paragraph\",\"children\":[]}]}}", 0);
+            Assert.Empty(database.GetDailyJournalEntryDates(journal.Id, [date.AddDays(1)]));
+
             var conflict = database.SaveDailyJournal(journal.Id, date, "Stale", expectedRevision: 0);
             Assert.True(conflict.Conflict);
             Assert.Equal("Market was quiet.", conflict.Entry.Text);
+            database.SaveDailyJournal(journal.Id, date, string.Empty, saved.Entry.Revision);
+            Assert.Empty(database.GetDailyJournalEntryDates(journal.Id, [date]));
         }
         finally
         {
@@ -602,6 +611,28 @@ public sealed class TradeReviewTests
 
             database.RebuildFlatTrades(journal.Id, "flat_to_flat");
             Assert.Equal("5m", Assert.Single(database.GetAllTrades(journal.Id)).SourceTimeframe);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void LedgerDailyJournalDateUsesJournalTimeZoneAndClosedOrOpenTimestamp()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "America/New_York", "USD", "flat_to_flat");
+            var page = new TradeFoundry.Pages.TradesModel(database) { JournalId = journal.Id };
+            page.OnGet();
+            var entry = new DateTimeOffset(2026, 9, 10, 23, 0, 0, TimeSpan.Zero);
+            var exit = new DateTimeOffset(2026, 9, 12, 1, 0, 0, TimeSpan.Zero);
+            Assert.Equal(new DateOnly(2026, 9, 11), page.GetReviewDate(new Trade { EntryUtc = entry, ExitUtc = exit, Status = "closed" }));
+            Assert.Equal(new DateOnly(2026, 9, 10), page.GetReviewDate(new Trade { EntryUtc = entry, ExitUtc = exit, Status = "open" }));
         }
         finally
         {

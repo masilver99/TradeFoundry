@@ -1553,6 +1553,26 @@ public sealed partial class TradeFoundryDb
         return reader.Read() ? ReadDailyJournalImage(reader) : null;
     }
 
+    public IReadOnlySet<DateOnly> GetDailyJournalEntryDates(Guid journalId, IEnumerable<DateOnly> dates)
+    {
+        var requestedDates = dates.Distinct().ToArray();
+        var result = new HashSet<DateOnly>();
+        if (requestedDates.Length == 0) return result;
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var parameters = requestedDates.Select((date, index) =>
+        {
+            var parameter = $"$date{index}";
+            command.Parameters.AddWithValue(parameter, date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            return parameter;
+        }).ToArray();
+        command.CommandText = $"SELECT review_date FROM daily_review_journals WHERE journal_id = $journal AND review_date IN ({string.Join(", ", parameters)}) AND TRIM(COALESCE(search_text, '')) <> ''";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        while (reader.Read()) result.Add(DateOnly.ParseExact(reader.GetString(0), "yyyy-MM-dd", CultureInfo.InvariantCulture));
+        return result;
+    }
+
     public DailyJournalEntriesPage GetDailyJournalEntries(Guid journalId, DateOnly excludeDate, DateOnly? beforeDate = null, int limit = 20)
     {
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");

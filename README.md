@@ -105,7 +105,7 @@ Receipts are private files in `expense-receipts/<journal-id>/` beside `journal.d
 
 ### Publishing images on Forgejo
 
-`.forgejo/workflows/container.yml` tests and publishes Linux images to `git.shaa.one/masilver/tradefoundry` on every push to `main` and on version-tag pushes. Images include the application version and commit in .NET assembly metadata and OCI labels. The initial architecture is that of the Linux Docker runner (normally amd64); ARM64 is not built separately.
+`.forgejo/workflows/container.yml` tests and publishes Linux images to `git.shaa.one/masilver/tradefoundry` on every push or merge to the repository's default branch (currently `master`) and on version-tag pushes. Other branch pushes skip publishing. Default-branch builds publish `main` (the tag used by `compose.published.yml`) and `sha-<commit>` tags. The workflow can also be run manually on the default branch. Images include the application version and commit in .NET assembly metadata and OCI labels. The initial architecture is that of the Linux Docker runner (normally amd64); ARM64 is not built separately.
 
 Configure these prerequisites on git.shaa.one:
 
@@ -113,7 +113,7 @@ Configure these prerequisites on git.shaa.one:
 2. Add repository Actions secrets `REGISTRY_USERNAME` (the publishing account) and `REGISTRY_TOKEN` (a token with `read:package` and `write:package` access for the image owner). Keep credentials in Actions secrets; do not put them in Compose or the repository.
 3. For anonymous downloads, the package owner `masilver` must be public and instance settings must permit anonymous package access. Forgejo package visibility follows the owning user/organization, independently of this repository's visibility. See [Forgejo package access rules](https://forgejo.org/docs/latest/user/packages/#access-restrictions). Linking the package to this repository does not make it public by itself.
 
-Create a stable release from the desired commit on `main`:
+Create a stable release from the desired commit on the default branch:
 
 ```bash
 git tag -a v0.1.0 -m "TradeFoundry 0.1.0"

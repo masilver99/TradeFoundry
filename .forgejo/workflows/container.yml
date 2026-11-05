@@ -2,8 +2,9 @@ name: Publish container
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
     tags: ['v*']
+  workflow_dispatch:
 
 # Serialize moving tags so concurrent builds cannot race each other.
 concurrency:
@@ -16,6 +17,7 @@ env:
 
 jobs:
   publish:
+    if: forgejo.ref == format('refs/heads/{0}', forgejo.event.repository.default_branch) || startsWith(forgejo.ref, 'refs/tags/v')
     runs-on: docker
     timeout-minutes: 30
     steps:
@@ -31,6 +33,7 @@ jobs:
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
           BUILD_REF: ${{ forgejo.ref }}
           BUILD_SHA: ${{ forgejo.sha }}
+          DEFAULT_BRANCH: ${{ forgejo.event.repository.default_branch }}
         run: |
           set -Eeuo pipefail
           test -n "$REGISTRY_USERNAME" || { echo 'Missing REGISTRY_USERNAME secret'; exit 1; }
@@ -48,11 +51,11 @@ jobs:
             if [[ "$version" != *-* ]]; then
               image_tags+=("$IMAGE_NAME:latest")
             fi
-          elif [[ "$BUILD_REF" == refs/heads/main ]]; then
+          elif [[ "$BUILD_REF" == "refs/heads/$DEFAULT_BRANCH" ]]; then
             version="0.0.0-dev.${BUILD_SHA:0:12}"
             image_tags+=("$IMAGE_NAME:sha-$BUILD_SHA" "$IMAGE_NAME:main")
           else
-            echo 'Only main and version tags can publish images.'
+            echo 'Only the default branch and version tags can publish images.'
             exit 1
           fi
 

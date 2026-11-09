@@ -108,15 +108,19 @@ public static class PublicationPresentation
             html.Append($"<div class=\"trade-summary\">{day.Trades.Count} completed {(day.Trades.Count == 1 ? "trade" : "trades")} · {day.Wins} {(day.Wins == 1 ? "win" : "wins")} · {day.Losses} {(day.Losses == 1 ? "loss" : "losses")} · {day.Breakevens} breakeven</div>");
             if (day.Trades.Count > 0)
             {
-                html.Append("<div class=\"trade-table-wrap\"><table><thead><tr><th>Symbol</th><th>Direction</th><th>Quantity</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody>");
+                html.Append("<div class=\"trade-accordion\" aria-label=\"Completed trades and journal entries\">");
                 foreach (var trade in day.Trades)
                 {
                     var chartButton = trade.Chart is { } chart
                         ? $"<button type=\"button\" class=\"chart-button\" data-public-chart=\"{E(JsonSerializer.Serialize(chart, PublicationJson.Options))}\" data-chart-title=\"{E($"{trade.Symbol} · {trade.Direction} · {day.Date:yyyy-MM-dd}")}\" data-chart-timezone=\"{E(snapshot.TimeZone)}\" data-chart-direction=\"{E(trade.Direction)}\" data-chart-pnl=\"{trade.NetPnl.ToString(CultureInfo.InvariantCulture)}\" aria-haspopup=\"dialog\" aria-controls=\"trade-chart-dialog\" aria-label=\"View chart for {E(trade.Symbol)} {E(trade.Direction)} trade on {day.Date:yyyy-MM-dd}\">View chart</button>"
                         : "<span class=\"muted\">Chart unavailable</span>";
-                    html.Append($"<tr><td>{E(trade.Symbol)}</td><td>{E(trade.Direction)}</td><td>{trade.Quantity}</td><td class=\"{Tone(trade.NetPnl)}\">{E(Money(trade.NetPnl))}</td><td>{chartButton}</td></tr>");
+                    var hasJournal = trade.JournalContent.Count > 0;
+                    html.Append($"<details class=\"published-trade\"{(preview ? " open" : "")}><summary><span class=\"trade-symbol\">{E(trade.Symbol)}</span><span>{E(trade.Direction)} · {trade.Quantity} qty</span><strong class=\"{Tone(trade.NetPnl)}\">{E(Money(trade.NetPnl))}</strong><span class=\"trade-journal-label\">{(hasJournal ? "Journal entry" : "No journal entry")}</span></summary><div class=\"trade-entry-body\">");
+                    if (hasJournal) html.Append($"<div class=\"journal-content\">{PublicationContent.Render(trade.JournalContent, imageUrl)}</div>");
+                    else html.Append("<p class=\"muted\">No trade journal entry.</p>");
+                    html.Append($"<div class=\"trade-entry-chart\">{chartButton}</div></div></details>");
                 }
-                html.Append("</tbody></table></div>");
+                html.Append("</div>");
             }
             html.Append("</article>");
         }

@@ -21,6 +21,68 @@ namespace TradeFoundry.Tests;
 public sealed class PublicationTests
 {
     [Fact]
+    public async Task TradeJournalsExportOnlyTheirReferencedImagesAndRenderSafeAccordions()
+    {
+        using var data = new LocalData();
+        var csv = string.Join('\n', "Activity Type,DateTime,Symbol,Account,BuySell,Quantity,Fill Price,Order Action Source",
+            "Fills,2026-09-10 12:00:00,MESZ26,PRIVATE-ACCOUNT,Buy,1,5000,PRIVATE-SOURCE",
+            "Fills,2026-09-10 13:00:00,MESZ26,PRIVATE-ACCOUNT,Sell,1,5002,PRIVATE-SOURCE",
+            "Fills,2026-09-10 14:00:00,MESZ26,PRIVATE-ACCOUNT,Buy,1,5000,PRIVATE-SOURCE",
+            "Fills,2026-09-10 15:00:00,MESZ26,PRIVATE-ACCOUNT,Sell,1,5003,PRIVATE-SOURCE");
+        new ImportService(data.Database).ImportText(data.Journal.Id, "fixture.csv", csv, "sierra", "flat_to_flat", "source");
+        var trades = data.Database.GetAllTrades(data.Journal.Id).OrderBy(t => t.EntryUtc).ToArray();
+        var reviews = new TradeReviewService(data.Database);
+        await using var bytes = new MemoryStream(Png());
+        var image = await reviews.SaveAttachmentAsync(data.Journal.Id, trades[0].ReviewKey, bytes, "chart.png", "image/png", bytes.Length);
+        bytes.Position = 0;
+        var unrelated = await reviews.SaveAttachmentAsync(data.Journal.Id, trades[0].ReviewKey, bytes, "private.png", "image/png", bytes.Length);
+        var state = JsonSerializer.Serialize(new { root = new { children = new object[]
+        {
+            new { type = "paragraph", children = new[] { new { type = "text", text = "Journal <script>text</script>", format = 1 } } },
+            new { type = "daily-journal-image", attachmentId = image.Id, src = "PRIVATE-LOCAL-URL", altText = "Trade chart" }
+        } } });
+        var saved = data.Database.SaveTradeReview(data.Journal.Id, trades[0].ReviewKey,
+            new TradeReviewPatch { ReviewNote = state, Mistakes = "PRIVATE-MISTAKES", TagsText = "PRIVATE-TAGS" });
+        var exporter = new PublicationExportService(data.Database, new(data.Database));
+        var snapshot = exporter.Build(data.Journal.Id, new(Title: "Public"));
+        var published = snapshot.Days.Single().Trades[0];
+        Assert.Equal(image.Id.ToString("N"), Assert.Single(snapshot.Images).Id);
+        Assert.DoesNotContain(snapshot.Images, x => x.Id == unrelated.Id.ToString("N"));
+        Assert.Empty(snapshot.Days.Single().Trades[1].JournalContent);
+        var json = JsonSerializer.Serialize(snapshot, PublicationJson.Options);
+        Assert.DoesNotContain("PRIVATE-", json);
+        string Render(bool preview) => PublicationPresentation.Document(snapshot, null, id => "/images/" + id, "/", "/style.css", preview: preview);
+        var html = Render(false);
+        Assert.Contains("<details class=\"published-trade\"><summary>", html);
+        Assert.Contains("<strong>Journal &lt;script&gt;text&lt;/script&gt;</strong>", html);
+        Assert.Contains("/images/" + image.Id.ToString("N"), html);
+        Assert.Contains("No trade journal entry.", html);
+        Assert.Contains("<details class=\"published-trade\" open>", Render(true));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { SchemaVersion = 2 }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { Images = [] }));
+        data.Database.SaveTradeReview(data.Journal.Id, trades[0].ReviewKey, new TradeReviewPatch { ExpectedRevision = saved.Annotation.Revision, ReviewNote = "Changed after preview" });
+        Assert.Equal(json, JsonSerializer.Serialize(snapshot, PublicationJson.Options));
+        data.Database.SaveTradeReview(data.Journal.Id, trades[1].ReviewKey, new TradeReviewPatch { ReviewNote = state });
+        Assert.Throws<InvalidOperationException>(() => exporter.Build(data.Journal.Id, new(Title: "Public")));
+        data.Database.SaveTradeReview(data.Journal.Id, trades[1].ReviewKey, new TradeReviewPatch { ExpectedRevision = 1 });
+        data.Database.SaveTradeReview(data.Journal.Id, trades[0].ReviewKey, new TradeReviewPatch { ExpectedRevision = saved.Annotation.Revision + 1, ReviewNote = state });
+        reviews.RemoveAttachment(data.Journal.Id, image.Id);
+        Assert.Throws<InvalidOperationException>(() => exporter.Build(data.Journal.Id, new(Title: "Public")));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void OlderSnapshotsRemainReadableWithoutTradeJournalEntries(int version)
+    {
+        var snapshot = Snapshot() with { SchemaVersion = version };
+        PublicationValidation.Validate(snapshot);
+        var restored = JsonSerializer.Deserialize<PublicationSnapshot>(JsonSerializer.Serialize(snapshot, PublicationJson.Options).Replace("\"journalContent\":[],", "").Replace(",\"journalContent\":[]", ""), PublicationJson.Options)!;
+        Assert.Empty(restored.Days[0].Trades[0].JournalContent);
+        Assert.Contains("No trade journal entry.", PublicationPresentation.Document(restored, null, id => "/images/" + id, "/", "/style.css"));
+    }
+
+    [Fact]
     public void TradeChartsExportFiveMinuteContextAndExactPricesWithoutPrivateEvidence()
     {
         using var data = new LocalData();
@@ -42,7 +104,7 @@ public sealed class PublicationTests
         var snapshot = new PublicationExportService(data.Database, new(data.Database)).Build(data.Journal.Id, new(Title: "Public"));
         var trade = Assert.Single(Assert.Single(snapshot.Days).Trades);
         var chart = Assert.IsType<PublicationTradeChart>(trade.Chart);
-        Assert.Equal(2, snapshot.SchemaVersion);
+        Assert.Equal(3, snapshot.SchemaVersion);
         Assert.Equal("5m", chart.Interval);
         Assert.Equal(50, chart.Bars.Count);
         Assert.Equal(5000.25m, chart.Entry.Price);
@@ -242,7 +304,7 @@ public sealed class PublicationTests
             "Fills,2026-09-10 13:00:00,MESZ26,PRIVATE-ACCOUNT,Sell,1,5002,PRIVATE-SOURCE");
         new ImportService(data.Database).ImportText(data.Journal.Id, "PRIVATE-IMPORT.csv", csv, "sierra", "flat_to_flat", "source");
         var trade = Assert.Single(data.Database.GetAllTrades(data.Journal.Id));
-        data.Database.SaveTradeReview(data.Journal.Id, trade.ReviewKey, new TradeReviewPatch { AllInCommission = 3.75m, ReviewNote = "PRIVATE-REVIEW", ExpectedRevision = 0 });
+        data.Database.SaveTradeReview(data.Journal.Id, trade.ReviewKey, new TradeReviewPatch { AllInCommission = 3.75m, ReviewNote = "PUBLIC-TRADE-JOURNAL", Mistakes = "PRIVATE-MISTAKES", Lessons = "PRIVATE-LESSONS", TagsText = "PRIVATE-TAG", ExpectedRevision = 0 });
         var overview = data.Database.GetOverview(data.Journal.Id);
         var evidenceBefore = Evidence();
         var snapshot = new PublicationExportService(data.Database, new(data.Database)).Build(data.Journal.Id, new(Title: "Public"));
@@ -253,6 +315,7 @@ public sealed class PublicationTests
         Assert.Equal(evidenceBefore, Evidence());
         var json = JsonSerializer.Serialize(snapshot, PublicationJson.Options);
         Assert.DoesNotContain("PRIVATE-", json);
+        Assert.Contains("PUBLIC-TRADE-JOURNAL", json);
 
         string Evidence()
         {

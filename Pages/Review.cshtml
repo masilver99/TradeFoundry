@@ -10,6 +10,7 @@
     var selectedDate = Model.Date ?? Model.Day.Date;
     var dateText = selectedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     var allTrades = Model.DayTrades;
+    var summary = Model.Day.Summary;
     var activeReviewKey = Model.ActiveTrade?.Trade.ReviewKey ?? string.Empty;
     ViewData["UsesLightweightCharts"] = allTrades.Length > 0;
     ViewData["UsesLexical"] = true;
@@ -17,19 +18,44 @@
 }
 
 <section class="tf-review-shell" data-focus="@activeReviewKey" data-active-key="@activeReviewKey" data-review-section="@Model.Section" data-currency="@Model.Day.Journal.Currency">
-    <div class="tf-review-header">
-        <div class="tf-review-header-actions">
-            <form method="get" class="tf-review-date-form">
-                <input type="hidden" name="journalId" value="@Model.JournalId" />
-                <label class="form-label mb-1" for="review-date">Review date</label>
-                <input id="review-date" class="form-control" type="date" name="date" value="@dateText" />
-                <button class="btn btn-primary" type="submit">Go to date</button>
-            </form>
-            <a class="btn btn-outline-secondary" asp-page="/Trades" asp-route-journalId="@Model.JournalId">Open ledger</a>
-            <a class="btn btn-outline-secondary" asp-page="/DailyJournal" asp-route-journalId="@Model.JournalId">All journal entries</a>
-        </div>
-    </div>
-
+<header class="tf-review-header"><div class="tf-review-roster-heading">
+                    <div class="tf-review-roster-title-row">
+                        <h2><time datetime="@dateText" aria-label="@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture)">@selectedDate.ToString("ddd, M/d/yy", CultureInfo.InvariantCulture)</time></h2>
+                        <div class="tf-review-day-nav" aria-label="Trading day navigation">
+                            @if (Model.Day.PreviousDate.HasValue)
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" title="Previous day" aria-label="Previous day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.PreviousDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">←</a>
+                            }
+                            else
+                            {
+                                <span class="btn btn-sm btn-outline-secondary disabled" title="No previous day" aria-label="No previous day" aria-disabled="true">←</span>
+                            }
+                            @if (Model.Day.NextDate.HasValue)
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" title="Next day" aria-label="Next day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">→</a>
+                            }
+                            else
+                            {
+                                <span class="btn btn-sm btn-outline-secondary disabled" title="No next day" aria-label="No next day" aria-disabled="true">→</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="tf-review-roster-summary">
+                        <span>@Model.Day.CompletedTradeCount completed</span>
+                        <span>@Model.Day.OpenTradeCount open</span>
+                        <strong data-review-day-pnl class="@(Model.Day.RealizedNetPnl >= 0 ? "text-success" : "text-danger")">@Model.Day.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong>
+                    </div>
+                </div>
+<div class="tf-review-header-metrics">
+    <div><span>Worst MAE</span><strong data-review-day-mae title="@summary.MaeCoverage / @summary.CompletedCount completed trades have MAE">@(summary.WorstMae?.ToString("C2") ?? "—")</strong></div>
+    <div title="Peak-to-trough closed-trade net P&amp;L decline, starting at zero; excludes intratrade equity."><span>Realized drawdown</span><strong data-review-day-drawdown>@summary.RealizedDrawdown.ToString("C2")</strong></div>
+    <div><span>Review progress</span><strong data-review-day-progress aria-live="polite">@summary.ReviewedCount/@summary.TotalCount trades reviewed</strong></div>
+</div>
+<svg class="tf-review-sparkline" viewBox="0 0 180 48" role="img" aria-label="Cumulative realized net P&amp;L starting at zero" data-review-sparkline><line x1="0" x2="180" data-review-zero /><polyline fill="none" data-review-equity /></svg>
+<script type="application/json" data-review-summary>@Html.Raw(System.Text.Json.JsonSerializer.Serialize(summary, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)))</script>
+<button type="button" class="btn btn-outline-secondary" data-review-journal-open>
+<span class="tf-review-indicator tf-daily-journal-indicator" data-review-daily-indicator hidden="@(!summary.HasDailyJournal)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h3M8 18h6"/></svg></span>
+Daily journal <span class="visually-hidden" data-review-daily-state>@(summary.HasDailyJournal ? "populated" : "empty")</span></button></header>
     @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
     {
         <div class="alert alert-danger" role="alert">@Model.ErrorMessage</div>
@@ -39,14 +65,14 @@
         <div class="alert alert-success" role="status">@Model.NoticeMessage</div>
     }
 
-    <section class="card tf-card tf-daily-journal" data-daily-journal-entry data-entry-date="@dateText" aria-labelledby="daily-journal-heading">
-        <div class="card-header tf-daily-journal-heading" role="button" tabindex="0" aria-controls="daily-journal-editor" aria-expanded="true" data-daily-journal-toggle>
+<dialog id="review-journal-dialog" aria-labelledby="daily-journal-heading"><button type="button" class="btn" data-review-journal-close>Close</button><section class="card tf-card tf-daily-journal" data-daily-journal-entry data-entry-date="@dateText" aria-labelledby="daily-journal-heading">
+        <div class="card-header tf-daily-journal-heading">
             <div class="tf-daily-journal-title">
                 <h2 id="daily-journal-heading" class="tf-card-title">Daily journal</h2>
             </div>
             <div class="tf-daily-journal-heading-meta">
                 <span class="tf-daily-journal-bytes" data-daily-journal-bytes>0 bytes</span>
-                <span class="tf-daily-journal-toggle-icon" aria-hidden="true"></span>
+
             </div>
         </div>
         <form id="daily-journal-editor" method="post" asp-page-handler="SaveDailyJournal" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Url.Page("/Review", "AutosaveDailyJournal", new { journalId = Model.JournalId, date = dateText })">
@@ -78,11 +104,12 @@
         </form>
     </section>
 
+</dialog>
     @if (allTrades.Length == 0)
     {
         <div class="card tf-card tf-review-empty">
             <h2 class="h4">No trades on this date.</h2>
-            <p class="mb-0 text-secondary">The date picker can reach empty dates. Use Previous day or Next day to jump between dates containing trades.</p>
+            <p class="mb-0 text-secondary">Use Previous day or Next day to jump between trading days.</p>
         </div>
     }
 
@@ -90,35 +117,7 @@
     {
         <div class="tf-review-workspace" data-review-workspace>
             <aside class="card tf-card tf-review-roster" aria-label="Trades for selected day">
-            <div class="tf-review-roster-heading">
-                    <div class="tf-review-roster-title-row">
-                        <h2><time datetime="@dateText" aria-label="@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture)">@selectedDate.ToString("ddd, M/d/yy", CultureInfo.InvariantCulture)</time></h2>
-                        <div class="tf-review-day-nav" aria-label="Trading day navigation">
-                            @if (Model.Day.PreviousDate.HasValue)
-                            {
-                                <a class="btn btn-sm btn-outline-secondary" title="Previous day" aria-label="Previous day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.PreviousDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">←</a>
-                            }
-                            else
-                            {
-                                <span class="btn btn-sm btn-outline-secondary disabled" title="No previous day" aria-label="No previous day" aria-disabled="true">←</span>
-                            }
-                            @if (Model.Day.NextDate.HasValue)
-                            {
-                                <a class="btn btn-sm btn-outline-secondary" title="Next day" aria-label="Next day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">→</a>
-                            }
-                            else
-                            {
-                                <span class="btn btn-sm btn-outline-secondary disabled" title="No next day" aria-label="No next day" aria-disabled="true">→</span>
-                            }
-                        </div>
-                    </div>
-                    <div class="tf-review-roster-summary">
-                        <span>@Model.Day.CompletedTradeCount completed</span>
-                        <span>@Model.Day.OpenTradeCount open</span>
-                        <strong class="@(Model.Day.RealizedNetPnl >= 0 ? "text-success" : "text-danger")">@Model.Day.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong>
-                    </div>
-                </div>
-                <div class="tf-review-roster-list" role="listbox" aria-label="Trades on selected day">
+                            <div class="tf-review-roster-list" role="listbox" aria-label="Trades on selected day">
                     @{
                         var rosterIndex = 0;
                     }

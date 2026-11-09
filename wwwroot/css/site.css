@@ -1351,3 +1351,32 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 }
 
 .tf-pnl-week-arrow { margin-right: 4px; font-size: 10px; }
+.tf-review-header { position:sticky; top:0; z-index:30; padding:10px; background:var(--tf-surface); }
+.tf-review-header .tf-review-roster-heading { padding:0; border:0; flex:1; }
+.tf-review-header .tf-review-roster-title-row { flex-direction:row; align-items:center; }
+.tf-review-roster, .tf-review-editor-context { top:var(--review-header-height,120px); }
+#review-journal-dialog { width:min(900px,95vw); max-height:90vh; overflow:auto; background:var(--tf-surface); color:var(--tf-ink); border:1px solid var(--tf-line); }
+#review-journal-dialog::backdrop { background:#0009; }
+.tf-review-header { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; border:1px solid var(--tf-line); border-radius:6px; box-shadow:0 5px 15px #0003; }
+.tf-review-header .tf-review-roster-heading { flex:0 1 auto; }
+.tf-review-header .tf-review-roster-title-row { margin-bottom:4px; }
+.tf-review-header-metrics { display:flex; flex-wrap:wrap; gap:12px 20px; }
+.tf-review-header-metrics > div { display:grid; gap:3px; }
+.tf-review-header-metrics span { font-size:10px; color:var(--tf-muted); }
+.tf-review-header-metrics strong { font-size:13px; }
+.tf-review-sparkline { width:140px; height:44px; flex:0 0 140px; }
+.tf-review-sparkline line { stroke:var(--tf-muted); stroke-dasharray:3 3; opacity:.5; }
+.tf-review-sparkline polyline { stroke:var(--tf-blue); stroke-width:2; stroke-linejoin:round; }
+.tf-review-roster { max-height:calc(100vh - var(--review-header-height,120px) - 16px); }
+body:has(.tf-review-shell) .page-body { margin-top:0; }
+body:has(.tf-review-shell) .page-body > .container-xl { padding-top:12px; }
+.tf-review-trade { scroll-margin-top:var(--review-header-height,120px); }
+#review-journal-dialog { padding:16px; border-radius:8px; }
+#review-journal-dialog .tf-daily-journal-heading { cursor:default; }
+#review-journal-dialog [data-review-journal-close] { display:block; margin-left:auto; margin-bottom:8px; }
+@media(max-width:767px) {
+  .tf-review-header { flex-direction:row; align-items:center; gap:8px 12px; }
+  .tf-review-header-metrics { flex:1 1 100%; gap:8px 18px; order:3; }
+  .tf-review-header .tf-review-roster-heading { flex:1 1 auto; }
+  .tf-review-sparkline { width:100px; flex-basis:100px; }
+}

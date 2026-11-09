@@ -1675,7 +1675,7 @@ public sealed partial class TradeFoundryDb
         var terms = SearchTerms(query);
         if (terms.Length == 0) return Array.Empty<TradeReviewSearchHit>();
 
-        const string annotationText = "COALESCE(r.review_note, '') || ' ' || COALESCE(r.setup, '') || ' ' || COALESCE(NULLIF(r.tags_json, '[]'), '') || ' ' || COALESCE(r.plan_adherence, '') || ' ' || COALESCE(r.mistakes, '') || ' ' || COALESCE(r.lessons, '')";
+        const string annotationText = "COALESCE(lexical_plain_text(r.review_note), '') || ' ' || COALESCE(r.setup, '') || ' ' || COALESCE(NULLIF(r.tags_json, '[]'), '') || ' ' || COALESCE(r.plan_adherence, '') || ' ' || COALESCE(r.mistakes, '') || ' ' || COALESCE(r.lessons, '')";
         var searchableText = $"COALESCE(t.symbol, '') || ' ' || COALESCE(t.instrument, '') || ' ' || COALESCE(t.note, '') || ' ' || {annotationText}";
         var hasNote = $"TRIM(COALESCE(t.note, '') || ' ' || {annotationText}) <> ''";
 
@@ -1683,6 +1683,7 @@ public sealed partial class TradeFoundryDb
         using var command = connection.CreateCommand();
         var filters = new List<string> { "t.journal_id = $journal", hasNote };
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        connection.CreateFunction("lexical_plain_text", (string? value) => LexicalPlainText.Extract(value));
         AddPaletteSearchTerms(filters, command, searchableText, terms);
         command.CommandText = $"SELECT t.review_key, t.symbol, t.instrument, t.status, t.entry_utc, t.exit_utc, t.note, r.review_note, r.setup, r.tags_json, r.plan_adherence, r.mistakes, r.lessons FROM {TradeFrom} WHERE {string.Join(" AND ", filters)} ORDER BY COALESCE(r.updated_utc, t.entry_utc) DESC, t.entry_utc DESC LIMIT $limit";
         command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 10));
@@ -1695,7 +1696,7 @@ public sealed partial class TradeFoundryDb
             DateTimeOffset? exitUtc = reader.IsDBNull(5) ? null : ParseDate(reader.GetString(5));
             var noteParts = new[]
             {
-                StringOrEmpty(reader, 7),
+                LexicalPlainText.Extract(StringOrEmpty(reader, 7)),
                 StringOrEmpty(reader, 8),
                 ReadSearchTags(StringOrEmpty(reader, 9)),
                 StringOrEmpty(reader, 10),
@@ -4320,9 +4321,16 @@ public sealed partial class TradeFoundryDb
         Revision = revision
     };
 
+    private static string NormalizeReviewNote(string? note)
+    {
+        var value = note?.Trim() ?? string.Empty;
+        if (value.Length > 64000) throw new ArgumentException("Review notes cannot exceed 64,000 characters.");
+        return string.IsNullOrWhiteSpace(LexicalPlainText.Extract(value)) ? string.Empty : value;
+    }
+
     private static TradeReviewPatch NormalizeReviewPatch(TradeReviewPatch patch) => new()
     {
-        ReviewNote = TrimTo(patch.ReviewNote, 4000),
+        ReviewNote = NormalizeReviewNote(patch.ReviewNote),
         Setup = TrimTo(patch.Setup, 240),
         TagsText = string.Join(", ", ParseReviewTags(patch.TagsText)),
         PlannedEntryPrice = patch.PlannedEntryPrice,

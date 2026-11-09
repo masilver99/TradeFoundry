@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializePnlCalendar();
   initializeMaeCalendar();
   initializeDailyJournal();
+  initializeDailyReviewHeader();
   initializeDailyJournalDisclosure();
   initializeDailyJournalFeed();
   initializeDailyJournalChartDialog();
@@ -371,6 +372,10 @@ function initializeReviewAttachmentPaste() {
       return card;
     };
 
+    editor?.addEventListener("review-inline-image-uploaded", event => {
+      appendAttachment(event.detail.attachment);
+      updateReviewImageIndicator(editor.dataset.reviewKey, true);
+    });
     const resetUpload = () => {
       fileInput.value = "";
       const captionInput = form.querySelector('input[name="AttachmentCaption"]');
@@ -406,6 +411,7 @@ function initializeReviewAttachmentPaste() {
           throw new Error(result.message || "Could not attach the image.");
         }
 
+        updateDailyReviewSummary(result.day);
         const card = appendAttachment(result.attachment);
         resetUpload();
         setStatus("Image attached.");
@@ -610,6 +616,8 @@ function initializeReviewAttachmentRemovals() {
         try { result = await response.json(); } catch { /* The status below is enough for a malformed response. */ }
         if (!response.ok || !result.removed) throw new Error(result.message || "Could not remove the image.");
 
+        updateDailyReviewSummary(result.day);
+        editor.dispatchEvent(new CustomEvent("review-attachment-removed", {detail:{id:String(result.attachmentId)}}));
         card.remove();
         const attachments = editor.querySelector("[data-review-attachments]");
         const hasImages = Boolean(attachments?.querySelector(".tf-review-attachment-card"));
@@ -740,6 +748,7 @@ function initializeDailyJournal() {
             revision.value = payload.revision;
             if (revisionLabel) revisionLabel.textContent = `Revision ${payload.revision}`;
           }
+          if (payload.hasDailyJournal !== undefined) updateDailyReviewJournal(payload.hasDailyJournal);
           state.savedSnapshot = sentSnapshot;
         }
         setStatus(form, "Saved", "saved");
@@ -776,6 +785,7 @@ function initializeDailyJournal() {
       void schedule();
     });
     input.addEventListener("blur", () => void schedule(true));
+    form.addEventListener("focusout", () => void schedule(true));
     form.addEventListener("submit", event => {
       event.preventDefault();
       void state.flush();
@@ -1950,7 +1960,7 @@ function initializeReviewWorkspace() {
   const formState = new WeakMap();
   const sections = ["review", "setups", "plan", "media", "details"];
   let activeKey = shell.dataset.activeKey || editors[0].dataset.reviewKey;
-  let activeSection = sections.includes(shell.dataset.reviewSection) ? shell.dataset.reviewSection : "review";
+  let activeSection = sections.includes(shell.dataset.reviewSection) ? shell.dataset.reviewSection : "details";
 
   const stateFor = form => {
     let state = formState.get(form);
@@ -1970,7 +1980,7 @@ function initializeReviewWorkspace() {
   };
 
   const setSection = (editor, section) => {
-    const nextSection = sections.includes(section) ? section : "review";
+    const nextSection = sections.includes(section) ? section : "details";
     editor.querySelectorAll("[data-review-tab]").forEach(tab => {
       const selected = tab.dataset.reviewTab === nextSection;
       tab.classList.toggle("is-active", selected);
@@ -2042,7 +2052,8 @@ function initializeReviewWorkspace() {
       }
     }
     if (payload.day) {
-      const dayPnl = workspace.querySelector(".tf-review-roster-summary strong");
+      updateDailyReviewSummary(payload.day);
+      const dayPnl = shell.querySelector("[data-review-day-pnl]");
       if (dayPnl) {
         dayPnl.textContent = formatMoney(payload.day.realizedNetPnl);
         dayPnl.classList.toggle("text-success", Number(payload.day.realizedNetPnl) >= 0);
@@ -2117,6 +2128,7 @@ function initializeReviewWorkspace() {
   };
 
   const flushContext = async () => {
+    if (window.tradeFoundryFlushSetupEvaluations && !await window.tradeFoundryFlushSetupEvaluations()) return false;
     if (!await flushActive()) return false;
     const flushDailyJournal = window.tradeFoundryFlushDailyJournal;
     if (flushDailyJournal && !await flushDailyJournal()) return false;
@@ -2133,6 +2145,7 @@ function initializeReviewWorkspace() {
       updateUrl();
       return true;
     }
+    if (window.tradeFoundryFlushSetupEvaluations && !await window.tradeFoundryFlushSetupEvaluations()) return false;
     if (!await flushActive()) return false;
     const flushAttachmentCaptions = window.tradeFoundryFlushAttachmentCaptions;
     if (flushAttachmentCaptions && !await flushAttachmentCaptions()) return false;
@@ -2171,6 +2184,7 @@ function initializeReviewWorkspace() {
       event.preventDefault();
       scheduleSave(form, true);
     });
+    form.addEventListener("focusout", () => void scheduleSave(form, true));
     const tabs = Array.from(editor.querySelectorAll("[data-review-tab]"));
     const selectTab = tab => {
       activeSection = tab.dataset.reviewTab || "review";
@@ -2250,7 +2264,43 @@ function reviewFormSnapshot(form) {
 }
 
 function initializeSetupEvaluationControls() {
+  const states = [];
   document.querySelectorAll("[data-setup-evaluation-form]").forEach(form => {
+    const status = form.querySelector('[data-setup-save-status]');
+    const state = { form, saved: reviewFormSnapshot(form), timer: null, saving: null };
+    states.push(state);
+    const save = () => {
+      clearTimeout(state.timer);
+      if (state.saving) return state.saving;
+      state.saving = (async () => {
+        while (reviewFormSnapshot(form) !== state.saved) {
+          const snapshot = reviewFormSnapshot(form);
+          if (status) status.textContent = 'Saving…';
+          const response = await fetch(form.action, { method:'POST', body:new FormData(form), credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} });
+          const result = await response.json();
+          if (!response.ok || !result.saved) throw new Error(result.message || 'Setup review could not be saved.');
+          state.saved = snapshot;
+          updateDailyReviewSummary(result.day);
+        }
+        if (status) status.textContent = 'Saved';
+        return true;
+      })().catch(error => { if(status) status.textContent = error.message || 'Save failed'; return false; }).finally(() => {state.saving=null;});
+      return state.saving;
+    };
+    state.flush = async () => {
+      clearTimeout(state.timer);
+      if (state.saving && !await state.saving) return false;
+      return await save();
+    };
+    const schedule = () => {
+      clearTimeout(state.timer);
+      if (status) status.textContent = 'Unsaved';
+      state.timer = setTimeout(save, 450);
+    };
+    form.addEventListener('input', schedule);
+    form.addEventListener('change', schedule);
+    form.addEventListener('focusout', () => void state.flush());
+    form.addEventListener('submit', event => { event.preventDefault(); void state.flush(); });
     const syncRow = row => {
       row.querySelectorAll("[data-setup-state-option]").forEach(option => {
         const input = option.querySelector("input");
@@ -2278,6 +2328,13 @@ function initializeSetupEvaluationControls() {
         });
       });
     });
+  });
+  window.tradeFoundryFlushSetupEvaluations = async () => {
+    for (const state of states) if (!await state.flush()) return false;
+    return true;
+  };
+  window.addEventListener('beforeunload', event => {
+    if (states.some(state => reviewFormSnapshot(state.form) !== state.saved)) { event.preventDefault(); event.returnValue=''; }
   });
 }
 
@@ -3565,4 +3622,51 @@ function showLightweightError(node, error) {
   fallback.setAttribute("role", "status");
   fallback.textContent = "This chart could not be rendered.";
   node.replaceChildren(fallback);
+}
+
+function updateDailyReviewJournal(populated) {
+  document.querySelector('[data-review-daily-indicator]')?.toggleAttribute('hidden', !populated);
+  const state = document.querySelector('[data-review-daily-state]');
+  if (state) state.textContent = populated ? 'populated' : 'empty';
+}
+
+function updateDailyReviewSummary(summary) {
+  const header = document.querySelector('.tf-review-header');
+  if (!header || !summary) return;
+  const currency = header.closest('[data-currency]').dataset.currency || 'USD';
+  const money = value => new Intl.NumberFormat(undefined, {style:'currency',currency}).format(Number(value));
+  const set = (selector, value) => { const node=header.querySelector(selector); if(node) node.textContent=value; };
+  set('[data-review-day-pnl]', money(summary.realizedNetPnl));
+  const pnl=header.querySelector('[data-review-day-pnl]');
+  pnl?.classList.toggle('text-success', summary.realizedNetPnl >= 0);
+  pnl?.classList.toggle('text-danger', summary.realizedNetPnl < 0);
+  set('[data-review-day-mae]', summary.worstMae == null ? '—' : money(summary.worstMae));
+  header.querySelector('[data-review-day-mae]')?.setAttribute('title', `${summary.maeCoverage} / ${summary.completedCount} completed trades have MAE`);
+  set('[data-review-day-drawdown]', money(summary.realizedDrawdown));
+  set('[data-review-day-progress]', `${summary.reviewedCount}/${summary.totalCount} trades reviewed`);
+  updateDailyReviewJournal(summary.hasDailyJournal);
+  const values=summary.equity || [0], low=Math.min(0,...values), high=Math.max(0,...values), range=high-low || 1;
+  const y=value=>44-(value-low)/range*40;
+  const zero=header.querySelector('[data-review-zero]');
+  zero.setAttribute('y1', y(0)); zero.setAttribute('y2', y(0));
+  header.querySelector('[data-review-equity]').setAttribute('points',values.map((v,i)=>`${4+i/Math.max(1,values.length-1)*172},${y(v)}`).join(' '));
+  header.querySelector('[data-review-sparkline]').setAttribute('aria-label', `Cumulative realized net P&L from zero: ${values.map(money).join(', ')}`);
+}
+
+function initializeDailyReviewHeader() {
+  const header=document.querySelector('.tf-review-header'), dialog=document.querySelector('#review-journal-dialog');
+  if (!header || !dialog) return;
+  updateDailyReviewSummary(JSON.parse(header.querySelector('[data-review-summary]').textContent));
+  const opener=header.querySelector('[data-review-journal-open]');
+  opener.addEventListener('click',()=>dialog.showModal());
+  let closing=false;
+  const close=async()=>{
+    if(closing) return;
+    closing=true;
+    try { if(await window.tradeFoundryFlushDailyJournal?.()) { dialog.close(); opener.focus(); } }
+    finally { closing=false; }
+  };
+  dialog.addEventListener('cancel',event=>{event.preventDefault();void close();});
+  dialog.querySelector('[data-review-journal-close]').addEventListener('click',()=>void close());
+  new ResizeObserver(()=>document.documentElement.style.setProperty('--review-header-height',`${header.offsetHeight+16}px`)).observe(header);
 }

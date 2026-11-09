@@ -10,6 +10,70 @@ namespace TradeFoundry.Tests;
 public sealed class TradeReviewTests
 {
     [Fact]
+    public void RichReviewNotesPreserveFormattingRemainSearchableAndClearCleanly()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", "", "UTC", "USD", "flat_to_flat");
+            ImportRoundTrip(database, journal.Id);
+            var trade = Assert.Single(database.GetAllTrades(journal.Id));
+            var content = new string('x', 4500);
+            var richNote = """{"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"text","text":"EMA ","format":1},{"type":"text","text":"pullback 100% "},{"type":"text","text":"CONTENT"}]}]}}""".Replace("CONTENT", content);
+            var saved = database.SaveTradeReview(journal.Id, trade.ReviewKey, new TradeReviewPatch { ReviewNote = richNote });
+            Assert.Equal(richNote, saved.Annotation.ReviewNote);
+            Assert.True(saved.Annotation.HasContent);
+            var hit = Assert.Single(database.SearchTradeReviewNotes(journal.Id, "EMA pullback"));
+            Assert.Contains("EMA pullback 100%", hit.SearchText);
+            Assert.DoesNotContain("children", hit.SearchText);
+            Assert.Empty(database.SearchTradeReviewNotes(journal.Id, "paragraph"));
+            var cleared = database.SaveTradeReview(journal.Id, trade.ReviewKey, new TradeReviewPatch { ExpectedRevision = saved.Annotation.Revision, ReviewNote = """{"root":{"children":[{"type":"paragraph","children":[]}]}}""" });
+            Assert.Empty(cleared.Annotation.ReviewNote);
+            Assert.False(cleared.Annotation.HasContent);
+            Assert.Throws<ArgumentException>(() => database.SaveTradeReview(journal.Id, trade.ReviewKey, new TradeReviewPatch { ExpectedRevision = cleared.Annotation.Revision, ReviewNote = new string('x', 64001) }));
+        }
+        finally { DeleteDirectory(directory); }
+    }
+
+    [Fact]
+    public void AutosaveReturnsRefreshedSummaryForFeeOverridesAndClearing()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", "", "UTC", "USD", "flat_to_flat");
+            ImportRoundTrip(database, journal.Id);
+            var trade = Assert.Single(database.GetAllTrades(journal.Id));
+            var model = new TradeFoundry.Pages.ReviewModel(new TradeReviewService(database), database)
+            {
+                JournalId = journal.Id,
+                PageContext = new Microsoft.AspNetCore.Mvc.RazorPages.PageContext
+                {
+                    HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext()
+                },
+                Edit = new TradeReviewPatch { AllInCommission = 10m }
+            };
+            var options = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+            var result = Assert.IsType<Microsoft.AspNetCore.Mvc.JsonResult>(model.OnPostAutosave(trade.ReviewKey, 0, new DateOnly(2026, 9, 10)));
+            var payload = System.Text.Json.JsonSerializer.SerializeToElement(result.Value, options);
+            Assert.Equal(1, payload.GetProperty("day").GetProperty("reviewedCount").GetInt32());
+            Assert.Equal(-5m, payload.GetProperty("day").GetProperty("realizedNetPnl").GetDecimal());
+            Assert.Equal(5m, payload.GetProperty("day").GetProperty("realizedDrawdown").GetDecimal());
+            var revision = payload.GetProperty("revision").GetInt32();
+            model.Edit = new TradeReviewPatch();
+            result = Assert.IsType<Microsoft.AspNetCore.Mvc.JsonResult>(model.OnPostAutosave(trade.ReviewKey, revision, new DateOnly(2026, 9, 10)));
+            payload = System.Text.Json.JsonSerializer.SerializeToElement(result.Value, options);
+            Assert.Equal(0, payload.GetProperty("day").GetProperty("reviewedCount").GetInt32());
+            Assert.Equal(5m, payload.GetProperty("day").GetProperty("realizedNetPnl").GetDecimal());
+        }
+        finally { DeleteDirectory(directory); }
+    }
+
+    [Fact]
     public void ReviewDomIdsPreserveTradeKeysAndKeepTradePanelsDistinct()
     {
         var model = new TradeFoundry.Pages.ReviewModel(null!, null!);

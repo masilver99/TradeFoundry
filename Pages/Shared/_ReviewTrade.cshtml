@@ -4,6 +4,8 @@
 @using TradeFoundry.Services
 @{
     var review = Model.Annotation;
+    var section = ((TradeFoundry.Pages.ReviewModel)ViewData["ReviewModel"]!).Section;
+    section = new[] { "details", "review", "setups", "plan", "media" }.Contains(section) ? section : "details";
     var trade = Model.Trade;
     var reviewPage = (TradeFoundry.Pages.ReviewModel)ViewData["ReviewModel"]!;
     var reviewIndex = (int?)ViewData["ReviewIndex"] ?? 1;
@@ -96,11 +98,11 @@
     </div>
 
     <nav class="tf-review-tabs" role="tablist" aria-label="Trade review sections">
-        <button type="button" role="tab" class="tf-review-tab is-active" id="@reviewId-tab-review" aria-controls="@reviewId-panel-review" aria-selected="true" data-review-tab="review">Review</button>
-        <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-setups" aria-controls="@reviewId-panel-setups" aria-selected="false" data-review-tab="setups">Setup</button>
-        <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-plan" aria-controls="@reviewId-panel-plan" aria-selected="false" data-review-tab="plan">Plan &amp; costs</button>
-        <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-media" aria-controls="@reviewId-panel-media" aria-selected="false" data-review-tab="media">Media &amp; history</button>
-        <button type="button" role="tab" class="tf-review-tab" id="@reviewId-tab-details" aria-controls="@reviewId-panel-details" aria-selected="false" data-review-tab="details">Trade details</button>
+        <button type="button" role="tab" class="tf-review-tab @(section == "details" ? "is-active" : string.Empty)" id="@reviewId-tab-details" aria-controls="@reviewId-panel-details" aria-selected="@(section == "details" ? "true" : "false")" data-review-tab="details">Trade details</button>
+        <button type="button" role="tab" class="tf-review-tab @(section == "review" ? "is-active" : string.Empty)" id="@reviewId-tab-review" aria-controls="@reviewId-panel-review" aria-selected="@(section == "review" ? "true" : "false")" data-review-tab="review">Review</button>
+        <button type="button" role="tab" class="tf-review-tab @(section == "setups" ? "is-active" : string.Empty)" id="@reviewId-tab-setups" aria-controls="@reviewId-panel-setups" aria-selected="@(section == "setups" ? "true" : "false")" data-review-tab="setups">Setup</button>
+        <button type="button" role="tab" class="tf-review-tab @(section == "plan" ? "is-active" : string.Empty)" id="@reviewId-tab-plan" aria-controls="@reviewId-panel-plan" aria-selected="@(section == "plan" ? "true" : "false")" data-review-tab="plan">Plan &amp; costs</button>
+        <button type="button" role="tab" class="tf-review-tab @(section == "media" ? "is-active" : string.Empty)" id="@reviewId-tab-media" aria-controls="@reviewId-panel-media" aria-selected="@(section == "media" ? "true" : "false")" data-review-tab="media">Media &amp; history</button>
     </nav>
     </div>
 
@@ -194,7 +196,24 @@
             <div class="tf-review-form-grid">
             <div class="tf-review-field tf-review-field-wide">
                 <label for="note-@trade.ReviewKey">Review note</label>
-                <textarea id="note-@trade.ReviewKey" name="Edit.ReviewNote" rows="3" placeholder="What did you see, decide, and learn?">@review.ReviewNote</textarea>
+                <div class="tf-lexical-editor" data-lexical-editor data-max-length="64000" data-image-upload-url="@Url.Page("/Review", "UploadReviewImage", new { journalId = trade.JournalId, reviewKey = trade.ReviewKey, date = reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) })" hidden>
+                <div class="tf-lexical-toolbar" role="toolbar" aria-label="Trade review formatting">
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="italic" title="Italic" aria-label="Italic"><em>I</em></button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="heading" title="Heading" aria-label="Heading">H</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="link" title="Link" aria-label="Link">↗</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="unordered-list" title="Bullet list" aria-label="Bullet list">•</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="ordered-list" title="Numbered list" aria-label="Numbered list">1.</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="quote" title="Quote" aria-label="Quote">❯</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="code" title="Inline code" aria-label="Inline code">&lt;/&gt;</button>
+                    <span class="tf-lexical-toolbar-spacer"></span>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="undo" title="Undo" aria-label="Undo">↶</button>
+                    <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="redo" title="Redo" aria-label="Redo">↷</button>
+                </div>
+<div class="tf-lexical-root" data-lexical-root contenteditable="true" role="textbox" aria-multiline="true" aria-label="Review note" data-placeholder="What did you see, decide, and learn?"></div>
+<small data-lexical-image-status role="status" aria-live="polite">Paste a PNG, JPEG, or WebP image (up to 10 MB).</small><small class="tf-lexical-limit-status" data-lexical-limit-status aria-live="polite"></small>
+</div>
+<textarea id="note-@trade.ReviewKey" name="Edit.ReviewNote" data-lexical-source maxlength="64000" rows="3">@review.ReviewNote</textarea>
             </div>
             <div class="tf-review-field">
                 <label for="setup-@trade.ReviewKey">Setup</label>
@@ -322,6 +341,7 @@
                             <form method="post" asp-page-handler="SetSetupRole" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="setups">
                                 @Html.AntiForgeryToken()
                                 <input type="hidden" name="tradeSetupId" value="@setupEvaluation.Association.Id" />
+                        <input type="hidden" name="reviewKey" value="@trade.ReviewKey" />
                                 <label class="visually-hidden" for="setup-role-@setupEvaluation.Association.Id">Role for @setupEvaluation.Setup.Name</label>
                                 <select id="setup-role-@setupEvaluation.Association.Id" class="form-select form-select-sm" name="role" onchange="this.form.submit()">
                                     <option value="Primary" selected="@(setupEvaluation.Association.Role == TradeSetupRole.Primary ? "selected" : null)">Primary</option>
@@ -331,6 +351,7 @@
                             <form method="post" asp-page-handler="RemoveSetup" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="setups">
                                 @Html.AntiForgeryToken()
                                 <input type="hidden" name="tradeSetupId" value="@setupEvaluation.Association.Id" />
+                        <input type="hidden" name="reviewKey" value="@trade.ReviewKey" />
                                 <button class="btn btn-sm btn-ghost-danger" type="submit" title="Remove this setup from the trade">Remove</button>
                             </form>
                         </div>
@@ -354,6 +375,7 @@
                     <form method="post" asp-page-handler="SaveSetupEvaluation" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="setups" class="tf-setup-evaluation-form" data-setup-evaluation-form>
                         @Html.AntiForgeryToken()
                         <input type="hidden" name="tradeSetupId" value="@setupEvaluation.Association.Id" />
+                        <input type="hidden" name="reviewKey" value="@trade.ReviewKey" />
                         <div class="tf-setup-bulk-actions">
                             <span class="text-secondary">Quick fill:</span>
                             <button type="button" class="btn btn-sm btn-outline-secondary" data-setup-bulk-state="NotMet">Remaining not met</button>
@@ -397,7 +419,7 @@
                         }
                         <div class="tf-setup-evaluation-footer">
                             <span class="text-secondary">Unknown means not evaluated; N/A is preserved separately.</span>
-                            <button class="btn btn-sm btn-primary" type="submit">Save setup review</button>
+                            <span data-setup-save-status role="status" aria-live="polite">Saved</span><button class="btn btn-sm btn-outline-secondary" type="submit">Save now</button>
                         </div>
                     </form>
                 </article>

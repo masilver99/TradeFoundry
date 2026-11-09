@@ -11,6 +11,12 @@ Everything needed to build and host the public site is in this directory:
 
 TradeFoundry's publishing UI, exporter, and integration tests remain in the main application. The public site builds using this directory as its Docker context; it does not need the rest of the repository.
 
+## Trade journal entries
+
+Schema version 3 adds formatted trade journal entries and their referenced images. Public trades use keyboard-accessible accordions; the complete publishing preview opens every trade entry for inspection. Older schema versions 1 and 2 remain readable.
+
+Update the public reader before publishing a new schema-version-3 snapshot. Then create a fresh preview in TradeFoundry, inspect the notes and images, and publish that exact snapshot. Existing publications remain unchanged until republished; an older reader rejects the new schema without replacing its current publication.
+
 ## Local development
 
 Set `Publishing__Token` to a randomly generated secret of at least 32 characters and `Storage__DataDirectory` to an absolute writable directory, then run:
@@ -21,7 +27,7 @@ $env:Storage__DataDirectory = 'C:\temp\tradefoundry-public-data'
 dotnet run --project PublicJournal/App/TradeFoundry.PublicJournal.csproj --urls http://127.0.0.1:9080
 ```
 
-In TradeFoundry, open **Publishing** for the journal. Save the destination and the same secret token, create a preview, inspect it, and select **Publish this exact snapshot**. Publishing includes the entire journal history, all daily writing, and referenced daily journal images, including today's saved entry. Open trades, private trade reviews, imports, receipts, and unrelated attachments are excluded. No upload occurs until Publish is selected. Local edits require another preview and publication.
+In TradeFoundry, open **Publishing** for the journal. Save the destination and the same secret token, create a preview, inspect it, and select **Publish this exact snapshot**. Publishing includes the entire journal history, all daily writing, completed-trade journal notes, and inline images referenced by those entries, including today's saved entries. Open trades, review ratings, tags, planning fields, imports, receipts, and unrelated attachments are excluded. No upload occurs until Publish is selected. Local edits require another preview and publication.
 
 The **Title** setting supplies the public page heading instead of the private journal name. **Introduction** uses the Daily Journal formatting editor and Markdown shortcuts; its formatted HTML appears below the title and timezone. Existing plain-text introductions remain editable. Save settings and create a new preview after editing either field. Update both TradeFoundry and the public reader before publishing rich introductions; older readers reject snapshots containing the new introduction content field.
 

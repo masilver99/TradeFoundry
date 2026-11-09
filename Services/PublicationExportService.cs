@@ -30,7 +30,31 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
                 { throw new InvalidOperationException($"The journal image in entry {entry.Date:yyyy-MM-dd} could not be read. Check that the image is available and TradeFoundry has permission to read it.", ex); }
                 return key;
             }));
-        var snapshot = BuildSnapshot(journal, trades, account, entries, sourceImages.Values.ToList(), settings, DateTimeOffset.UtcNow, BuildTradeChart);
+        var reviews = database.GetTradeReviewAnnotations(journalId);
+        var attachments = new TradeReviewService(database);
+        var tradeEntries = trades.Where(trade => trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase) && trade.ExitUtc.HasValue)
+            .ToDictionary(trade => trade.ReviewKey, trade => reviews.TryGetValue(trade.ReviewKey, out var review)
+                ? ConvertContent(review.ReviewNote, id =>
+                {
+                    if (!Guid.TryParse(id, out var imageId)) throw new InvalidOperationException("Invalid image reference in a trade journal entry.");
+                    var image = attachments.GetAttachment(journalId, imageId);
+                    if (image is null || image.ReviewKey != trade.ReviewKey)
+                        throw new InvalidOperationException("A trade journal image is missing or belongs to another trade. Restore or remove it before publishing.");
+                    var path = attachments.GetAttachmentPath(journalId, image);
+                    if (path is null) throw new InvalidOperationException("A trade journal image is missing. Restore or remove it before publishing.");
+                    var key = imageId.ToString("N");
+                    try
+                    {
+                        if (new FileInfo(path).Length is <= 0 or > PublicationJson.MaxImageBytes)
+                            throw new InvalidOperationException("A trade journal image is empty or exceeds 10 MB.");
+                        if (!sourceImages.ContainsKey(key)) sourceImages.Add(key, new(key, image.ContentType, File.ReadAllBytes(path)));
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    { throw new InvalidOperationException("A trade journal image could not be read. Restore or remove it before publishing.", ex); }
+                    return key;
+                }) : []);
+        var snapshot = BuildSnapshot(journal, trades, account, entries, sourceImages.Values.ToList(), settings, DateTimeOffset.UtcNow, BuildTradeChart,
+            trade => tradeEntries.GetValueOrDefault(trade.ReviewKey) ?? []);
         var indicators = TearSheetMetrics.Build(trades, [], database.GetAccountBalanceEvents(journalId),
             database.GetBenchmarkPoints(journalId, benchmarkOptions?.Value.DefaultSymbol ?? "^GSPC"), journal.StartingEquity, journal.TimeZone, journal.Currency);
         var metrics = indicators.Groups.SelectMany(group => group.Indicators).ToArray();
@@ -43,14 +67,14 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
 
     public static PublicationSnapshot BuildSnapshot(Journal journal, IEnumerable<Trade> trades, AccountSummary account,
         IReadOnlyDictionary<DateOnly, List<PublicationNode>> entries, List<PublicationImage> images, PublishingSettings settings, DateTimeOffset now,
-        Func<Trade, PublicationTradeChart?>? chartForTrade = null)
+        Func<Trade, PublicationTradeChart?>? chartForTrade = null, Func<Trade, List<PublicationNode>>? journalForTrade = null)
     {
         var trading = DailyTradeAggregation.Build(trades.Where(t => t.JournalId == journal.Id), journal.TimeZone).Where(d => d.CompletedTradeCount > 0).ToDictionary(d => d.Date);
         var dates = trading.Keys.Concat(entries.Where(e => HasContent(e.Value)).Select(e => e.Key)).Distinct().OrderBy(d => d).ToArray();
         var days = dates.Select(date =>
         {
             var rows = trading.TryGetValue(date, out var day) ? day.CompletedTrades.Select(t => new PublicationTrade(t.Symbol, t.Direction, t.Quantity, t.NetPnl)
-            { Chart = chartForTrade?.Invoke(t) }).ToList() : [];
+            { Chart = chartForTrade?.Invoke(t), JournalContent = journalForTrade?.Invoke(t) ?? [] }).ToList() : [];
             return new PublicationDay
             {
                 Date = date, NetPnl = rows.Sum(t => t.NetPnl), Trades = rows,

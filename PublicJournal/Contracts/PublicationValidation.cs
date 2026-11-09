@@ -6,7 +6,7 @@ public static class PublicationValidation
 {
     public static void Validate(PublicationSnapshot snapshot)
     {
-        if (snapshot.SchemaVersion is not (1 or 2)) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
+        if (snapshot.SchemaVersion is not (1 or 2 or 3)) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
         if (snapshot.JournalId == Guid.Empty || snapshot.SnapshotId == Guid.Empty || snapshot.GeneratedUtc == default || snapshot.AsOfDate == default)
             throw new InvalidOperationException("Publication identity or date is missing.");
         if (string.IsNullOrWhiteSpace(snapshot.Title) || snapshot.Title.Length > 150 || snapshot.Introduction is null || snapshot.Introduction.Length > 5000
@@ -38,7 +38,12 @@ public static class PublicationValidation
                 throw new InvalidOperationException("Daily totals do not match the published trade summaries.");
             PublicationContent.Validate(day.Content, imageIds);
             foreach (var trade in day.Trades)
+            {
+                if (trade.JournalContent is null || (snapshot.SchemaVersion < 3 && trade.JournalContent.Count > 0))
+                    throw new InvalidOperationException("Trade journal entries require publication schema version 3.");
+                PublicationContent.Validate(trade.JournalContent, imageIds);
                 if (trade.Chart is { } chart) ValidateChart(chart, snapshot.SchemaVersion);
+            }
         }
         var months = snapshot.Days.GroupBy(d => new DateOnly(d.Date.Year, d.Date.Month, 1))
             .Select(g => new PublicationMonth(g.Key, g.Sum(d => d.NetPnl), g.Sum(d => d.Trades.Count))).OrderBy(m => m.Month).ToArray();

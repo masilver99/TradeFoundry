@@ -663,7 +663,7 @@ public sealed class TradeReviewAnnotation
     public string Mistakes { get; init; } = string.Empty;
     public string Lessons { get; init; } = string.Empty;
     public DateTimeOffset? UpdatedUtc { get; init; }
-    public bool HasContent => !string.IsNullOrWhiteSpace(ReviewNote)
+    public bool HasContent => !string.IsNullOrWhiteSpace(LexicalPlainText.Extract(ReviewNote))
         || !string.IsNullOrWhiteSpace(Setup)
         || Tags.Count > 0
         || PlannedEntryPrice.HasValue
@@ -753,6 +753,7 @@ public sealed class DailyReviewTrade
 
 public sealed class DailyReviewModel
 {
+    public DailyReviewSummary Summary => DailyReviewSummary.Build(this);
     public Journal Journal { get; init; } = new();
     public DateOnly Date { get; init; }
     public DailyJournalEntry DailyJournal { get; init; } = new();

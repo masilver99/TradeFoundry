@@ -32,7 +32,7 @@ public class ReviewModel : PageModel
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
     [BindProperty(SupportsGet = true)] public DateOnly? Date { get; set; }
     [BindProperty(SupportsGet = true)] public string? Focus { get; set; }
-    [BindProperty(SupportsGet = true)] public string? Section { get; set; }
+    [BindProperty(SupportsGet = true)] public string? Section { get; set; } = "details";
     [BindProperty(SupportsGet = true)] public string? Interval { get; set; }
     [BindProperty(SupportsGet = true)] public bool Saved { get; set; }
     [BindProperty(SupportsGet = true)] public bool JournalSaved { get; set; }
@@ -211,20 +211,20 @@ public class ReviewModel : PageModel
             }
 
             if (!saveAndNext)
-                return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = reviewKey, saved = true });
+                return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = reviewKey, section = "review", saved = true });
 
             var next = NextTradeKey(_reviews.GetDay(JournalId, date), reviewKey);
             if (next is not null)
-                return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = next, saved = true });
+                return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = next, section = "review", saved = true });
 
             var currentDay = _reviews.GetDay(JournalId, date);
             if (currentDay.NextDate.HasValue)
             {
                 var nextDay = _reviews.GetDay(JournalId, currentDay.NextDate.Value);
-                return RedirectToPage(new { journalId = JournalId, date = currentDay.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = FirstTradeKey(nextDay), saved = true });
+                return RedirectToPage(new { journalId = JournalId, date = currentDay.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = FirstTradeKey(nextDay), section = "review", saved = true });
             }
 
-            return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), saved = true });
+            return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), section = "review", saved = true });
         }
         catch (ArgumentException exception)
         {
@@ -273,7 +273,7 @@ public class ReviewModel : PageModel
                 revision = result.Annotation.Revision,
                 updatedUtc = result.Annotation.UpdatedUtc,
                 trade = tradePayload,
-                day = new { realizedNetPnl = day.RealizedNetPnl }
+                day = day.Summary
             });
         }
         catch (ArgumentException exception)
@@ -314,16 +314,19 @@ public class ReviewModel : PageModel
         try
         {
             (_setups ?? throw new InvalidOperationException("Setup tracking is not available.")).SaveEvaluations(JournalId, tradeSetupId, SetupCriterionEvaluations);
+            if (IsAjaxRequest()) return new JsonResult(new { saved = true, day = _reviews.GetDay(JournalId, date).Summary });
             return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = reviewKey, section = "setups", saved = true });
         }
         catch (InvalidOperationException exception)
         {
+            if (IsAjaxRequest()) return BadRequest(new { saved = false, message = exception.Message });
             LoadDay();
             ErrorMessage = exception.Message;
             return Page();
         }
         catch (ArgumentException exception)
         {
+            if (IsAjaxRequest()) return BadRequest(new { saved = false, message = exception.Message });
             LoadDay();
             ErrorMessage = exception.Message;
             return Page();
@@ -390,7 +393,8 @@ public class ReviewModel : PageModel
             {
                 saved = true,
                 revision = result.Entry.Revision,
-                updatedUtc = result.Entry.UpdatedUtc
+                updatedUtc = result.Entry.UpdatedUtc,
+                hasDailyJournal = !string.IsNullOrWhiteSpace(LexicalPlainText.Extract(result.Entry.Text))
             });
         }
         catch (ArgumentException exception)
@@ -402,6 +406,28 @@ public class ReviewModel : PageModel
         {
             Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
             return new JsonResult(new { saved = false, message = exception.Message });
+        }
+    }
+
+    public async Task<IActionResult> OnPostUploadReviewImageAsync(string reviewKey, DateOnly date, IFormFile? image, CancellationToken cancellationToken)
+    {
+        if (image is not { Length: > 0 }) return BadRequest(new { saved = false, message = "Choose or paste an image first." });
+        try
+        {
+            await using var stream = image.OpenReadStream();
+            var attachment = await _reviews.SaveAttachmentAsync(JournalId, reviewKey, stream, image.FileName, image.ContentType, image.Length, cancellationToken: cancellationToken);
+            var url = Url.Page("/Review", "Attachment", new { journalId = JournalId, attachmentId = attachment.Id });
+            return new JsonResult(new
+            {
+                saved = true,
+                image = new { id = attachment.Id, src = url, altText = attachment.OriginalFileName },
+                attachment = new { id = attachment.Id, url, captionUrl = Url.Page("/Review", "UpdateAttachmentCaption", new { journalId = JournalId }), originalFileName = attachment.OriginalFileName, caption = attachment.Caption, length = attachment.Length },
+                day = _reviews.GetDay(JournalId, date).Summary
+            });
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            return BadRequest(new { saved = false, message = exception.Message });
         }
     }
 
@@ -422,6 +448,7 @@ public class ReviewModel : PageModel
                 return new JsonResult(new
                 {
                     saved = true,
+                    day = _reviews.GetDay(JournalId, date).Summary,
                     attachment = new
                     {
                         id = attachment.Id,
@@ -484,7 +511,7 @@ public class ReviewModel : PageModel
             }
 
             bool? hasReviewImages = string.IsNullOrWhiteSpace(focus) ? null : _reviews.GetAttachments(JournalId, focus).Count > 0;
-            return new JsonResult(new { removed = true, attachmentId, hasReviewImages });
+            return new JsonResult(new { removed = true, attachmentId, hasReviewImages, day = _reviews.GetDay(JournalId, date).Summary });
         }
 
         return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus, section = "media", saved = true });

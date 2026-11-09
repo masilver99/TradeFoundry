@@ -32,7 +32,8 @@ class DailyJournalImageNode extends ElementNode {
       img: domNode => {
         if (!(domNode instanceof HTMLImageElement)) return null;
         const src = normalizeDailyJournalImageUrl(domNode.getAttribute("src") || "");
-        const attachmentId = new URL(src, window.location.href).searchParams.get("imageId") || "";
+        const imageUrl = new URL(src, window.location.href);
+        const attachmentId = imageUrl.searchParams.get("imageId") || imageUrl.searchParams.get("attachmentId") || "";
         if (!src || !attachmentId) return null;
         return {
           conversion: () => ({ node: $createDailyJournalImageNode(attachmentId, src, domNode.alt || "Pasted image", parseImageWidth(domNode.style.width)) }),
@@ -154,6 +155,10 @@ function normalizeDailyJournalImageUrl(value) {
   if (!value) return "";
   try {
     const url = new URL(value, window.location.href);
+    const tradeImage = url.pathname.endsWith("/review")
+      && url.searchParams.get("handler")?.toLowerCase() === "attachment"
+      && /^[0-9a-f-]{36}$/i.test(url.searchParams.get("attachmentId") || "");
+    if (url.origin === window.location.origin && url.pathname.startsWith("/journal/") && tradeImage) return `${url.pathname}${url.search}`;
     if (url.origin !== window.location.origin
       || url.searchParams.get("handler")?.toLowerCase() !== "image"
       || !url.pathname.startsWith("/journal/")
@@ -264,6 +269,16 @@ function initializeEditor(container) {
       if (node?.getType() === DailyJournalImageNode.getType()) node.remove();
     });
   });
+  container.closest('[data-review-editor]')?.addEventListener('review-attachment-removed', event => {
+    editor.update(() => {
+      const visit = node => {
+        if (node instanceof DailyJournalImageNode && node.exportJSON().attachmentId === event.detail.id) node.remove();
+        else if (typeof node.getChildren === 'function') node.getChildren().forEach(visit);
+      };
+      visit($getRoot());
+      if ($getRoot().getChildrenSize() === 0) $getRoot().append($createParagraphNode());
+    });
+  });
   registerDailyJournalImageResize(editor, root);
   registerDailyJournalImagePaste(editor, container, root, limitStatus, maxLength);
 
@@ -275,7 +290,7 @@ function initializeEditor(container) {
 
 function registerDailyJournalImagePaste(editor, container, root, limitStatus, maxLength) {
   const uploadUrl = container.dataset.imageUploadUrl;
-  const form = container.closest("form[data-daily-journal-form]");
+  const form = container.closest("form[data-daily-journal-form], form[data-review-form]");
   const status = container.querySelector("[data-lexical-image-status]");
   if (!uploadUrl || !form || !status) return;
 
@@ -288,6 +303,7 @@ function registerDailyJournalImagePaste(editor, container, root, limitStatus, ma
     const items = Array.from(event.clipboardData?.items || []).filter(item => item.kind === "file" && String(item.type || "").toLowerCase().startsWith("image/"));
     if (items.length === 0) return;
     event.preventDefault();
+    event.stopPropagation();
 
     const files = [];
     for (const item of items) {
@@ -321,8 +337,8 @@ function registerDailyJournalImagePaste(editor, container, root, limitStatus, ma
     }
 
     const token = form.querySelector('input[name="__RequestVerificationToken"]');
-    const date = form.closest("[data-daily-journal-entry]")?.dataset.entryDate || "";
-    if (!token?.value || !date) {
+    const date = form.closest("[data-daily-journal-entry]")?.dataset.entryDate || new URL(uploadUrl, window.location.href).searchParams.get("date") || "";
+    if (!token?.value) {
       setStatus("The image upload could not be started. Reload this journal and try again.");
       return;
     }
@@ -356,6 +372,8 @@ function registerDailyJournalImagePaste(editor, container, root, limitStatus, ma
         const src = normalizeDailyJournalImageUrl(result.image.src);
         if (!src) throw new Error("The uploaded image URL was not valid.");
         uploadedImages.push({ ...result.image, src });
+        if (result.day) window.updateDailyReviewSummary?.(result.day);
+        if (result.attachment) container.closest('[data-review-editor]')?.dispatchEvent(new CustomEvent('review-inline-image-uploaded', {detail:result}));
       } catch (error) {
         uploadError = error instanceof Error ? error.message : "The image could not be uploaded.";
         break;

@@ -46,7 +46,7 @@
 @if (Model.State.RemoteStatus?.BoundJournalId is { } bound && bound != Model.JournalId) { <p class="text-danger">This website is bound to another journal.</p> }
 <div class="d-flex flex-wrap gap-2"><form method="post" asp-page-handler="Status"><button class="btn" type="submit">Refresh status</button></form>
 <form method="post" asp-page-handler="Preview"><button class="btn btn-primary" type="submit">Create preview</button></form></div>
-<p class="text-secondary small mt-3">Preview uses saved settings and includes all daily journal entries. Account identifiers, imports, private trade reviews, and receipts are excluded.</p>
+<p class="text-secondary small mt-3">Preview uses saved settings and includes all daily journal entries and completed-trade journal notes, including their inline images. Review ratings, tags, plans, unrelated attachments, account identifiers, imports, and receipts are excluded.</p>
 @if (Model.State.RemoteStatus is { } remote)
 {
 <hr /><form method="post" asp-page-handler="Unpublish"><input type="hidden" name="expectedRevision" value="@remote.Revision" />
@@ -58,7 +58,7 @@
 @if (draft is not null)
 {
 <section class="card mt-4"><div class="card-body"><h3>Review the outgoing snapshot</h3>
-<p>Prepared @draft.Snapshot.GeneratedUtc.ToString("yyyy-MM-dd HH:mm 'UTC'") · @draft.Snapshot.Days.Count days · @draft.Snapshot.Dashboard.CompletedTrades trades · @draft.Snapshot.Images.Count images</p>
+<p>Prepared @draft.Snapshot.GeneratedUtc.ToString("yyyy-MM-dd HH:mm 'UTC'") · @draft.Snapshot.Days.Count days · @draft.Snapshot.Dashboard.CompletedTrades trades · @draft.Snapshot.Days.SelectMany(day => day.Trades).Count(trade => trade.JournalContent.Count > 0) trade journal entries · @draft.Snapshot.Images.Count images</p>
 @if (draft.Snapshot.Days.Count > 0) { <p class="text-secondary">Coverage: @draft.Snapshot.Days.Min(d => d.Date).ToString("yyyy-MM-dd") to @draft.Snapshot.Days.Max(d => d.Date).ToString("yyyy-MM-dd").</p> }
 <p class="text-secondary">The preview below contains the complete publication. Later local edits will not change this snapshot.</p>
 <a class="btn mb-3" target="_blank" rel="noopener" href="?handler=PreviewDocument&amp;snapshotId=@draft.Snapshot.SnapshotId">Open full preview</a>

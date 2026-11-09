@@ -11,6 +11,12 @@ Everything needed to build and host the public site is in this directory:
 
 TradeFoundry's publishing UI, exporter, and integration tests remain in the main application. The public site builds using this directory as its Docker context; it does not need the rest of the repository.
 
+## Trade setup information
+
+Schema version 4 adds the free-text Setup label and attached setup names, assigned versions, primary/secondary roles, and criterion names, types, stages, and recorded results. These appear inside each trade accordion and the complete publication preview. The assigned historical version is exported, rather than the latest definition. Criterion notes, association notes, rule metadata, ratings, tags, and planning fields remain private. Trades without setup information display "Setup not recorded"; older publications identify setup data as not included.
+
+Update the public reader before creating and publishing a fresh schema-version-4 preview. No existing publication is changed by local setup edits. Versions 1, 2, and 3 remain readable.
+
 ## Trade journal entries
 
 Schema version 3 adds formatted trade journal entries and their referenced images. Public trades use keyboard-accessible accordions; the complete publishing preview opens every trade entry for inspection. Older schema versions 1 and 2 remain readable.

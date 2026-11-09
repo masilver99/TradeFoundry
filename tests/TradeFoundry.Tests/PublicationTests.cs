@@ -21,6 +21,75 @@ namespace TradeFoundry.Tests;
 public sealed class PublicationTests
 {
     [Fact]
+    public void TradeSetupsPublishAssignedVersionsAndResultsWithoutPrivateReviewData()
+    {
+        using var data = new LocalData();
+        var csv = string.Join('\n', "Activity Type,DateTime,Symbol,Account,BuySell,Quantity,Fill Price,Order Action Source",
+            "Fills,2026-09-10 12:00:00,MESZ26,PRIVATE-ACCOUNT,Buy,1,5000,PRIVATE-SOURCE",
+            "Fills,2026-09-10 13:00:00,MESZ26,PRIVATE-ACCOUNT,Sell,1,5002,PRIVATE-SOURCE");
+        new ImportService(data.Database).ImportText(data.Journal.Id, "fixture.csv", csv, "sierra", "flat_to_flat", "source");
+        var trade = Assert.Single(data.Database.GetAllTrades(data.Journal.Id));
+        data.Database.SaveTradeReview(data.Journal.Id, trade.ReviewKey, new TradeReviewPatch { Setup = "Opening range <label>", Mistakes = "PRIVATE-MISTAKE", TagsText = "PRIVATE-TAG" });
+        var service = new TradingSetupService(data.Database);
+        var setup = service.CreateSetup(data.Journal.Id, new TradingSetupDraft { Name = "Breakout <setup>", DetailedDescription = "PRIVATE-DESCRIPTION" },
+        [
+            new() { Name = "Trend <confirmed>", Stage = SetupCriterionStage.Context, RuleMetadataJson = "{\"private\":\"PRIVATE-RULE\"}" },
+            new() { Name = "Volume", CriterionType = SetupCriterionType.Supporting },
+            new() { Name = "Resistance", CriterionType = SetupCriterionType.Disqualifier },
+            new() { Name = "Session", CriterionType = SetupCriterionType.Context }
+        ]);
+        var version = setup.CurrentVersion!;
+        var attached = service.AttachToTrade(data.Journal.Id, trade.Id, version.Id, TradeSetupRole.Primary);
+        service.SaveEvaluations(data.Journal.Id, attached.Association.Id,
+        [
+            new() { CriterionId = version.Criteria[0].Id, EvaluationState = CriterionEvaluationState.Met, Note = "PRIVATE-NOTE" },
+            new() { CriterionId = version.Criteria[1].Id, EvaluationState = CriterionEvaluationState.NotApplicable },
+            new() { CriterionId = version.Criteria[2].Id, EvaluationState = CriterionEvaluationState.NotMet }
+        ]);
+        var secondary = service.CreateSetup(data.Journal.Id, new TradingSetupDraft { Name = "Pullback" }, []);
+        service.AttachToTrade(data.Journal.Id, trade.Id, secondary.CurrentVersion!.Id, TradeSetupRole.Secondary);
+        service.CreateVersion(data.Journal.Id, setup.Setup.Id, "PRIVATE-VERSION-NOTE", [new() { Name = "PRIVATE-LATEST-CRITERION" }]);
+        service.CreateSetup(data.Journal.Id, new TradingSetupDraft { Name = "PRIVATE-UNATTACHED" }, []);
+        var exporter = new PublicationExportService(data.Database, new(data.Database));
+        var snapshot = exporter.Build(data.Journal.Id, new(Title: "Public"));
+        var published = Assert.Single(Assert.Single(snapshot.Days).Trades).Setup!;
+        Assert.Equal("Opening range <label>", published.Label);
+        Assert.Equal(2, published.Definitions.Count);
+        Assert.Equal("Primary", published.Definitions[0].Role);
+        Assert.Equal("Secondary", published.Definitions[1].Role);
+        Assert.Equal(1, published.Definitions[0].Version);
+        Assert.Equal(new[] { "Met", "NotApplicable", "NotMet", "Unknown" }, published.Definitions[0].Criteria.Select(c => c.State));
+        var json = JsonSerializer.Serialize(snapshot, PublicationJson.Options);
+        Assert.DoesNotContain("PRIVATE-", json);
+        Assert.DoesNotContain(trade.ReviewKey, json);
+        var html = PublicationPresentation.Document(snapshot, null, id => "/images/" + id, "/", "/style.css");
+        Assert.Contains("Breakout &lt;setup&gt;", html);
+        Assert.Contains("Trend &lt;confirmed&gt;", html);
+        Assert.Contains("Opening range &lt;label&gt;", html);
+        Assert.Contains("Primary · Version 1", html);
+        Assert.Contains("N/A", html);
+        Assert.Contains("Not evaluated", html);
+        Assert.Contains("Not met", html);
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { SchemaVersion = 3 }));
+        service.SaveEvaluations(data.Journal.Id, attached.Association.Id, [new() { CriterionId = version.Criteria[0].Id, EvaluationState = CriterionEvaluationState.NotMet }]);
+        Assert.Equal(json, JsonSerializer.Serialize(snapshot, PublicationJson.Options));
+    }
+
+    [Fact]
+    public void SetupPayloadValidatesStatesAndDistinguishesMissingFromOlderData()
+    {
+        var snapshot = Snapshot();
+        var html = PublicationPresentation.Document(snapshot, null, id => "/images/" + id, "/", "/style.css");
+        Assert.Contains("Setup not recorded.", html);
+        var older = snapshot with { SchemaVersion = 3 };
+        PublicationValidation.Validate(older);
+        Assert.Contains("Setup information was not included", PublicationPresentation.Document(older, null, id => "/images/" + id, "/", "/style.css"));
+        var day = snapshot.Days[0];
+        var invalid = snapshot with { Days = [day with { Trades = [day.Trades[0] with { Setup = new("", [new("Example", 1, "Primary", [new("Criterion", "Required", "Setup", "Invalid")])]) }] }] };
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(invalid));
+    }
+
+    [Fact]
     public async Task TradeJournalsExportOnlyTheirReferencedImagesAndRenderSafeAccordions()
     {
         using var data = new LocalData();
@@ -73,6 +142,7 @@ public sealed class PublicationTests
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
+    [InlineData(3)]
     public void OlderSnapshotsRemainReadableWithoutTradeJournalEntries(int version)
     {
         var snapshot = Snapshot() with { SchemaVersion = version };
@@ -104,7 +174,7 @@ public sealed class PublicationTests
         var snapshot = new PublicationExportService(data.Database, new(data.Database)).Build(data.Journal.Id, new(Title: "Public"));
         var trade = Assert.Single(Assert.Single(snapshot.Days).Trades);
         var chart = Assert.IsType<PublicationTradeChart>(trade.Chart);
-        Assert.Equal(3, snapshot.SchemaVersion);
+        Assert.Equal(4, snapshot.SchemaVersion);
         Assert.Equal("5m", chart.Interval);
         Assert.Equal(50, chart.Bars.Count);
         Assert.Equal(5000.25m, chart.Entry.Price);

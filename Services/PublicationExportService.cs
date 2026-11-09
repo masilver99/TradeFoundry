@@ -31,6 +31,7 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
                 return key;
             }));
         var reviews = database.GetTradeReviewAnnotations(journalId);
+        var setups = new TradingSetupService(database);
         var attachments = new TradeReviewService(database);
         var tradeEntries = trades.Where(trade => trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase) && trade.ExitUtc.HasValue)
             .ToDictionary(trade => trade.ReviewKey, trade => reviews.TryGetValue(trade.ReviewKey, out var review)
@@ -54,7 +55,16 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
                     return key;
                 }) : []);
         var snapshot = BuildSnapshot(journal, trades, account, entries, sourceImages.Values.ToList(), settings, DateTimeOffset.UtcNow, BuildTradeChart,
-            trade => tradeEntries.GetValueOrDefault(trade.ReviewKey) ?? []);
+            trade => tradeEntries.GetValueOrDefault(trade.ReviewKey) ?? [], trade =>
+            {
+                var label = reviews.GetValueOrDefault(trade.ReviewKey)?.Setup ?? string.Empty;
+                var definitions = setups.GetTradeSetupWorkspace(journalId, trade.Id).Evaluations
+                    .OrderBy(item => item.Association.Role).ThenBy(item => item.Setup.Name, StringComparer.Ordinal)
+                    .Select(item => new PublicationSetup(item.Setup.Name, item.Version.Version, item.Association.Role.ToString(),
+                        item.Criteria.Select(criterion => new PublicationSetupCriterion(criterion.Criterion.Name,
+                            criterion.Criterion.CriterionType.ToString(), criterion.Criterion.Stage.ToString(), criterion.EvaluationState.ToString())).ToList())).ToList();
+                return string.IsNullOrWhiteSpace(label) && definitions.Count == 0 ? null : new PublicationTradeSetupInfo(label, definitions);
+            });
         var indicators = TearSheetMetrics.Build(trades, [], database.GetAccountBalanceEvents(journalId),
             database.GetBenchmarkPoints(journalId, benchmarkOptions?.Value.DefaultSymbol ?? "^GSPC"), journal.StartingEquity, journal.TimeZone, journal.Currency);
         var metrics = indicators.Groups.SelectMany(group => group.Indicators).ToArray();
@@ -67,14 +77,15 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
 
     public static PublicationSnapshot BuildSnapshot(Journal journal, IEnumerable<Trade> trades, AccountSummary account,
         IReadOnlyDictionary<DateOnly, List<PublicationNode>> entries, List<PublicationImage> images, PublishingSettings settings, DateTimeOffset now,
-        Func<Trade, PublicationTradeChart?>? chartForTrade = null, Func<Trade, List<PublicationNode>>? journalForTrade = null)
+        Func<Trade, PublicationTradeChart?>? chartForTrade = null, Func<Trade, List<PublicationNode>>? journalForTrade = null,
+        Func<Trade, PublicationTradeSetupInfo?>? setupForTrade = null)
     {
         var trading = DailyTradeAggregation.Build(trades.Where(t => t.JournalId == journal.Id), journal.TimeZone).Where(d => d.CompletedTradeCount > 0).ToDictionary(d => d.Date);
         var dates = trading.Keys.Concat(entries.Where(e => HasContent(e.Value)).Select(e => e.Key)).Distinct().OrderBy(d => d).ToArray();
         var days = dates.Select(date =>
         {
             var rows = trading.TryGetValue(date, out var day) ? day.CompletedTrades.Select(t => new PublicationTrade(t.Symbol, t.Direction, t.Quantity, t.NetPnl)
-            { Chart = chartForTrade?.Invoke(t), JournalContent = journalForTrade?.Invoke(t) ?? [] }).ToList() : [];
+            { Chart = chartForTrade?.Invoke(t), JournalContent = journalForTrade?.Invoke(t) ?? [], Setup = setupForTrade?.Invoke(t) }).ToList() : [];
             return new PublicationDay
             {
                 Date = date, NetPnl = rows.Sum(t => t.NetPnl), Trades = rows,

@@ -6,7 +6,7 @@ public static class PublicationValidation
 {
     public static void Validate(PublicationSnapshot snapshot)
     {
-        if (snapshot.SchemaVersion is not (1 or 2 or 3)) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
+        if (snapshot.SchemaVersion is not (1 or 2 or 3 or 4)) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
         if (snapshot.JournalId == Guid.Empty || snapshot.SnapshotId == Guid.Empty || snapshot.GeneratedUtc == default || snapshot.AsOfDate == default)
             throw new InvalidOperationException("Publication identity or date is missing.");
         if (string.IsNullOrWhiteSpace(snapshot.Title) || snapshot.Title.Length > 150 || snapshot.Introduction is null || snapshot.Introduction.Length > 5000
@@ -42,6 +42,7 @@ public static class PublicationValidation
                 if (trade.JournalContent is null || (snapshot.SchemaVersion < 3 && trade.JournalContent.Count > 0))
                     throw new InvalidOperationException("Trade journal entries require publication schema version 3.");
                 PublicationContent.Validate(trade.JournalContent, imageIds);
+                if (trade.Setup is { } setup) ValidateSetup(setup, snapshot.SchemaVersion);
                 if (trade.Chart is { } chart) ValidateChart(chart, snapshot.SchemaVersion);
             }
         }
@@ -62,6 +63,24 @@ public static class PublicationValidation
             || dashboard.ProfitFactor != (loss == 0 ? (decimal?)null : profit / loss)
             || dashboard.BalanceNote is null || dashboard.BalanceNote.Length > 1000)
             throw new InvalidOperationException("Dashboard metrics do not match the published trading history.");
+    }
+
+    private static void ValidateSetup(PublicationTradeSetupInfo info, int version)
+    {
+        if (version < 4 || info.Label is null || info.Label.Length > 240 || info.Definitions is null)
+            throw new InvalidOperationException("Invalid published trade setup. Setup information requires schema version 4.");
+        foreach (var setup in info.Definitions)
+        {
+            if (setup is null || string.IsNullOrWhiteSpace(setup.Name) || setup.Name.Length > 120 || setup.Version < 1
+                || setup.Role is not ("Primary" or "Secondary") || setup.Criteria is null)
+                throw new InvalidOperationException("Invalid published setup definition.");
+            foreach (var criterion in setup.Criteria)
+                if (criterion is null || string.IsNullOrWhiteSpace(criterion.Name) || criterion.Name.Length > 240
+                    || criterion.Type is not ("Required" or "Supporting" or "Disqualifier" or "Context")
+                    || criterion.Stage is not ("Context" or "Setup" or "Trigger" or "Management" or "Exit")
+                    || criterion.State is not ("Met" or "NotMet" or "Unknown" or "NotApplicable"))
+                    throw new InvalidOperationException("Invalid published setup criterion.");
+        }
     }
 
     private static void ValidateChart(PublicationTradeChart chart, int version)

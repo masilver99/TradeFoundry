@@ -116,6 +116,7 @@ public static class PublicationPresentation
                         : "<span class=\"muted\">Chart unavailable</span>";
                     var hasJournal = trade.JournalContent.Count > 0;
                     html.Append($"<details class=\"published-trade\"{(preview ? " open" : "")}><summary><span class=\"trade-symbol\">{E(trade.Symbol)}</span><span>{E(trade.Direction)} · {trade.Quantity} qty</span><strong class=\"{Tone(trade.NetPnl)}\">{E(Money(trade.NetPnl))}</strong><span class=\"trade-journal-label\">{(hasJournal ? "Journal entry" : "No journal entry")}</span></summary><div class=\"trade-entry-body\">");
+                    html.Append(SetupContent(trade.Setup, snapshot.SchemaVersion));
                     if (hasJournal) html.Append($"<div class=\"journal-content\">{PublicationContent.Render(trade.JournalContent, imageUrl)}</div>");
                     else html.Append("<p class=\"muted\">No trade journal entry.</p>");
                     html.Append($"<div class=\"trade-entry-chart\">{chartButton}</div></div></details>");
@@ -140,6 +141,35 @@ public static class PublicationPresentation
     }
 
     private static string TradeCount(int count) => $"{count} {(count == 1 ? "trade" : "trades")}";
+
+    private static string SetupContent(PublicationTradeSetupInfo? info, int schemaVersion)
+    {
+        string E(string value) => WebUtility.HtmlEncode(value);
+        var html = new StringBuilder("<section class=\"public-trade-setups\" aria-label=\"Trade setups\"><h4>Setup</h4>");
+        if (info is null)
+            html.Append($"<p class=\"muted\">{(schemaVersion < 4 ? "Setup information was not included in this publication." : "Setup not recorded.")}</p>");
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(info.Label)) html.Append($"<p><span class=\"muted\">Setup label:</span> {E(info.Label)}</p>");
+            foreach (var setup in info.Definitions)
+            {
+                html.Append($"<article class=\"public-setup\"><h5>{E(setup.Name)}</h5><p class=\"muted\">{E(setup.Role)} · Version {setup.Version}</p>");
+                if (setup.Criteria.Count == 0) html.Append("<p class=\"muted\">No criteria recorded for this version.</p>");
+                else
+                {
+                    html.Append("<ul class=\"public-setup-criteria\">");
+                    foreach (var criterion in setup.Criteria)
+                    {
+                        var state = criterion.State switch { "Met" => "Met", "NotMet" => "Not met", "NotApplicable" => "N/A", _ => "Not evaluated" };
+                        html.Append($"<li><div><strong>{E(criterion.Name)}</strong><small>{E(criterion.Type)} · {E(criterion.Stage)}</small></div><span class=\"setup-criterion-state\">{state}</span></li>");
+                    }
+                    html.Append("</ul>");
+                }
+                html.Append("</article>");
+            }
+        }
+        return html.Append("</section>").ToString();
+    }
 }
 
 

@@ -6,7 +6,7 @@ namespace TradeFoundry.Publishing;
 // Deliberately independent of internal journal, account, import, and review models.
 public sealed record PublicationSnapshot
 {
-    public int SchemaVersion { get; init; } = 3;
+    public int SchemaVersion { get; init; } = 4;
     public Guid SnapshotId { get; init; } = Guid.NewGuid();
     public Guid JournalId { get; init; }
     public DateTimeOffset GeneratedUtc { get; init; }
@@ -50,10 +50,16 @@ public sealed record PublicationDay
 
 public sealed record PublicationTrade(string Symbol, string Direction, int Quantity, decimal NetPnl)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PublicationTradeSetupInfo? Setup { get; init; }
     public List<PublicationNode> JournalContent { get; init; } = [];
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PublicationTradeChart? Chart { get; init; }
 }
+
+public sealed record PublicationTradeSetupInfo(string Label, List<PublicationSetup> Definitions);
+public sealed record PublicationSetup(string Name, int Version, string Role, List<PublicationSetupCriterion> Criteria);
+public sealed record PublicationSetupCriterion(string Name, string Type, string Stage, string State);
 
 public sealed record PublicationTradeChart
 {

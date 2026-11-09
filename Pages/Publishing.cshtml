@@ -46,7 +46,7 @@
 @if (Model.State.RemoteStatus?.BoundJournalId is { } bound && bound != Model.JournalId) { <p class="text-danger">This website is bound to another journal.</p> }
 <div class="d-flex flex-wrap gap-2"><form method="post" asp-page-handler="Status"><button class="btn" type="submit">Refresh status</button></form>
 <form method="post" asp-page-handler="Preview"><button class="btn btn-primary" type="submit">Create preview</button></form></div>
-<p class="text-secondary small mt-3">Preview uses saved settings and includes all daily journal entries and completed-trade journal notes, including their inline images. Review ratings, tags, plans, unrelated attachments, account identifiers, imports, and receipts are excluded.</p>
+<p class="text-secondary small mt-3">Preview uses saved settings and includes all daily journal entries and completed-trade journal notes, including their inline images, setup labels, attached setup names and versions, roles, and criterion names and results. Criterion notes, setup association notes, review ratings, tags, plans, unrelated attachments, account identifiers, imports, and receipts are excluded.</p>
 @if (Model.State.RemoteStatus is { } remote)
 {
 <hr /><form method="post" asp-page-handler="Unpublish"><input type="hidden" name="expectedRevision" value="@remote.Revision" />

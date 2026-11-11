@@ -47,7 +47,7 @@ public sealed class CommandPaletteSearchModel : PageModel
         {
             var date = hit.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             results.Add(new CommandPaletteRemoteResult(
-                "Daybook entries",
+                "Daily Journal entries",
                 $"Daily Journal · {hit.Date.ToString("MMM d, yyyy", CultureInfo.InvariantCulture)}",
                 "Daily journal note",
                 Snippet(hit.SearchText, query),

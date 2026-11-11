@@ -51,6 +51,20 @@ public sealed class EquityChartTests
         Assert.Equal(new[] { 0m, -1m, 2m }, trace.GetProperty("y").EnumerateArray().Select(x => x.GetDecimal()).ToArray());
     }
 
+    [Theory]
+    [InlineData(5, "lines+markers")]
+    [InlineData(200, "lines")]
+    public void Equity_chart_drops_point_markers_on_long_histories(int tradeCount, string expectedMode)
+    {
+        var start = new DateTimeOffset(2026, 1, 1, 14, 0, 0, TimeSpan.Zero);
+        var chart = ChartRenderer.Equity(Enumerable.Range(1, tradeCount).Select(index => new EquityPoint { ExitUtc = start.AddMinutes(index), CumulativePnl = index }));
+
+        using var payload = ReadPayload(chart);
+        var trace = payload.RootElement.GetProperty("data")[0];
+        Assert.Equal(expectedMode, trace.GetProperty("mode").GetString());
+        Assert.Equal("tozeroy", trace.GetProperty("fill").GetString());
+    }
+
     private static JsonDocument ReadPayload(string chart)
     {
         const string attribute = "data-plotly-chart=\"";

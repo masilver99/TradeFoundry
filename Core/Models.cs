@@ -417,6 +417,20 @@ public sealed class JournalOverview
     public IReadOnlyList<EquityPoint> Equity { get; init; } = Array.Empty<EquityPoint>();
     public EquityPoint? PeakProfit { get; init; }
     public decimal? ProfitBelowPeak => PeakProfit?.CumulativePnl - NetPnl;
+    /// <summary>Largest peak-to-trough decline of closed-trade cumulative net P&amp;L, measured from a zero starting balance.</summary>
+    public decimal MaxDrawdown
+    {
+        get
+        {
+            decimal peak = 0m, maximum = 0m;
+            foreach (var point in Equity.OrderBy(point => point.ExitUtc))
+            {
+                peak = Math.Max(peak, point.CumulativePnl);
+                maximum = Math.Max(maximum, peak - point.CumulativePnl);
+            }
+            return maximum;
+        }
+    }
     public decimal NetPnl { get; init; }
     public decimal GrossPnl { get; init; }
     public decimal Points { get; init; }

@@ -86,7 +86,7 @@ public sealed class RiskDisciplineMetricsTests
         Assert.Contains("riskDiscipline.Indicators", view);
         Assert.Contains("tf-risk-discipline-score-value", view);
         Assert.Contains("The score is an equal-weight average", view);
-        Assert.Contains("RISK OVER TIME", view);
+        Assert.Contains("Risk Discipline trends", view);
         Assert.Contains("Rolling rescue dependency", view);
         Assert.Contains("Rolling winner heat and MAE", view);
         Assert.Contains("Rolling MAE violations", view);

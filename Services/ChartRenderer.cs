@@ -16,7 +16,10 @@ public static partial class ChartRenderer
     private const string Ink = "#c9d1d9";
     private const string Muted = "#8b949e";
     private const string Grid = "#30363d";
-    private const string Zero = "#30363d";
+    private const string Zero = "#6e7681";
+    private const string BlueFill = "rgba(88, 166, 255, 0.08)";
+    private const int MarkerPointLimit = 40;
+    private const int DailyTickLimit = 8;
 
     public static string Equity(IEnumerable<EquityPoint> source)
     {
@@ -105,7 +108,7 @@ public static partial class ChartRenderer
         {
             new
             {
-                type = "scatter", x = strategyX, y = strategyY, mode = "lines+markers", name = "Strategy",
+                type = "scatter", x = strategyX, y = strategyY, mode = LineMode(strategyY.Length), name = "Strategy",
                 line = new { color = Blue, width = 2 }, marker = new { color = Blue, size = 5 },
                 hovertemplate = "%{x|%b %-d, %Y}<br>Strategy: %{y:.2f}%<extra></extra>"
             },
@@ -191,15 +194,25 @@ public static partial class ChartRenderer
         var values = daily.Where(x => x.TradeCount > 0).OrderBy(x => x.Date).ToArray();
         if (values.Length == 0) return Empty("Daily bars will appear after the first closed trade.");
 
+        var dates = values.Select(x => x.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).ToArray();
         var layout = CartesianLayout();
         SetAxis(layout, "xaxis", "exit date", category: true);
         SetAxis(layout, "yaxis", "net P&L");
+        if (layout["xaxis"] is Dictionary<string, object?> axis)
+        {
+            // The category axis keeps non-trading days out, but labelling every bar is unreadable; show a handful of evenly spaced dates.
+            var tickIndexes = EvenlySpacedIndexes(values.Length, DailyTickLimit);
+            axis["tickmode"] = "array";
+            axis["tickvals"] = tickIndexes.Select(index => dates[index]).ToArray();
+            axis["ticktext"] = tickIndexes.Select(index => values[index].Date.ToString("MMM d", CultureInfo.InvariantCulture)).ToArray();
+            axis["tickangle"] = 0;
+        }
         return Plotly("Daily net P&L", new object[]
         {
             new
             {
                 type = "bar",
-                x = values.Select(x => x.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).ToArray(),
+                x = dates,
                 y = values.Select(x => x.NetPnl).ToArray(),
                 customdata = values.Select(x => new object[] { x.TradeCount }).ToArray(),
                 marker = new { color = values.Select(x => x.NetPnl >= 0m ? Green : Red).ToArray() },
@@ -597,7 +610,7 @@ public static partial class ChartRenderer
                 type = "scatter",
                 x,
                 y = values,
-                mode = "lines+markers",
+                mode = LineMode(values.Length),
                 line = new { color = Blue, width = 1.5 },
                 marker = new { color = Blue, size = 5 },
                 hovertemplate = "%{x}<br>%{y:.1f}% win rate<extra></extra>"
@@ -830,7 +843,7 @@ public static partial class ChartRenderer
         type = "scatter",
         x,
         y,
-        mode = "lines+markers",
+        mode = LineMode(y.Count),
         name,
         line = new { color, width = 1.5 },
         marker = new { color, size = 5 },
@@ -867,14 +880,28 @@ public static partial class ChartRenderer
                 type = "scatter",
                 x,
                 y,
-                mode = "lines+markers",
+                mode = LineMode(y.Count),
                 name = label,
                 line = new { color, width = 1.5 },
                 marker = new { color, size = 5 },
+                fill = "tozeroy",
+                fillcolor = BlueFill,
                 hovertemplate = $"{pointLabel} %{{x}}<br>%{{y:,.2f}}<extra></extra>"
             }
         }, layout);
     }
+
+    private static int[] EvenlySpacedIndexes(int count, int limit)
+    {
+        if (count <= limit) return Enumerable.Range(0, count).ToArray();
+        return Enumerable.Range(0, limit)
+            .Select(step => (int)Math.Round(step * (count - 1) / (double)(limit - 1)))
+            .Distinct()
+            .ToArray();
+    }
+
+    // Markers help on short series; on long series they bury the line, so draw a plain line instead.
+    private static string LineMode(int pointCount) => pointCount <= MarkerPointLimit ? "lines+markers" : "lines";
 
     private static Dictionary<string, object?> CartesianLayout(string? hovermode = null)
     {

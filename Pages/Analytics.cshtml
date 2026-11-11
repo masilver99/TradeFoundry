@@ -4,8 +4,8 @@
 @using TradeFoundry.Services
 @model TradeFoundry.Pages.AnalyticsModel
 @{
-    ViewData["Title"] = "Analysis";
-    ViewData["PageKicker"] = "TRADEFOUNDRY / ANALYSIS";
+    ViewData["Title"] = "Analytics";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / ANALYZE";
     ViewData["ActiveNav"] = "analysis";
     ViewData["UsesPlotly"] = Model.Trades.Count > 0 || Model.OrderEvents.Count > 0 || Model.AccountBalances.Count > 0 || Model.BenchmarkPoints.Count > 0;
 
@@ -122,9 +122,9 @@
                     <h2 id="history-heading">History</h2>
                     <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="History" aria-expanded="false" aria-controls="history-description" aria-label="Show explanation for History"><span aria-hidden="true">i</span></button>
                 </div>
-                <p id="history-description" class="tf-section-info" hidden>Period Summary explains how the period performed. The P&amp;L Calendar shows which days contributed. Both open the same Daybook for review.</p>
+                <p id="history-description" class="tf-section-info" hidden>Period Summary explains how the period performed. The P&amp;L Calendar shows which days contributed. Both open Trade Review for the selected day.</p>
             </div>
-            <span><a class="btn btn-sm btn-outline-primary" asp-page="/Review" asp-route-journalId="@Model.JournalId">Open Daybook</a></span>
+            <span><a class="btn btn-sm btn-outline-primary" asp-page="/Review" asp-route-journalId="@Model.JournalId">Open Trade Review</a></span>
         </div>
 
     <section id="period-summary" class="tf-chart-section tf-period-summary-section" aria-labelledby="period-summary-heading">
@@ -462,10 +462,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">PERIODIC RETURNS</div>
+                        <h3>Periodic returns</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Periodic returns" aria-expanded="false" aria-controls="performance-periodic-description" aria-label="Show explanation for Periodic returns"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3>Results across days, months, and years</h3>
                     <p id="performance-periodic-description" class="tf-section-info" hidden>This subsection groups results across daily, monthly, and annual horizons to reveal rhythm, seasonality, and changes in return shape.</p>
                 </div>
             </div>
@@ -483,10 +482,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">BENCHMARK &amp; ROBUSTNESS</div>
+                        <h3>Benchmark &amp; robustness</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Benchmark and robustness" aria-expanded="false" aria-controls="performance-benchmark-description" aria-label="Show explanation for Benchmark and robustness"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3>Relative performance and repeatability</h3>
                     <p id="performance-benchmark-description" class="tf-section-info" hidden>This subsection compares the journal with a benchmark and resamples its trade history to test whether the observed path is repeatable.</p>
                 </div>
             </div>
@@ -532,10 +530,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">RISK METRICS</div>
+                        <h3 id="risk-metrics-heading">Risk metrics</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Risk metrics" aria-expanded="false" aria-controls="risk-metrics-description" aria-label="Show explanation for Risk metrics"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3 id="risk-metrics-heading">Drawdown and risk-adjusted returns</h3>
                     <p id="risk-metrics-description" class="tf-section-info" hidden>These indicator cards summarize drawdown depth, recovery, tail loss, and risk-adjusted return. Percentage-based measures depend on a valid positive starting balance; dollar drawdown remains available from completed trades.</p>
                 </div>
             </div>
@@ -584,10 +581,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">RISK DISCIPLINE</div>
+                        <h3 id="risk-discipline-heading">Risk Discipline</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Risk Discipline" aria-expanded="false" aria-controls="risk-discipline-description" aria-label="Show explanation for Risk Discipline"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3 id="risk-discipline-heading">Small wins without relying on rescues</h3>
                     <p id="risk-discipline-description" class="tf-section-info" hidden>The score is an equal-weight average of five 0–100 components: Rescue Rate, Rescue Profit Share, Winner Heat Ratio, Winner MAE P90, and the MAE violation hard gate. The displayed thresholds are centralized in code and missing MAE or initial-risk evidence keeps the score incomplete.</p>
                 </div>
                 <span>MAE, rescue dependency, and heat</span>
@@ -657,10 +653,9 @@
                 <div class="tf-chart-subsection-heading">
                     <div class="tf-chart-subsection-heading-main">
                         <div class="tf-chart-subsection-title-row">
-                            <div class="tf-kicker">RISK OVER TIME</div>
+                            <h3>Risk Discipline trends</h3>
                             <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Risk Discipline trends" aria-expanded="false" aria-controls="risk-discipline-trends-description" aria-label="Show explanation for Risk Discipline trends"><span aria-hidden="true">i</span></button>
                         </div>
-                        <h3>Trend before the score</h3>
                         <p id="risk-discipline-trends-description" class="tf-section-info" hidden>Rolling charts use a fixed 20-trade window and keep trade and winner counts in the hover detail. The monthly score is shown only when that month has complete MAE and initial-risk evidence; use the sample counts to avoid over-reading short histories.</p>
                     </div>
                     <span>20-trade rolling · monthly summary</span>
@@ -678,10 +673,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">DRAWDOWN &amp; RECOVERY</div>
+                        <h3>Drawdown &amp; recovery</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Drawdown and recovery" aria-expanded="false" aria-controls="risk-drawdown-description" aria-label="Show explanation for Drawdown and recovery"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3>Depth, duration, and repair</h3>
                     <p id="risk-drawdown-description" class="tf-section-info" hidden>This subsection maps underwater equity, highlights the deepest drawdown episodes, and shows how long recovery takes.</p>
                 </div>
             </div>
@@ -696,10 +690,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">ROLLING RISK</div>
+                        <h3>Rolling risk</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Rolling risk" aria-expanded="false" aria-controls="risk-rolling-description" aria-label="Show explanation for Rolling risk"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3>Consistency through changing conditions</h3>
                     <p id="risk-rolling-description" class="tf-section-info" hidden>This subsection tracks rolling expectancy, win rate, volatility, Sharpe, and Sortino to show whether the edge persists as conditions change.</p>
                 </div>
             </div>
@@ -716,10 +709,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">DISTRIBUTIONS &amp; CONCENTRATION</div>
+                        <h3>Distributions &amp; concentration</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Distributions and concentration" aria-expanded="false" aria-controls="risk-distributions-description" aria-label="Show explanation for Distributions and concentration"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3>How variable and concentrated the results are</h3>
                     <p id="risk-distributions-description" class="tf-section-info" hidden>This subsection shows the spread of daily and trade outcomes, trade P&amp;L ranges, R-multiples, and how dependent results are on a small set of winners.</p>
                 </div>
             </div>
@@ -791,7 +783,7 @@
                 </article>
 
                 <article class="card tf-card tf-edge-persistence-interpretation-card">
-                    <div class="card-header"><div><h3 class="tf-card-title">What the history says</h3></div><span class="text-secondary">descriptive, not predictive</span></div>
+                    <div class="card-header"><div><h3 class="tf-card-title">Score summary</h3></div><span class="text-secondary">descriptive, not predictive</span></div>
                     <div class="card-body">
                         <ul class="tf-edge-persistence-findings">
                             @foreach (var finding in edge.Interpretation)
@@ -811,8 +803,7 @@
         <div id="edge-persistence-rolling" class="tf-chart-subsection" aria-labelledby="edge-persistence-rolling-heading">
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-kicker">ROLLING METRICS</div>
-                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-rolling-heading">Does the edge stay visible?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Rolling Edge Persistence metrics" aria-expanded="false" aria-controls="edge-persistence-rolling-description" aria-label="Show explanation for Rolling Edge Persistence metrics"><span aria-hidden="true">i</span></button></div>
+                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-rolling-heading">Rolling metrics</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Rolling Edge Persistence metrics" aria-expanded="false" aria-controls="edge-persistence-rolling-description" aria-label="Show explanation for Rolling Edge Persistence metrics"><span aria-hidden="true">i</span></button></div>
                     <p id="edge-persistence-rolling-description" class="tf-section-info" hidden>Rolling windows overlap, so they are useful for visual trend detection but should not be read as independent samples. Windows appear only when enough completed trades exist.</p>
                 </div>
                 <span>25 · 50 · 100 trades</span>
@@ -828,8 +819,7 @@
         <div id="edge-persistence-blocks" class="tf-chart-subsection" aria-labelledby="edge-persistence-blocks-heading">
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-kicker">NON-OVERLAPPING BLOCKS</div>
-                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-blocks-heading">Consistency across independent samples</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Non-overlapping Edge Persistence blocks" aria-expanded="false" aria-controls="edge-persistence-blocks-description" aria-label="Show explanation for non-overlapping Edge Persistence blocks"><span aria-hidden="true">i</span></button></div>
+                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-blocks-heading">Non-overlapping blocks</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Non-overlapping Edge Persistence blocks" aria-expanded="false" aria-controls="edge-persistence-blocks-description" aria-label="Show explanation for non-overlapping Edge Persistence blocks"><span aria-hidden="true">i</span></button></div>
                     <p id="edge-persistence-blocks-description" class="tf-section-info" hidden>Blocks are sequential and non-overlapping. They carry more weight in the score than rolling windows because neighboring blocks do not reuse the same trades. A trailing partial block is omitted.</p>
                 </div>
                 <span>positive expectancy matters more than one profitable total</span>
@@ -887,8 +877,7 @@
         <div id="edge-persistence-robustness" class="tf-chart-subsection" aria-labelledby="edge-persistence-robustness-heading">
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-kicker">PROFIT ROBUSTNESS</div>
-                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-robustness-heading">What remains after stress?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Profit Robustness" aria-expanded="false" aria-controls="edge-persistence-robustness-description" aria-label="Show explanation for Profit Robustness"><span aria-hidden="true">i</span></button></div>
+                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-robustness-heading">Profit robustness</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Profit Robustness" aria-expanded="false" aria-controls="edge-persistence-robustness-description" aria-label="Show explanation for Profit Robustness"><span aria-hidden="true">i</span></button></div>
                     <p id="edge-persistence-robustness-description" class="tf-section-info" hidden>The stress test uses net P&amp;L after imported fees. Positive concentration is measured from positive net trades; loss concentration is measured from absolute losing net P&amp;L.</p>
                 </div>
                 <span>remove best trades · remove worst trades</span>
@@ -936,8 +925,7 @@
         <div id="edge-persistence-risk" class="tf-chart-subsection" aria-labelledby="edge-persistence-risk-heading">
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
-                    <div class="tf-kicker">MAE PERSISTENCE</div>
-                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-risk-heading">Does profitability require more heat?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="MAE Persistence" aria-expanded="false" aria-controls="edge-persistence-risk-description" aria-label="Show explanation for MAE Persistence"><span aria-hidden="true">i</span></button></div>
+                    <div class="tf-chart-section-title-row"><h3 id="edge-persistence-risk-heading">MAE persistence</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="MAE Persistence" aria-expanded="false" aria-controls="edge-persistence-risk-description" aria-label="Show explanation for MAE Persistence"><span aria-hidden="true">i</span></button></div>
                     <p id="edge-persistence-risk-description" class="tf-section-info" hidden>MAE is shown in the same absolute currency convention used by the existing trade indicators. The risk-stability score uses initial-risk units when at least half of the trades have usable MAE and initial-risk data; otherwise it uses a relative scale.</p>
                 </div>
                 <span>@edgeRisk.RiskUnitLabel</span>
@@ -955,7 +943,7 @@
         </div>
 
         <div id="edge-persistence-comparison" class="tf-chart-subsection" aria-labelledby="edge-persistence-comparison-heading">
-            <div class="tf-chart-subsection-heading"><div class="tf-chart-subsection-heading-main"><div class="tf-kicker">RECENT VS PREVIOUS</div><div class="tf-chart-section-title-row"><h3 id="edge-persistence-comparison-heading">Is the latest sample improving?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Recent versus previous Edge Persistence comparison" aria-expanded="false" aria-controls="edge-persistence-comparison-description" aria-label="Show explanation for Recent versus previous Edge Persistence comparison"><span aria-hidden="true">i</span></button></div><p id="edge-persistence-comparison-description" class="tf-section-info" hidden>Each comparison uses the most recent N trades versus the immediately preceding N trades. Small changes are classified as stable so tiny samples are not over-interpreted.</p></div><span>25 · 50 · 100 trade comparisons</span></div>
+            <div class="tf-chart-subsection-heading"><div class="tf-chart-subsection-heading-main"><div class="tf-chart-section-title-row"><h3 id="edge-persistence-comparison-heading">Recent vs previous</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Recent versus previous Edge Persistence comparison" aria-expanded="false" aria-controls="edge-persistence-comparison-description" aria-label="Show explanation for Recent versus previous Edge Persistence comparison"><span aria-hidden="true">i</span></button></div><p id="edge-persistence-comparison-description" class="tf-section-info" hidden>Each comparison uses the most recent N trades versus the immediately preceding N trades. Small changes are classified as stable so tiny samples are not over-interpreted.</p></div><span>25 · 50 · 100 trade comparisons</span></div>
             @if (edge.RecentComparisons.Count == 0)
             {
                 <div class="tf-empty">Recent-versus-previous comparisons appear after at least 50 completed trades.</div>
@@ -981,7 +969,7 @@
         </div>
 
         <div id="edge-persistence-segments" class="tf-chart-subsection" aria-labelledby="edge-persistence-segments-heading">
-            <div class="tf-chart-subsection-heading"><div class="tf-chart-subsection-heading-main"><div class="tf-kicker">EDGE BREAKDOWN</div><div class="tf-chart-section-title-row"><h3 id="edge-persistence-segments-heading">Where does the edge hold?</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Edge breakdown" aria-expanded="false" aria-controls="edge-persistence-segments-description" aria-label="Show explanation for Edge breakdown"><span aria-hidden="true">i</span></button></div><p id="edge-persistence-segments-description" class="tf-section-info" hidden>Segments use dimensions already present in the trade model. A segment must contain at least @EdgePersistenceCalculator.MinimumSegmentTrades trades before it is shown or scored, so specialization is not penalized for unused regimes.</p></div><span>@edge.SegmentConsistency.PositiveSegmentCount/@edge.SegmentConsistency.ReliableSegmentCount reliable segments positive</span></div>
+            <div class="tf-chart-subsection-heading"><div class="tf-chart-subsection-heading-main"><div class="tf-chart-section-title-row"><h3 id="edge-persistence-segments-heading">Edge breakdown</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Edge breakdown" aria-expanded="false" aria-controls="edge-persistence-segments-description" aria-label="Show explanation for Edge breakdown"><span aria-hidden="true">i</span></button></div><p id="edge-persistence-segments-description" class="tf-section-info" hidden>Segments use dimensions already present in the trade model. A segment must contain at least @EdgePersistenceCalculator.MinimumSegmentTrades trades before it is shown or scored, so specialization is not penalized for unused regimes.</p></div><span>@edge.SegmentConsistency.PositiveSegmentCount/@edge.SegmentConsistency.ReliableSegmentCount reliable segments positive</span></div>
             <div class="tf-edge-segment-grid">
             @foreach (var dimension in edge.SegmentDimensions)
             {
@@ -1008,7 +996,7 @@
         </div>
 
         <div id="edge-persistence-methodology" class="tf-chart-subsection" aria-labelledby="edge-persistence-methodology-heading">
-            <div class="tf-chart-subsection-heading"><div class="tf-chart-subsection-heading-main"><div class="tf-kicker">METHOD</div><div class="tf-chart-section-title-row"><h3 id="edge-persistence-methodology-heading">How to read this page</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Edge Persistence methodology" aria-expanded="false" aria-controls="edge-persistence-methodology-description" aria-label="Show explanation for Edge Persistence methodology"><span aria-hidden="true">i</span></button></div><p id="edge-persistence-methodology-description" class="tf-section-info" hidden>These are deterministic descriptive statistics, not a claim about future returns or a formal statistical confidence interval.</p></div></div>
+            <div class="tf-chart-subsection-heading"><div class="tf-chart-subsection-heading-main"><div class="tf-chart-section-title-row"><h3 id="edge-persistence-methodology-heading">Methodology</h3><button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Edge Persistence methodology" aria-expanded="false" aria-controls="edge-persistence-methodology-description" aria-label="Show explanation for Edge Persistence methodology"><span aria-hidden="true">i</span></button></div><p id="edge-persistence-methodology-description" class="tf-section-info" hidden>These are deterministic descriptive statistics, not a claim about future returns or a formal statistical confidence interval.</p></div></div>
             <div class="tf-edge-methodology-grid">
                 <article class="card tf-card"><div class="card-body"><h4 class="tf-card-title">Score formula</h4><p>Expectancy persistence 40%, risk stability 25%, profit robustness 20%, and segment consistency 15%. The sample-size cap prevents a small lucky sample from receiving a strong classification.</p><p class="text-secondary">Expectancy, win rate, and Profit Factor use gross trade P&amp;L to match existing TradeFoundry indicators. Robustness stress uses net P&amp;L after imported fees.</p></div></article>
                 <article class="card tf-card"><div class="card-body"><h4 class="tf-card-title">Evidence bands</h4><ul><li><strong>&lt;25:</strong> insufficient evidence</li><li><strong>25–49:</strong> very low confidence</li><li><strong>50–99:</strong> preliminary</li><li><strong>100–249:</strong> moderate evidence</li><li><strong>250+:</strong> stronger evidence</li></ul><p class="text-secondary">These are heuristic sample labels, not academic statistical guarantees.</p></div></article>
@@ -1039,10 +1027,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">EXCURSION &amp; PAYOFF</div>
+                        <h3>Excursion &amp; payoff</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Excursion and payoff" aria-expanded="false" aria-controls="quality-excursion-description" aria-label="Show explanation for Excursion and payoff"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3>Heat taken and opportunity captured</h3>
                     <p id="quality-excursion-description" class="tf-section-info" hidden>This subsection compares maximum adverse and favorable excursion to show the heat trades take and the opportunity they capture.</p>
                 </div>
             </div>
@@ -1057,10 +1044,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">HOLDING &amp; EXIT EFFICIENCY</div>
+                        <h3>Holding &amp; exit efficiency</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Holding and exit efficiency" aria-expanded="false" aria-controls="quality-holding-description" aria-label="Show explanation for Holding and exit efficiency"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3>Time in trade and exit decisions</h3>
                     <p id="quality-holding-description" class="tf-section-info" hidden>This subsection relates holding time and exit behavior to results, including how much of each trade’s available move was captured.</p>
                 </div>
             </div>
@@ -1075,10 +1061,9 @@
             <div class="tf-chart-subsection-heading">
                 <div class="tf-chart-subsection-heading-main">
                     <div class="tf-chart-subsection-title-row">
-                        <div class="tf-kicker">STREAKS &amp; OUTCOMES</div>
+                        <h3>Streaks &amp; outcomes</h3>
                         <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Streaks and outcomes" aria-expanded="false" aria-controls="quality-process-description" aria-label="Show explanation for Streaks and outcomes"><span aria-hidden="true">i</span></button>
                     </div>
-                    <h3>Repeatability of the decision process</h3>
                     <p id="quality-process-description" class="tf-section-info" hidden>This subsection tests what follows wins and losses and summarizes outcome mix to make repeatability visible.</p>
                 </div>
             </div>

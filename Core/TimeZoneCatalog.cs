@@ -86,6 +86,16 @@ public static class TimeZoneCatalog
         return options;
     }
 
+    /// <summary>Short, human-readable zone name for page chrome, e.g. "Eastern Time (New York)" for America/New_York.</summary>
+    public static string DisplayName(string? timeZoneId)
+    {
+        var id = CanonicalId(timeZoneId);
+        var common = CommonOptions.FirstOrDefault(option => option.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        if (common is not null) return common.Label;
+        var city = id[(id.LastIndexOf('/') + 1)..];
+        return city.Replace('_', ' ');
+    }
+
     public static bool IsAuto(string? timeZoneId) => string.Equals(timeZoneId?.Trim(), Auto, StringComparison.OrdinalIgnoreCase);
 
     public static string CanonicalId(string? timeZoneId)

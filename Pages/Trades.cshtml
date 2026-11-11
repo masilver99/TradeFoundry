@@ -3,14 +3,19 @@
 @using TradeFoundry.Core
 @{
     ViewData["Title"] = "Trade Ledger";
-    ViewData["PageKicker"] = "TRADEFOUNDRY / LEDGER";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / TRADE";
     ViewData["ActiveNav"] = "trades";
     var action = $"/journal/{Model.JournalId:D}/trades";
+    var currentYear = TimeZoneCatalog.Convert(DateTimeOffset.UtcNow, Model.Journal?.TimeZone).Year;
+    // Year only when it is not the current one, so rows stay on a single line.
+    string EntryLabel(Trade trade) => TimeZoneCatalog.Convert(trade.EntryUtc, Model.Journal?.TimeZone).Year == currentYear
+        ? TimeZoneCatalog.Format(trade.EntryUtc, Model.Journal?.TimeZone, "MMM d HH:mm")
+        : TimeZoneCatalog.Format(trade.EntryUtc, Model.Journal?.TimeZone, "MMM d, yyyy HH:mm");
 }
 
 <section class="card tf-card mb-3">
     <div class="card-body">
-        <form method="get" action="@action" class="tf-toolbar">
+        <form method="get" action="@action" class="tf-toolbar tf-ledger-filters" data-ledger-filters>
             <div class="tf-toolbar-fields">
                 <div class="tf-filter tf-filter-wide"><label class="tf-filter-label" for="trade-search">Search</label><input id="trade-search" class="form-control form-control-sm" name="search" value="@Model.Search" placeholder="Symbol, account, side…" /></div>
                 <div class="tf-filter"><label class="tf-filter-label" for="trade-symbol">Symbol</label><input id="trade-symbol" class="form-control form-control-sm" name="symbol" value="@Model.Symbol" placeholder="ES, NQ…" /></div>
@@ -18,12 +23,12 @@
                 <div class="tf-filter"><label class="tf-filter-label" for="trade-status">Status</label><select id="trade-status" class="form-select form-select-sm" name="status"><option value="">All statuses</option><option value="closed" selected="@(Model.Status == "closed")">Closed</option><option value="open" selected="@(Model.Status == "open")">Open</option></select></div>
                 <div class="tf-filter"><label class="tf-filter-label" for="trade-sort">Sort</label><select id="trade-sort" class="form-select form-select-sm" name="sort"><option value="entry_desc" selected="@(Model.Sort == "entry_desc")">Newest first</option><option value="entry_asc" selected="@(Model.Sort == "entry_asc")">Oldest first</option><option value="pnl_desc" selected="@(Model.Sort == "pnl_desc")">P&amp;L high to low</option><option value="pnl_asc" selected="@(Model.Sort == "pnl_asc")">P&amp;L low to high</option></select></div>
             </div>
-            <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" type="submit">Apply filters</button><a class="btn btn-outline-secondary btn-sm" href="@action">Clear</a></div>
+            <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" type="submit" data-ledger-apply>Apply filters</button><a class="btn btn-outline-secondary btn-sm" href="@action">Clear</a></div>
         </form>
     </div>
 </section>
 
-<section class="card tf-card">
+<section class="card tf-card" data-ledger-results>
     <div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">@Model.Journal?.Name</div><h3 class="tf-card-title">Trade ledger</h3></div><span class="text-secondary">@Model.Results.TotalCount.ToString("N0") matching trade(s)</span></div></div>
     <div class="card-body p-0">
         @if (Model.Results.Items.Count == 0)
@@ -32,13 +37,13 @@
         }
         else
         {
-            <div class="tf-table-wrap"><table class="table table-vcenter tf-table"><thead><tr><th class="tf-review-indicators-column"><span class="visually-hidden">Review indicators</span></th><th>Entry</th><th>Instrument / symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>Points</th><th>Net P&amp;L</th><th>MAE / MFE</th><th>Status</th></tr></thead><tbody>
+            <div class="tf-table-wrap"><table class="table table-vcenter tf-table"><thead><tr><th class="tf-review-indicators-column"><span class="visually-hidden">Review indicators</span></th><th>Time</th><th>Instrument</th><th>Side</th><th class="tf-num">Qty</th><th class="tf-num">Entry</th><th class="tf-num">Exit</th><th class="tf-num">Points</th><th class="tf-num">Net P&amp;L</th><th class="tf-num">MAE / MFE</th><th>Status</th></tr></thead><tbody>
             @foreach (var trade in Model.Results.Items)
             {
                 var date = Model.GetReviewDate(trade);
                 var reviewDate = date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
                 var reviewUrl = $"/journal/{trade.JournalId:D}/review?date={reviewDate}&focus={Uri.EscapeDataString(trade.ReviewKey)}";
-                <tr><td class="tf-review-indicators-cell"><span class="tf-ledger-indicators">
+                <tr data-row-href="@reviewUrl"><td class="tf-review-indicators-cell"><span class="tf-ledger-indicators">
                     @if (Model.DailyJournalEntryDates.Contains(date))
                     {
                         <span class="tf-review-indicator tf-daily-journal-indicator" data-review-indicator="daily-journal" title="Daily journal entry" aria-label="Daily journal entry">
@@ -46,7 +51,7 @@
                         </span>
                     }
                     @await Html.PartialAsync("_ReviewIndicators", trade)
-                </span></td><td><a class="row-link" href="@reviewUrl">@TimeZoneCatalog.Format(trade.EntryUtc, Model.Journal?.TimeZone, "MMM d, HH:mm")</a><small>@TimeZoneCatalog.Format(trade.EntryUtc, Model.Journal?.TimeZone, "yyyy")</small></td><td><strong>@trade.Instrument</strong><small>@trade.Symbol · @trade.Account</small></td><td><span class="tf-side @(trade.Direction.Equals("Short", StringComparison.OrdinalIgnoreCase) ? "tf-side-short" : "tf-side-long")">@trade.Direction</span></td><td>@trade.ClosedQuantity/@trade.Quantity</td><td>@trade.EntryPrice.ToString("0.########")</td><td>@(trade.ExitPrice?.ToString("0.########") ?? "—")</td><td class="@(trade.AveragePoints >= 0 ? "positive" : "negative")">@trade.AveragePoints.ToString("0.##")</td><td class="@(trade.NetPnl >= 0 ? "positive" : "negative")">@trade.NetPnl.ToString("C2")</td><td>@(trade.MaePoints?.ToString("0.##") ?? "—") / @(trade.MfePoints?.ToString("0.##") ?? "—")</td><td><span class="tf-status @(trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase) ? "tf-status-closed" : "tf-status-open")">@trade.Status</span></td></tr>
+                </span></td><td class="text-nowrap"><a class="row-link" href="@reviewUrl">@EntryLabel(trade)</a></td><td><strong title="@trade.Symbol · @trade.Account">@trade.Instrument</strong></td><td><span class="tf-side @(trade.Direction.Equals("Short", StringComparison.OrdinalIgnoreCase) ? "tf-side-short" : "tf-side-long")">@trade.Direction</span></td><td class="tf-num">@trade.ClosedQuantity/@trade.Quantity</td><td class="tf-num">@trade.EntryPrice.ToString("0.########")</td><td class="tf-num">@(trade.ExitPrice?.ToString("0.########") ?? "—")</td><td class="tf-num @(trade.AveragePoints >= 0 ? "positive" : "negative")">@trade.AveragePoints.ToString("0.##")</td><td class="tf-num @(trade.NetPnl >= 0 ? "positive" : "negative")">@trade.NetPnl.ToString("C2")</td><td class="tf-num">@(trade.MaePoints?.ToString("0.##") ?? "—") / @(trade.MfePoints?.ToString("0.##") ?? "—")</td><td><span class="tf-status @(trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase) ? "tf-status-closed" : "tf-status-open")">@trade.Status</span></td></tr>
             }
             </tbody></table></div>
         }

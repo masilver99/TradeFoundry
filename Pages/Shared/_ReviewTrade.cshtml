@@ -40,6 +40,8 @@
         : review.ExchangeFees.HasValue || review.NfaFees.HasValue || review.ClearingFees.HasValue
             ? " · per-trade component override"
             : " · imported/instrument-derived";
+    var hasFeeOverride = review.AllInCommission.HasValue || review.ExchangeFees.HasValue || review.NfaFees.HasValue || review.ClearingFees.HasValue;
+    var feeSourceText = review.AllInCommission.HasValue ? "Per-trade all-in override" : hasFeeOverride ? "Per-trade component override" : "Imported or instrument-settings fees";
     string CriterionTypeLabel(SetupCriterionType type) => type switch
     {
         SetupCriterionType.Required => "Required",
@@ -75,8 +77,12 @@
     <div class="tf-review-editor-context">
     <div class="tf-review-editor-heading">
         <div class="tf-review-editor-identity">
-            <div class="tf-kicker">TRADE @reviewIndex OF @reviewCount · @trade.Status.ToUpperInvariant()</div>
-            <h2 class="tf-review-editor-title">@trade.Direction @trade.Instrument</h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary tf-review-step" data-review-prev title="Previous trade (K)" aria-label="Previous trade" @(reviewIndex <= 1 ? "disabled" : null)>‹</button>
+            <div>
+                <div class="tf-kicker">TRADE @reviewIndex OF @reviewCount · @trade.Status.ToUpperInvariant() · @reviewPage.LocalTime(trade.EntryUtc)</div>
+                <h2 class="tf-review-editor-title">@trade.Direction @trade.Instrument</h2>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary tf-review-step" data-review-next title="Next trade (J)" aria-label="Next trade" @(reviewIndex >= reviewCount ? "disabled" : null)>›</button>
         </div>
         <div class="tf-review-trade-result">
             @if (trade.ExitUtc.HasValue && trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase))
@@ -91,12 +97,6 @@
         </div>
     </div>
 
-    <div class="tf-review-editor-nav" aria-label="Trade navigation">
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-review-prev @(reviewIndex <= 1 ? "disabled" : null)>← Previous</button>
-        <span><strong>@reviewIndex</strong> of @reviewCount</span>
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-review-next @(reviewIndex >= reviewCount ? "disabled" : null)>Next →</button>
-    </div>
-
     <nav class="tf-review-tabs" role="tablist" aria-label="Trade review sections">
         <button type="button" role="tab" class="tf-review-tab @(section == "details" ? "is-active" : string.Empty)" id="@reviewId-tab-details" aria-controls="@reviewId-panel-details" aria-selected="@(section == "details" ? "true" : "false")" data-review-tab="details">Trade details</button>
         <button type="button" role="tab" class="tf-review-tab @(section == "review" ? "is-active" : string.Empty)" id="@reviewId-tab-review" aria-controls="@reviewId-panel-review" aria-selected="@(section == "review" ? "true" : "false")" data-review-tab="review">Review</button>
@@ -107,36 +107,24 @@
     </div>
 
     <section class="tf-review-tab-panel tf-review-readonly" id="@reviewId-panel-details" role="tabpanel" aria-labelledby="@reviewId-tab-details" data-review-panel="details" tabindex="0">
-        <div class="tf-review-readonly-heading">
-            <div>
-                <div class="tf-kicker">READ-ONLY TRADE DETAIL</div>
-                <h3 class="tf-card-title">Imported and derived evidence</h3>
-            </div>
-            <span class="text-secondary">Trade facts are not edited here.</span>
-        </div>
-
-        <div class="tf-stat-strip tf-review-stat-strip">
-            <div><span>Entry</span><strong>@trade.EntryPrice.ToString("0.########")</strong></div>
-            <div><span>Exit</span><strong>@(trade.ExitPrice?.ToString("0.########") ?? "—")</strong></div>
-            <div><span>Avg points</span><strong>@trade.AveragePoints.ToString("0.##")</strong></div>
-            <div><span>Contract-points</span><strong>@trade.GrossPoints.ToString("0.##")</strong></div>
-            <div><span>MAE / MFE</span><strong>@(trade.MaePoints?.ToString("0.##") ?? "—") / @(trade.MfePoints?.ToString("0.##") ?? "—")</strong></div>
-            <div><span>Time in trade</span><strong>@(trade.TimeInTrade?.ToString("hh\\:mm\\:ss") ?? "—")</strong></div>
-        </div>
-        <div class="tf-review-effective-strip" aria-label="Effective trade totals">
-            <div><span>Effective net P&amp;L</span><strong class="@(trade.NetPnl >= 0 ? "text-success" : "text-danger")" data-review-trade-pnl-stat>@trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture)</strong></div>
-            <div><span>Effective fees</span><strong data-review-trade-fees-stat>@trade.Fees.ToString("C2", CultureInfo.CurrentCulture)@(review.AllInCommission.HasValue ? " · per-trade override" : " · imported/settings-derived")</strong></div>
-        </div>
-        <div class="tf-review-mae-strip" aria-label="MAE target review">
-            <div><span>MAE per contract</span><strong>@(maeMetrics.MaePerContract?.ToString("C2", CultureInfo.CurrentCulture) ?? "—")</strong></div>
-            <div><span>Position MAE</span><strong>@(maeMetrics.PositionMae?.ToString("C2", CultureInfo.CurrentCulture) ?? "—")</strong></div>
-            <div><span>Review target</span><strong class="@(maeMetrics.IsBreach == true ? "negative" : maeMetrics.IsBreach == false ? "positive" : "muted")">@maeReviewStatus@(maeTargetText.Length > 0 ? $" · {maeTargetText}" : string.Empty)</strong></div>
-            <div><span>MAE / planned risk</span><strong>@maeRiskText</strong></div>
-        </div>
+        <p class="tf-review-facts-note" title="Imported and derived trade facts can't be edited. Your notes, setup, plan, and fee overrides live in the other tabs."><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Imported trade facts · read-only</span></p>
+        <dl class="tf-review-fact-grid" aria-label="Trade facts">
+            <div><dt>Entry</dt><dd>@trade.EntryPrice.ToString("0.########")</dd></div>
+            <div><dt>Exit</dt><dd>@(trade.ExitPrice?.ToString("0.########") ?? "—")</dd></div>
+            <div><dt>Avg points</dt><dd>@trade.AveragePoints.ToString("0.##")</dd></div>
+            <div><dt>Contract-points</dt><dd>@trade.GrossPoints.ToString("0.##")</dd></div>
+            <div><dt>MAE / MFE</dt><dd>@(trade.MaePoints?.ToString("0.##") ?? "—") / @(trade.MfePoints?.ToString("0.##") ?? "—")</dd></div>
+            <div><dt>Time in trade</dt><dd>@(trade.TimeInTrade?.ToString("hh\\:mm\\:ss") ?? "—")</dd></div>
+            <div><dt>Fees</dt><dd data-review-trade-fees-stat title="@feeSourceText">@trade.Fees.ToString("C2", CultureInfo.CurrentCulture)@(hasFeeOverride ? " · override" : string.Empty)</dd></div>
+            <div><dt>MAE / contract</dt><dd>@(maeMetrics.MaePerContract?.ToString("C2", CultureInfo.CurrentCulture) ?? "—")</dd></div>
+            <div><dt>Position MAE</dt><dd>@(maeMetrics.PositionMae?.ToString("C2", CultureInfo.CurrentCulture) ?? "—")</dd></div>
+            <div><dt>MAE / planned risk</dt><dd>@maeRiskText</dd></div>
+            <div class="tf-review-fact-wide"><dt>Review target</dt><dd class="@(maeMetrics.IsBreach == true ? "negative" : maeMetrics.IsBreach == false ? "positive" : "muted")">@maeReviewStatus@(maeTargetText.Length > 0 ? $" · {maeTargetText}" : string.Empty)</dd></div>
+        </dl>
 
         <section class="card tf-card tf-chart-card tf-review-chart-card" data-review-chart-card>
             <div class="card-header">
-                <div><div class="tf-kicker">CONTEXT</div><h3 class="tf-card-title">Price action around the trade</h3></div>
+                <div><h3 class="tf-card-title">Price action</h3></div>
                 <div class="tf-trade-chart-toolbar">
                     <span class="text-secondary" data-lightweight-summary>Loading chart…</span>
                     <div class="tf-trade-chart-actions">
@@ -163,8 +151,8 @@
             </div>
         </section>
 
-        <section class="card tf-card tf-review-evidence-card">
-            <div class="card-header"><div><div class="tf-kicker">PROVENANCE</div><h3 class="tf-card-title">How this trade was made</h3></div></div>
+        <details class="card tf-card tf-review-evidence-card">
+            <summary class="card-header"><h3 class="tf-card-title">Source details</h3><span class="text-secondary">How this trade was built from the import</span></summary>
             <div class="card-body">
                 <dl class="tf-definition-list">
                     <dt>Instrument</dt><dd>@trade.Instrument</dd>
@@ -185,7 +173,7 @@
                     <dt>Source note</dt><dd>@(string.IsNullOrWhiteSpace(trade.Note) ? "No source note" : trade.Note)</dd>
                 </dl>
             </div>
-        </section>
+        </details>
     </section>
 
     <form method="post" asp-page-handler="Save" asp-route-journalId="@trade.JournalId" asp-route-date="@reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@trade.ReviewKey" asp-route-section="review" class="tf-review-form" data-review-form data-autosave-url="@Url.Page("/Review", "Autosave", new { journalId = trade.JournalId, date = reviewPage.Date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) })">

@@ -51,10 +51,10 @@ public static class CommandPaletteCatalog
         Page("Account", "/account", "Balance", "Transactions");
         Page("Tax Liability", "/tax-liability", "Taxes", "Tax estimates");
         Page("Expenses", "/expenses", "Receipts", "Trading expenses", "Software costs");
-        Page("Analysis", "/analytics", "Analytics");
+        Page("Analytics", "/analytics", "Analysis", "Reports");
         Page("Indicators", "/indicators", "Metrics", "Statistics");
         Page("Broker Costs", "/broker-comparison", "Commissions", "Fees", "Broker comparison");
-        Page("Daybook Review", "/review", "Daybook", "Daily review", "Journal notes", "Review");
+        Page("Trade Review", "/review", "Daybook", "Daily review", "Daybook review", "Review");
         Page("Daily Journal", "/daily-journal", "Journal entries", "Journal feed", "Daily notes");
         Page("Publishing", "/publishing", "Public journal", "Website", "Export snapshot");
         Page("Imports", "/imports", "Import data", "Import history");

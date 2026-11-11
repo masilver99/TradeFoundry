@@ -25,7 +25,7 @@
                 <span class="tf-daily-journal-day-stats">@Model.TradeCount.ToString("N0") @(Model.TradeCount == 1 ? "trade" : "trades") · @Model.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</span>
             </span>
             <span class="tf-daily-journal-entry-meta">
-                <span class="tf-daily-journal-bytes" data-daily-journal-bytes>@Model.TextBytes.ToString("N0", CultureInfo.CurrentCulture) @(Model.TextBytes == 1 ? "byte" : "bytes")</span>
+                <span class="tf-daily-journal-add" data-daily-journal-add hidden="@(Model.HasJournalText ? "hidden" : null)">+ Add note</span>
                 <span class="tf-daily-journal-toggle-icon" aria-hidden="true"></span>
             </span>
         </button>
@@ -61,7 +61,6 @@
         <label id="@labelId" class="visually-hidden" for="@formId-text">Daily journal entry for @dateKey</label>
         <textarea id="@formId-text" name="dailyJournalStateJson" rows="7" maxlength="64000" data-lexical-source hidden>@Model.Entry.Text</textarea>
         <div class="tf-daily-journal-actions">
-            <span class="tf-daily-journal-revision" data-daily-journal-revision>Revision @Model.Entry.Revision</span>
             <span class="tf-review-save-status" role="status" aria-live="polite" data-daily-journal-status>Saved</span>
         </div>
     </form>

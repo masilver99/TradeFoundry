@@ -28,7 +28,7 @@ function initializeCommandPalette() {
   let requestController = null;
   let requestRevision = 0;
   let restoreFocusOnClose = true;
-  const defaultTitles = new Set(["Overview", "Trade Ledger", "Setups", "Daily Journal", "Daybook Review", "Imports", "Settings"]);
+  const defaultTitles = new Set(["Overview", "Trade Ledger", "Setups", "Daily Journal", "Trade Review", "Imports", "Settings"]);
   const shortcutLabel = trigger.querySelector("[data-command-shortcut]");
   if (shortcutLabel && /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)) {
     shortcutLabel.textContent = "⌘ K";
@@ -327,6 +327,8 @@ function initializeCommandPalette() {
     const id = decodeURIComponent(hash.slice(1));
     const target = document.getElementById(id);
     if (!target) return;
+    // Tabbed report pages listen for this and open the section that contains the target.
+    target.dispatchEvent(new CustomEvent("tf:reveal-target", {bubbles: true}));
     target.scrollIntoView({behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start"});
     target.classList.remove("tf-command-target-highlight");
     void target.offsetWidth;

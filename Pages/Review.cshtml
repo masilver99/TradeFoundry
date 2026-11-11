@@ -4,8 +4,8 @@
 @using Microsoft.AspNetCore.Mvc.ViewFeatures
 @using TradeFoundry.Core
 @{
-    ViewData["Title"] = "Daily Review";
-    ViewData["PageKicker"] = "TRADEFOUNDRY / HISTORY / DAYBOOK";
+    ViewData["Title"] = "Trade Review";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / TRADE";
     ViewData["ActiveNav"] = "review";
     var selectedDate = Model.Date ?? Model.Day.Date;
     var dateText = selectedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -24,7 +24,7 @@
                         <div class="tf-review-day-nav" aria-label="Trading day navigation">
                             @if (Model.Day.PreviousDate.HasValue)
                             {
-                                <a class="btn btn-sm btn-outline-secondary" title="Previous day" aria-label="Previous day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.PreviousDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">←</a>
+                                <a class="btn btn-sm btn-outline-secondary" title="Previous day (←)" aria-label="Previous day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.PreviousDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">←</a>
                             }
                             else
                             {
@@ -32,7 +32,7 @@
                             }
                             @if (Model.Day.NextDate.HasValue)
                             {
-                                <a class="btn btn-sm btn-outline-secondary" title="Next day" aria-label="Next day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">→</a>
+                                <a class="btn btn-sm btn-outline-secondary" title="Next day (→)" aria-label="Next day" asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@Model.Day.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">→</a>
                             }
                             else
                             {
@@ -55,7 +55,8 @@
 <script type="application/json" data-review-summary>@Html.Raw(System.Text.Json.JsonSerializer.Serialize(summary, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)))</script>
 <button type="button" class="btn btn-outline-secondary" data-review-journal-open>
 <span class="tf-review-indicator tf-daily-journal-indicator" data-review-daily-indicator hidden="@(!summary.HasDailyJournal)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h3M8 18h6"/></svg></span>
-Daily journal <span class="visually-hidden" data-review-daily-state>@(summary.HasDailyJournal ? "populated" : "empty")</span></button></header>
+Daily journal <span class="visually-hidden" data-review-daily-state>@(summary.HasDailyJournal ? "populated" : "empty")</span></button>
+<button type="button" class="btn btn-outline-secondary tf-review-shortcuts-button" data-review-shortcuts title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button></header>
     @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
     {
         <div class="alert alert-danger" role="alert">@Model.ErrorMessage</div>
@@ -69,10 +70,6 @@ Daily journal <span class="visually-hidden" data-review-daily-state>@(summary.Ha
         <div class="card-header tf-daily-journal-heading">
             <div class="tf-daily-journal-title">
                 <h2 id="daily-journal-heading" class="tf-card-title">Daily journal</h2>
-            </div>
-            <div class="tf-daily-journal-heading-meta">
-                <span class="tf-daily-journal-bytes" data-daily-journal-bytes>0 bytes</span>
-
             </div>
         </div>
         <form id="daily-journal-editor" method="post" asp-page-handler="SaveDailyJournal" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Url.Page("/Review", "AutosaveDailyJournal", new { journalId = Model.JournalId, date = dateText })">
@@ -98,7 +95,6 @@ Daily journal <span class="visually-hidden" data-review-daily-state>@(summary.Ha
             <label id="daily-journal-label" class="visually-hidden" for="daily-journal-text">Daily journal</label>
             <textarea id="daily-journal-text" name="dailyJournalStateJson" rows="7" maxlength="64000" data-lexical-source hidden>@Model.DailyJournalStateJson</textarea>
             <div class="tf-daily-journal-actions">
-                <span class="text-secondary tf-daily-journal-revision" data-daily-journal-revision>Revision @Model.Day.DailyJournal.Revision</span>
                 <span class="tf-review-save-status" role="status" aria-live="polite" data-daily-journal-status>Saved</span>
             </div>
         </form>

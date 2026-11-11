@@ -3,7 +3,7 @@
 @using System.Globalization
 @{
     ViewData["Title"] = "Daily Journal";
-    ViewData["PageKicker"] = "TRADEFOUNDRY / JOURNAL";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / TRADE";
     ViewData["ActiveNav"] = "daily-journal";
     ViewData["UsesLexical"] = true;
     ViewData["UsesLightweightCharts"] = true;
@@ -30,7 +30,7 @@
                     <button type="submit" class="btn btn-outline-secondary">Open date</button>
                 </div>
             </form>
-            <a class="btn btn-outline-secondary" asp-page="/Review" asp-route-journalId="@Model.JournalId">Daybook Review</a>
+            <a class="btn btn-outline-secondary" asp-page="/Review" asp-route-journalId="@Model.JournalId">Trade Review</a>
         </div>
     </header>
 

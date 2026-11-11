@@ -28,8 +28,8 @@ This is pre-alpha software and breaking changes are a constant refrain.
 - Broker cost comparison
   - Compare editable per-side commission and fee schedules against journal activity
   - See projected monthly and annual cost, savings, and a side-by-side chart
-- Daybook
-  - This contains all your trades and allows you to edit or make changes
+- Daily Journal and Trade Review
+  - Trade Review contains all your trades and allows you to edit or make changes
   - This is still in very heavy development and will probably change a fair amount
 - Optional MCP Server for journal-scoped historical analysis and broker fee profile management
 
@@ -176,9 +176,9 @@ Imports are scoped to the selected journal. Sierra rows use a deterministic SHA-
 
 ## Instrument and application configuration
 
-Settings seeds common futures instruments including MES, ES, MNQ, NQ, MYM, M2K, MCL, MGC, YM, RTY, CL, GC, and 6E. Each definition stores a default all-in commission per contract, an optional fee breakdown per contract (Exchange, NFA, and Clearing / commission), dollar value per point, and tick size. When a breakdown is configured, each fill contributes its component amounts and the dashboard/reports aggregate those totals for the selected journal; changing settings later does not rewrite prior imported evidence. The Sierra Chart section stores ordered regular-expression mappings from the imported `Symbol` value to an instrument; a mapping commission override is also per contract and takes precedence over the instrument default. A blank configured commission preserves a fee reported by the source when available. Daybook review also supports per-trade Exchange, NFA, Clearing / commission, and all-in overrides; these are stored separately from imported evidence, and an all-in override takes precedence over the component total for effective fee/net P&L calculations.
+Settings seeds common futures instruments including MES, ES, MNQ, NQ, MYM, M2K, MCL, MGC, YM, RTY, CL, GC, and 6E. Each definition stores a default all-in commission per contract, an optional fee breakdown per contract (Exchange, NFA, and Clearing / commission), dollar value per point, and tick size. When a breakdown is configured, each fill contributes its component amounts and the dashboard/reports aggregate those totals for the selected journal; changing settings later does not rewrite prior imported evidence. The Sierra Chart section stores ordered regular-expression mappings from the imported `Symbol` value to an instrument; a mapping commission override is also per contract and takes precedence over the instrument default. A blank configured commission preserves a fee reported by the source when available. Trade Review also supports per-trade Exchange, NFA, Clearing / commission, and all-in overrides; these are stored separately from imported evidence, and an all-in override takes precedence over the component total for effective fee/net P&L calculations.
 
-Every import batch records its trading application as well as its source format. Typed fills, order events, and derived trades retain the batch link, so the application provenance remains available from the import history and the Daybook review workspace.
+Every import batch records its trading application as well as its source format. Typed fills, order events, and derived trades retain the batch link, so the application provenance remains available from the import history and the Trade Review workspace.
 
 ## Storage and boundaries
 

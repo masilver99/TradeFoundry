@@ -10,7 +10,7 @@ public sealed class CommandPaletteTests
     {
         var items = CommandPaletteCatalog.Items;
 
-        Assert.Contains(items, item => item.Category == "Navigation" && item.Title == "Daybook Review");
+        Assert.Contains(items, item => item.Category == "Navigation" && item.Title == "Trade Review");
         var setups = Assert.Single(items, item => item.Category == "Navigation" && item.Title == "Setups");
         Assert.Equal("/setups", setups.Route);
         Assert.Contains("Trading setups", setups.Aliases);

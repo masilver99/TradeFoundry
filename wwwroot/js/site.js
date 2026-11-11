@@ -7,6 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeLightweightCharts();
   initializeAnalysisNavigation();
   initializeIndicatorNavigation();
+  initializeTradeLedger();
   initializeChartInfo();
   initializeSectionInfo();
   initializePeriodSummary();
@@ -691,6 +692,7 @@ function initializeDailyJournal() {
     } else if (!hasText) {
       check?.remove();
     }
+    card.querySelector("[data-daily-journal-add]")?.toggleAttribute("hidden", hasText);
   };
 
   const updateJournalPreview = form => {
@@ -1398,126 +1400,143 @@ function initializeChartInfo() {
   });
 }
 
+// Trade Ledger: filters apply as you type or choose, without a full reload, and any trade row opens its review.
+function initializeTradeLedger() {
+  const form = document.querySelector("[data-ledger-filters]");
+  const currentResults = () => document.querySelector("[data-ledger-results]");
+  if (form && currentResults()) {
+    form.classList.add("is-live");
+    let timer = null;
+    let controller = null;
+    const apply = async () => {
+      clearTimeout(timer);
+      const url = new URL(form.action, window.location.href);
+      for (const [name, value] of new FormData(form)) {
+        if (String(value).trim()) url.searchParams.set(name, String(value).trim());
+      }
+      controller?.abort();
+      controller = new AbortController();
+      const results = currentResults();
+      results?.setAttribute("aria-busy", "true");
+      try {
+        const response = await fetch(url, { credentials: "same-origin", signal: controller.signal });
+        if (!response.ok) throw new Error(`Ledger request failed (${response.status}).`);
+        const page = new DOMParser().parseFromString(await response.text(), "text/html");
+        const next = page.querySelector("[data-ledger-results]");
+        if (!next) throw new Error("Ledger results were missing from the response.");
+        currentResults()?.replaceWith(next);
+        window.history.replaceState(null, "", url);
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        form.submit();
+      } finally {
+        currentResults()?.removeAttribute("aria-busy");
+      }
+    };
+    form.addEventListener("input", event => {
+      if (!event.target.matches("input")) return;
+      clearTimeout(timer);
+      timer = setTimeout(apply, 300);
+    });
+    form.addEventListener("change", event => {
+      if (event.target.matches("select")) void apply();
+    });
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      void apply();
+    });
+  }
+
+  document.addEventListener("click", event => {
+    const row = event.target.closest("tr[data-row-href]");
+    if (!row || event.target.closest("a, button, input, select, textarea, label, summary")) return;
+    if (window.getSelection()?.toString()) return;
+    if (event.ctrlKey || event.metaKey) window.open(row.dataset.rowHref, "_blank", "noopener");
+    else window.location.href = row.dataset.rowHref;
+  });
+}
+
 function initializeAnalysisNavigation() {
-  const pageIndex = document.querySelector("[data-analysis-index]");
-  const pageLinks = Array.from(pageIndex?.querySelectorAll("[data-analysis-target]") || []);
-  const sidebarLinks = Array.from(document.querySelectorAll("[data-analysis-sidebar-link]"));
-  const aliases = { behavior: "trade-quality", timing: "timing-sizing" };
-
-  if (!pageIndex) return;
-
-  const targets = pageLinks
-    .map(link => document.getElementById(link.dataset.analysisTarget))
-    .filter(Boolean);
-
-  const normalizeId = id => aliases[id] || id;
-  let suppressObserverUntil = 0;
-  const setActive = id => {
-    const normalizedId = normalizeId(id);
-    pageLinks.forEach(link => {
-      const isActive = link.dataset.analysisTarget === normalizedId;
-      link.classList.toggle("active", isActive);
-      if (isActive) link.setAttribute("aria-current", "location");
-      else link.removeAttribute("aria-current");
-    });
-    sidebarLinks.forEach(link => {
-      const isActive = link.dataset.analysisSidebarLink === normalizedId;
-      link.classList.toggle("active", isActive);
-      if (isActive) link.setAttribute("aria-current", "location");
-      else link.removeAttribute("aria-current");
-    });
-  };
-
-  const hashId = () => normalizeId(window.location.hash.replace(/^#/, ""));
-  const initialId = hashId();
-  setActive(targets.some(target => target.id === initialId) ? initialId : "sc-trade-statistics");
-
-  pageLinks.forEach(link => link.addEventListener("click", () => {
-    suppressObserverUntil = performance.now() + 1200;
-    setActive(link.dataset.analysisTarget);
-  }));
-  window.addEventListener("hashchange", () => {
-    const id = hashId();
-    if (targets.some(target => target.id === id)) {
-      suppressObserverUntil = performance.now() + 1200;
-      setActive(id);
-    }
+  initializeSectionTabs({
+    index: document.querySelector("[data-analysis-index]"),
+    targetAttribute: "data-analysis-target",
+    defaultId: "sc-trade-statistics",
+    aliases: { behavior: "trade-quality", timing: "timing-sizing" }
   });
-
-  if (!("IntersectionObserver" in window)) return;
-
-  const observer = new IntersectionObserver(entries => {
-    if (performance.now() < suppressObserverUntil) return;
-
-    const visible = entries
-      .filter(entry => entry.isIntersecting)
-      .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top)[0];
-    if (visible) setActive(visible.target.id);
-  }, {
-    rootMargin: "-10% 0px -70% 0px",
-    threshold: 0
-  });
-
-  targets.forEach(target => observer.observe(target));
 }
 
 function initializeIndicatorNavigation() {
-  const pageIndex = document.querySelector("[data-indicator-index]");
-  const pageLinks = Array.from(pageIndex?.querySelectorAll("[data-indicator-target]") || []);
-  const sidebarLinks = Array.from(document.querySelectorAll("[data-indicator-sidebar-link]"));
+  initializeSectionTabs({
+    index: document.querySelector("[data-indicator-index]"),
+    targetAttribute: "data-indicator-target",
+    defaultId: "indicator-key",
+    aliases: {}
+  });
+}
 
-  if (!pageIndex) return;
+// Shows one top-level section at a time on long report pages. The URL hash names the open section
+// (or any element inside it), so bookmarks, command-palette results, and links to nested anchors keep working.
+function initializeSectionTabs({ index, targetAttribute, defaultId, aliases }) {
+  if (!index) return;
 
-  const targets = pageLinks
-    .map(link => document.getElementById(link.dataset.indicatorTarget))
+  const links = Array.from(index.querySelectorAll(`[${targetAttribute}]`));
+  const panels = links
+    .map(link => document.getElementById(link.getAttribute(targetAttribute)))
     .filter(Boolean);
+  if (!panels.length) return;
 
-  let suppressObserverUntil = 0;
-  const setActive = id => {
-    pageLinks.forEach(link => {
-      const isActive = link.dataset.indicatorTarget === id;
-      link.classList.toggle("active", isActive);
-      if (isActive) link.setAttribute("aria-current", "location");
-      else link.removeAttribute("aria-current");
-    });
-    sidebarLinks.forEach(link => {
-      const isActive = link.dataset.indicatorSidebarLink === id;
-      link.classList.toggle("active", isActive);
-      if (isActive) link.setAttribute("aria-current", "location");
-      else link.removeAttribute("aria-current");
-    });
+  index.classList.add("is-tabbed");
+  const panelFor = element => panels.find(panel => panel === element || panel.contains(element));
+  const elementForHash = () => {
+    const raw = decodeURIComponent(window.location.hash.replace(/^#/, ""));
+    return raw ? document.getElementById(aliases[raw] || raw) : null;
   };
 
-  const initialId = window.location.hash.replace(/^#/, "");
-  setActive(targets.some(target => target.id === initialId) ? initialId : "indicator-key");
+  const show = id => {
+    panels.forEach(panel => { panel.hidden = panel.id !== id; });
+    links.forEach(link => {
+      const isActive = link.getAttribute(targetAttribute) === id;
+      link.classList.toggle("active", isActive);
+      if (isActive) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
 
-  pageLinks.forEach(link => link.addEventListener("click", () => {
-    suppressObserverUntil = performance.now() + 1200;
-    setActive(link.dataset.indicatorTarget);
-  }));
-  window.addEventListener("hashchange", () => {
-    const id = window.location.hash.replace(/^#/, "");
-    if (targets.some(target => target.id === id)) {
-      suppressObserverUntil = performance.now() + 1200;
-      setActive(id);
+    // Charts that were drawn before their panel was hidden keep a stale size; charts never drawn are
+    // picked up by the lazy Plotly observer once they become visible.
+    const panel = panels.find(candidate => candidate.id === id);
+    if (window.Plotly?.Plots?.resize && panel) {
+      panel.querySelectorAll('[data-plotly-initialized="true"]').forEach(node => window.Plotly.Plots.resize(node));
     }
-  });
+  };
 
-  if (!("IntersectionObserver" in window)) return;
+  const reveal = (element, { scroll }) => {
+    const panel = element && panelFor(element);
+    if (!panel) return false;
+    show(panel.id);
+    if (scroll) window.requestAnimationFrame(() => element.scrollIntoView({ block: "start" }));
+    return true;
+  };
 
-  const observer = new IntersectionObserver(entries => {
-    if (performance.now() < suppressObserverUntil) return;
+  links.forEach(link => link.addEventListener("click", event => {
+    const id = link.getAttribute(targetAttribute);
+    if (!panels.some(panel => panel.id === id)) return;
+    event.preventDefault();
+    window.history.replaceState(null, "", `#${id}`);
+    show(id);
+    // Keep the reader at the top of the newly opened section rather than wherever the old one was scrolled.
+    const panel = panels.find(candidate => candidate.id === id);
+    if (panel && panel.getBoundingClientRect().top < 0) panel.scrollIntoView({ block: "start" });
+  }));
 
-    const visible = entries
-      .filter(entry => entry.isIntersecting)
-      .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top)[0];
-    if (visible) setActive(visible.target.id);
-  }, {
-    rootMargin: "-10% 0px -70% 0px",
-    threshold: 0
-  });
+  window.addEventListener("hashchange", () => reveal(elementForHash(), { scroll: true }));
+  // The command palette moves to targets without a hashchange; it asks for the target to be revealed first.
+  document.addEventListener("tf:reveal-target", event => reveal(event.target, { scroll: false }));
 
-  targets.forEach(target => observer.observe(target));
+  if (!reveal(elementForHash(), { scroll: false })) {
+    show(defaultId);
+    // Command-palette anchors (tf-command-*) are assigned after this runs; retry once they exist.
+    if (window.location.hash) window.setTimeout(() => reveal(elementForHash(), { scroll: false }), 0);
+  }
 }
 
 function initializePeriodSummary() {
@@ -1715,7 +1734,7 @@ function initializePnlCalendar() {
       const dayNode = element(day.tradeCount > 0 ? "a" : "div", "tf-pnl-day", undefined);
       if (day.tradeCount > 0 && root.dataset.pnlReviewBase) {
         dayNode.href = `${root.dataset.pnlReviewBase}?date=${encodeURIComponent(day.date)}`;
-        dayNode.title = "Open Daybook for this date";
+        dayNode.title = "Open Trade Review for this date";
       }
       dayNode.dataset.tone = tone;
       const profitPercent = day.profitPercent === null || day.profitPercent === undefined ? null : formatProfitPercent(day.profitPercent);
@@ -1903,7 +1922,7 @@ function initializeMaeCalendar() {
       const dayNode = element(href ? "a" : "div", "tf-mae-day");
       if (href) {
         dayNode.href = href;
-        dayNode.title = "Open Daybook at the day's worst MAE trade";
+        dayNode.title = "Open Trade Review at the day's worst MAE trade";
       }
       dayNode.dataset.tone = tone;
       dayNode.setAttribute("aria-label", day.tradeCount > 0
@@ -2042,7 +2061,11 @@ function initializeReviewWorkspace() {
         pnlStat.classList.toggle("text-danger", Number(payload.trade.netPnl) < 0);
       }
       if (fees) fees.textContent = `All-in commission: ${feeText}`;
-      if (feesStat) feesStat.textContent = feeText;
+      if (feesStat) {
+        const hasOverride = payload.trade.hasAllInOverride || payload.trade.hasComponentOverride;
+        feesStat.textContent = `${formatMoney(payload.trade.fees)}${hasOverride ? " · override" : ""}`;
+        feesStat.title = payload.trade.hasAllInOverride ? "Per-trade all-in override" : payload.trade.hasComponentOverride ? "Per-trade component override" : "Imported or instrument-settings fees";
+      }
       if (detailFees) detailFees.textContent = feeText;
       feeBreakdown.forEach(item => { item.textContent = breakdownText; });
       if (rowPnl && rowPnl.textContent.trim() !== "OPEN") {
@@ -2220,6 +2243,40 @@ function initializeReviewWorkspace() {
   });
 
   rosterItems.forEach(item => item.addEventListener("click", () => void activate(item.dataset.reviewKey, { focus: true })));
+
+  // Keyboard shortcuts: J/K trade, ←/→ day, 1–5 tab, ? help. Ignored while typing or when a dialog is open.
+  const shortcutHelp = createReviewShortcutHelp();
+  shell.querySelector("[data-review-shortcuts]")?.addEventListener("click", () => shortcutHelp.showModal());
+  document.addEventListener("keydown", event => {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']")) return;
+    if (document.querySelector("dialog[open]")) return;
+    const current = editors.find(editor => editor.dataset.reviewKey === activeKey);
+    const key = event.key;
+    if (key === "j" || key === "k") {
+      const sibling = editors[editors.indexOf(current) + (key === "j" ? 1 : -1)];
+      if (!sibling) return;
+      event.preventDefault();
+      void activate(sibling.dataset.reviewKey, { focus: true });
+    } else if (key === "ArrowLeft" || key === "ArrowRight") {
+      if (target?.closest("[role=tab], [role=listbox], .tf-lightweight-chart")) return;
+      const label = key === "ArrowLeft" ? "Previous day" : "Next day";
+      const link = shell.querySelector(`.tf-review-day-nav a[aria-label="${label}"]`);
+      if (!link) return;
+      event.preventDefault();
+      link.click();
+    } else if (/^[1-5]$/.test(key)) {
+      const tab = current?.querySelectorAll("[data-review-tab]")[Number(key) - 1];
+      if (!tab) return;
+      event.preventDefault();
+      tab.click();
+      tab.focus({ preventScroll: true });
+    } else if (key === "?") {
+      event.preventDefault();
+      shortcutHelp.showModal();
+    }
+  });
   editors.forEach(editor => setSection(editor, activeSection));
   const initial = editors.find(editor => editor.dataset.reviewKey === activeKey) || editors[0];
   if (initial && initial.dataset.reviewKey !== activeKey) activeKey = initial.dataset.reviewKey;
@@ -2252,6 +2309,43 @@ function initializeReviewWorkspace() {
       initial?.scrollIntoView({ block: "start", behavior: "instant" });
     });
   }
+}
+
+function createReviewShortcutHelp() {
+  const dialog = document.createElement("dialog");
+  dialog.className = "tf-shortcut-dialog";
+  dialog.setAttribute("aria-labelledby", "tf-shortcut-title");
+  const rows = [
+    ["J", "Next trade"],
+    ["K", "Previous trade"],
+    ["→", "Next trading day"],
+    ["←", "Previous trading day"],
+    ["1 – 5", "Switch tab"],
+    ["?", "Show this help"],
+    ["Esc", "Close"]
+  ];
+  const heading = document.createElement("h2");
+  heading.id = "tf-shortcut-title";
+  heading.textContent = "Keyboard shortcuts";
+  const list = document.createElement("dl");
+  rows.forEach(([keys, label]) => {
+    const term = document.createElement("dt");
+    const kbd = document.createElement("kbd");
+    kbd.textContent = keys;
+    term.appendChild(kbd);
+    const description = document.createElement("dd");
+    description.textContent = label;
+    list.append(term, description);
+  });
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn btn-sm btn-outline-secondary";
+  close.textContent = "Close";
+  close.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", event => { if (event.target === dialog) dialog.close(); });
+  dialog.append(heading, list, close);
+  document.body.appendChild(dialog);
+  return dialog;
 }
 
 function reviewFormSnapshot(form) {
@@ -3237,6 +3331,14 @@ function setReviewChartEmpty(card, hidden, message) {
   if (!empty) return;
   empty.textContent = message || "";
   empty.hidden = hidden;
+  card.classList.toggle("is-empty", !hidden);
+  const journalPath = window.location.pathname.match(/^\/journal\/[^/]+/)?.[0];
+  if (!hidden && journalPath) {
+    const link = document.createElement("a");
+    link.href = `${journalPath}/imports`;
+    link.textContent = "Import price bars";
+    empty.append(" ", link);
+  }
 }
 
 function setLightweightStatusForNode(node, message) {

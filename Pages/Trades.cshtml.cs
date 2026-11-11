@@ -15,7 +15,7 @@ public class TradesModel : PageModel
     public TradesModel(TradeFoundryDb database) => _database = database;
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
-    [BindProperty(SupportsGet = true, Name = "page")] public int PageNumber { get; set; } = 1;
+    [BindProperty(SupportsGet = true, Name = "pageNumber")] public int PageNumber { get; set; } = 1;
     [BindProperty(SupportsGet = true)] public string Search { get; set; } = string.Empty;
     [BindProperty(SupportsGet = true)] public string Symbol { get; set; } = string.Empty;
     [BindProperty(SupportsGet = true)] public string Status { get; set; } = string.Empty;

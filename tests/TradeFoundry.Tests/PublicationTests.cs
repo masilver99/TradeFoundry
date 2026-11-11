@@ -344,6 +344,27 @@ public sealed class PublicationTests
     }
 
     [Fact]
+    public void AnnotatedImagesPublishTheRenderedCopyWithoutAnnotationData()
+    {
+        var state = JsonSerializer.Serialize(new { root = new { children = new object[] {
+            new
+            {
+                type = "daily-journal-image", attachmentId = "rendered-id", src = "/private/rendered", altText = "Chart-annotated.png", width = 480,
+                originalAttachmentId = "original-id", originalSrc = "/private/original",
+                annotation = new { version = 3, width = 800, height = 600, markers = new object[] { new { typeName = "ArrowMarker", x1 = 10, y1 = 10, x2 = 90, y2 = 90, notes = "secret-note" } } }
+            }
+        } } });
+        var requested = new List<string>();
+        var nodes = PublicationExportService.ConvertContent(state, id => { requested.Add(id); return "published"; });
+        Assert.Equal(["rendered-id"], requested);
+        Assert.Equal("published", Assert.Single(nodes).ImageId);
+        var json = JsonSerializer.Serialize(nodes);
+        Assert.DoesNotContain("original-id", json);
+        Assert.DoesNotContain("secret-note", json);
+        Assert.DoesNotContain("ArrowMarker", json);
+    }
+
+    [Fact]
     public async Task ExportIncludesTodayAndReferencedImagesOnlyAndReportsMissingImages()
     {
         using var data = new LocalData();

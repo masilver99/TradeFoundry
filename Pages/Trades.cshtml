@@ -65,12 +65,12 @@
     @if (Model.Results.PageCount > 1)
     {
         <div class="card-footer"><ul class="pagination mb-0 justify-content-end tf-pagination">
-            <li class="page-item @(Model.Results.Page <= 1 ? "disabled" : string.Empty)"><a class="page-link" href="@($"{action}?page={Model.Results.Page - 1}&search={Uri.EscapeDataString(Model.Search)}&symbol={Uri.EscapeDataString(Model.Symbol)}&status={Uri.EscapeDataString(Model.Status)}&sort={Uri.EscapeDataString(Model.Sort)}{filterSuffix}")">Previous</a></li>
+            <li class="page-item @(Model.Results.Page <= 1 ? "disabled" : string.Empty)"><a class="page-link" href="@($"{action}?pageNumber={Model.Results.Page - 1}&search={Uri.EscapeDataString(Model.Search ?? string.Empty)}&symbol={Uri.EscapeDataString(Model.Symbol ?? string.Empty)}&status={Uri.EscapeDataString(Model.Status ?? string.Empty)}&sort={Uri.EscapeDataString(Model.Sort ?? string.Empty)}{filterSuffix}")">Previous</a></li>
             @for (var pageNumber = 1; pageNumber <= Model.Results.PageCount; pageNumber++)
             {
-                <li class="page-item @(pageNumber == Model.Results.Page ? "active" : string.Empty)"><a class="page-link" href="@($"{action}?page={pageNumber}&search={Uri.EscapeDataString(Model.Search)}&symbol={Uri.EscapeDataString(Model.Symbol)}&status={Uri.EscapeDataString(Model.Status)}&sort={Uri.EscapeDataString(Model.Sort)}{filterSuffix}")">@pageNumber</a></li>
+                <li class="page-item @(pageNumber == Model.Results.Page ? "active" : string.Empty)"><a class="page-link" href="@($"{action}?pageNumber={pageNumber}&search={Uri.EscapeDataString(Model.Search ?? string.Empty)}&symbol={Uri.EscapeDataString(Model.Symbol ?? string.Empty)}&status={Uri.EscapeDataString(Model.Status ?? string.Empty)}&sort={Uri.EscapeDataString(Model.Sort ?? string.Empty)}{filterSuffix}")">@pageNumber</a></li>
             }
-            <li class="page-item @(Model.Results.Page >= Model.Results.PageCount ? "disabled" : string.Empty)"><a class="page-link" href="@($"{action}?page={Model.Results.Page + 1}&search={Uri.EscapeDataString(Model.Search)}&symbol={Uri.EscapeDataString(Model.Symbol)}&status={Uri.EscapeDataString(Model.Status)}&sort={Uri.EscapeDataString(Model.Sort)}{filterSuffix}")">Next</a></li>
+            <li class="page-item @(Model.Results.Page >= Model.Results.PageCount ? "disabled" : string.Empty)"><a class="page-link" href="@($"{action}?pageNumber={Model.Results.Page + 1}&search={Uri.EscapeDataString(Model.Search ?? string.Empty)}&symbol={Uri.EscapeDataString(Model.Symbol ?? string.Empty)}&status={Uri.EscapeDataString(Model.Status ?? string.Empty)}&sort={Uri.EscapeDataString(Model.Sort ?? string.Empty)}{filterSuffix}")">Next</a></li>
         </ul></div>
     }
 </section>

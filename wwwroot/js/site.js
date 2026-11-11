@@ -8,6 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeAnalysisNavigation();
   initializeIndicatorNavigation();
   initializeTradeLedger();
+  initializeJournalFilter();
   initializeChartInfo();
   initializeSectionInfo();
   initializePeriodSummary();
@@ -1397,6 +1398,73 @@ function initializeChartInfo() {
     }
     titleContainer.appendChild(panel);
     card.dataset.chartInfoInitialized = "true";
+  });
+}
+
+// Journal filter bar: presets and direction apply on change; a custom range applies with its button.
+function initializeJournalFilter() {
+  const form = document.querySelector("[data-journal-filter]");
+  if (!form) return;
+
+  // A filter remembered from an earlier visit still belongs in the address bar, so the page can be bookmarked or shared.
+  const query = form.dataset.filterQuery || "";
+  if (form.dataset.filterFromUrl !== "true" && query) {
+    const url = new URL(window.location.href);
+    new URLSearchParams(query).forEach((value, key) => url.searchParams.set(key, value));
+    window.history.replaceState(window.history.state, "", url);
+  }
+
+  const period = form.querySelector("[data-filter-period]");
+  const custom = form.querySelector("[data-filter-custom]");
+  const from = form.querySelector("[data-filter-from]");
+  const to = form.querySelector("[data-filter-to]");
+  const error = form.querySelector("[data-filter-error]");
+  const dates = form.querySelector("[data-filter-dates]");
+  const showError = message => {
+    if (!error) return;
+    error.textContent = message;
+    error.hidden = !message;
+  };
+  const setCustom = isCustom => {
+    if (custom) custom.hidden = !isCustom;
+    [from, to].forEach(input => { if (input) input.disabled = !isCustom; });
+    if (dates) dates.hidden = isCustom;
+  };
+  const submit = () => {
+    form.classList.add("is-busy");
+    form.requestSubmit();
+  };
+
+  period?.addEventListener("change", () => {
+    showError("");
+    const isCustom = period.value === "custom";
+    setCustom(isCustom);
+    if (isCustom) from?.focus();
+    else submit();
+  });
+  form.querySelectorAll("[data-filter-side]").forEach(input => input.addEventListener("change", () => {
+    // Direction changes keep the applied dates, even if a custom range is half-edited.
+    if (period?.value === "custom" && from && to && from.value && to.value && from.value > to.value) {
+      showError("The start date is after the end date.");
+      return;
+    }
+    submit();
+  }));
+  [from, to].forEach(input => input?.addEventListener("input", () => showError("")));
+  form.addEventListener("submit", event => {
+    if (period?.value !== "custom") return;
+    if (from && to && from.value && to.value && from.value > to.value) {
+      event.preventDefault();
+      form.classList.remove("is-busy");
+      showError("The start date is after the end date.");
+      from.focus();
+      return;
+    }
+    if ((from && !from.validity.valid) || (to && !to.validity.valid)) {
+      event.preventDefault();
+      form.classList.remove("is-busy");
+      showError("Enter dates as year-month-day.");
+    }
   });
 }
 

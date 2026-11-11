@@ -44,6 +44,10 @@
         <div class="tf-daily-journal-entry-list" data-daily-journal-entry-list>
             <partial name="_DailyJournalCards" model="Model.Entries" />
         </div>
+        @if (Model.Entries.Count == 0 && Model.Filter.IsActive)
+        {
+            <div class="tf-empty"><strong>No earlier days in this filter.</strong><span>Nothing was traded or journaled within @Model.Filter.Summary.</span></div>
+        }
     </section>
 
     <div class="tf-daily-journal-load-status" data-daily-journal-load-status role="status" aria-live="polite"></div>

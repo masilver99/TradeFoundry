@@ -1124,9 +1124,14 @@ public sealed partial class TradeFoundryDb
         return command.ExecuteNonQuery() == 1;
     }
 
-    public JournalOverview GetOverview(Guid journalId)
+    public JournalOverview GetOverview(Guid journalId) => GetOverview(journalId, null);
+
+    /// <summary>Overview metrics for the trades inside <paramref name="filter"/>; a null or inactive filter covers the whole journal.</summary>
+    public JournalOverview GetOverview(Guid journalId, JournalFilter? filter)
     {
         var journal = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var scope = filter is { IsActive: true } ? filter.Scope(journal.TimeZone) : null;
+        var scopeSql = TradeScopeSql(scope);
         using var connection = OpenConnection();
         var startingEquity = journal.StartingEquity ?? ReadFirstAccountBalance(connection, journalId);
 
@@ -1146,8 +1151,9 @@ public sealed partial class TradeFoundryDb
         int losingTrades;
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT COALESCE(SUM(CAST(t.gross_pnl AS REAL)), 0), COALESCE(SUM({EffectiveNetPnlSql}), 0), COALESCE(SUM(CAST(t.gross_points AS REAL)), 0), COALESCE(SUM(CAST({EffectiveExchangeFeesSql} AS REAL)), 0), COALESCE(SUM(CAST({EffectiveNfaFeesSql} AS REAL)), 0), COALESCE(SUM(CAST({EffectiveClearingFeesSql} AS REAL)), 0), COALESCE(SUM(CAST({EffectiveFeesSql} AS REAL)), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), SUM(CASE WHEN t.status = 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status <> 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN 1 ELSE 0 END) FROM {TradeFrom} WHERE t.journal_id = $journal";
+            command.CommandText = $"SELECT COALESCE(SUM(CAST(t.gross_pnl AS REAL)), 0), COALESCE(SUM({EffectiveNetPnlSql}), 0), COALESCE(SUM(CAST(t.gross_points AS REAL)), 0), COALESCE(SUM(CAST({EffectiveExchangeFeesSql} AS REAL)), 0), COALESCE(SUM(CAST({EffectiveNfaFeesSql} AS REAL)), 0), COALESCE(SUM(CAST({EffectiveClearingFeesSql} AS REAL)), 0), COALESCE(SUM(CAST({EffectiveFeesSql} AS REAL)), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), COALESCE(SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN {EffectiveNetPnlSql} ELSE 0 END), 0), SUM(CASE WHEN t.status = 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status <> 'closed' THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN t.status = 'closed' AND {EffectiveNetPnlSql} < 0 THEN 1 ELSE 0 END) FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql}";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
             if (!reader.Read()) throw new InvalidOperationException("The journal metrics could not be read.");
             grossPnl = AggregateDecimal(reader, 0);
@@ -1167,8 +1173,9 @@ public sealed partial class TradeFoundryDb
 
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT COALESCE(SUM(CAST(t.gross_points AS REAL) - CASE WHEN CAST(t.point_value AS REAL) > 0 THEN ({EffectiveFeesSql}) / CAST(t.point_value AS REAL) ELSE 0 END), 0) FROM {TradeFrom} WHERE t.journal_id = $journal";
+            command.CommandText = $"SELECT COALESCE(SUM(CAST(t.gross_points AS REAL) - CASE WHEN CAST(t.point_value AS REAL) > 0 THEN ({EffectiveFeesSql}) / CAST(t.point_value AS REAL) ELSE 0 END), 0) FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql}";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
             if (!reader.Read()) throw new InvalidOperationException("The fee-adjusted points metric could not be read.");
             feeAdjustedPoints = AggregateDecimal(reader, 0);
@@ -1177,8 +1184,9 @@ public sealed partial class TradeFoundryDb
         var recentTrades = new List<Trade>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT {TradeColumns} FROM {TradeFrom} WHERE t.journal_id = $journal ORDER BY COALESCE(t.exit_utc, t.entry_utc) DESC, t.sequence DESC LIMIT 8";
+            command.CommandText = $"SELECT {TradeColumns} FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql} ORDER BY COALESCE(t.exit_utc, t.entry_utc) DESC, t.sequence DESC LIMIT 8";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
             while (reader.Read()) recentTrades.Add(ReadTrade(reader));
         }
@@ -1195,8 +1203,9 @@ public sealed partial class TradeFoundryDb
         var tradingDays = new HashSet<DateOnly>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT DISTINCT entry_utc FROM trades WHERE journal_id = $journal";
+            command.CommandText = $"SELECT DISTINCT t.entry_utc FROM trades t WHERE t.journal_id = $journal{scopeSql}";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -1208,18 +1217,20 @@ public sealed partial class TradeFoundryDb
         var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT DISTINCT t.symbol FROM {TradeFrom} WHERE t.journal_id = $journal";
+            command.CommandText = $"SELECT DISTINCT t.symbol FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql}";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
             while (reader.Read()) symbols.Add(reader.GetString(0));
         }
-        foreach (var symbol in GetFillSymbols(connection, journalId)) symbols.Add(symbol);
+        if (scope is null) foreach (var symbol in GetFillSymbols(connection, journalId)) symbols.Add(symbol);
 
         var dailyPnl = new List<DailyPnl>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT substr(t.exit_utc, 1, 10), SUM({EffectiveNetPnlSql}), COUNT(*) FROM {TradeFrom} WHERE t.journal_id = $journal AND t.exit_utc IS NOT NULL GROUP BY substr(t.exit_utc, 1, 10) ORDER BY substr(t.exit_utc, 1, 10) DESC LIMIT 180";
+            command.CommandText = $"SELECT substr(t.exit_utc, 1, 10), SUM({EffectiveNetPnlSql}), COUNT(*) FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql} AND t.exit_utc IS NOT NULL GROUP BY substr(t.exit_utc, 1, 10) ORDER BY substr(t.exit_utc, 1, 10) DESC LIMIT 180";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
             while (reader.Read()) dailyPnl.Add(new DailyPnl { Date = DateOnly.ParseExact(reader.GetString(0), "yyyy-MM-dd", CultureInfo.InvariantCulture), NetPnl = AggregateDecimal(reader, 1), TradeCount = AggregateInt(reader, 2) });
         }
@@ -1228,8 +1239,9 @@ public sealed partial class TradeFoundryDb
         var equity = new List<EquityPoint>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"WITH running AS (SELECT t.id, t.exit_utc, t.sequence, SUM({EffectiveNetPnlSql}) OVER (ORDER BY t.exit_utc, t.sequence, t.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pnl FROM {TradeFrom} WHERE t.journal_id = $journal AND t.exit_utc IS NOT NULL) SELECT exit_utc, cumulative_pnl FROM running ORDER BY exit_utc DESC, sequence DESC, id DESC LIMIT 180";
+            command.CommandText = $"WITH running AS (SELECT t.id, t.exit_utc, t.sequence, SUM({EffectiveNetPnlSql}) OVER (ORDER BY t.exit_utc, t.sequence, t.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pnl FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql} AND t.exit_utc IS NOT NULL) SELECT exit_utc, cumulative_pnl FROM running ORDER BY exit_utc DESC, sequence DESC, id DESC LIMIT 180";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
             while (reader.Read()) equity.Add(new EquityPoint { ExitUtc = ParseDate(reader.GetString(0)), CumulativePnl = AggregateDecimal(reader, 1) });
         }
@@ -1238,8 +1250,9 @@ public sealed partial class TradeFoundryDb
         EquityPoint? peakProfit = null;
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"WITH running AS (SELECT t.id, COALESCE(t.exit_utc, t.entry_utc) AS occurred_utc, t.sequence, SUM({EffectiveNetPnlSql}) OVER (ORDER BY COALESCE(t.exit_utc, t.entry_utc), t.sequence, t.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pnl FROM {TradeFrom} WHERE t.journal_id = $journal) SELECT occurred_utc, cumulative_pnl FROM running ORDER BY cumulative_pnl DESC, occurred_utc DESC, sequence DESC, id DESC LIMIT 1";
+            command.CommandText = $"WITH running AS (SELECT t.id, COALESCE(t.exit_utc, t.entry_utc) AS occurred_utc, t.sequence, SUM({EffectiveNetPnlSql}) OVER (ORDER BY COALESCE(t.exit_utc, t.entry_utc), t.sequence, t.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pnl FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql}) SELECT occurred_utc, cumulative_pnl FROM running ORDER BY cumulative_pnl DESC, occurred_utc DESC, sequence DESC, id DESC LIMIT 1";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+            AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
             if (reader.Read()) peakProfit = new EquityPoint { ExitUtc = ParseDate(reader.GetString(0)), CumulativePnl = AggregateDecimal(reader, 1) };
         }
@@ -1574,16 +1587,21 @@ public sealed partial class TradeFoundryDb
     }
 
     public DailyJournalEntriesPage GetDailyJournalEntries(Guid journalId, DateOnly excludeDate, DateOnly? beforeDate = null, int limit = 20)
+        => GetDailyJournalEntries(journalId, excludeDate, beforeDate, limit, null);
+
+    /// <summary>Daily journal entries before <paramref name="beforeDate"/>, newest first, optionally on or after <paramref name="fromDate"/>.</summary>
+    public DailyJournalEntriesPage GetDailyJournalEntries(Guid journalId, DateOnly excludeDate, DateOnly? beforeDate, int limit, DateOnly? fromDate)
     {
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         var pageSize = Math.Clamp(limit, 1, 50);
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        var beforeFilter = beforeDate.HasValue ? " AND review_date < $before" : string.Empty;
+        var beforeFilter = (beforeDate.HasValue ? " AND review_date < $before" : string.Empty) + (fromDate.HasValue ? " AND review_date >= $from" : string.Empty);
         command.CommandText = $"SELECT id, journal_id, review_date, revision, editor_state_json, search_text, updated_utc FROM daily_review_journals WHERE journal_id = $journal AND review_date <> $exclude AND TRIM(COALESCE(search_text, '')) <> ''{beforeFilter} ORDER BY review_date DESC LIMIT $limit";
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$exclude", excludeDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         if (beforeDate.HasValue) command.Parameters.AddWithValue("$before", beforeDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        if (fromDate.HasValue) command.Parameters.AddWithValue("$from", fromDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$limit", pageSize + 1);
 
         var entries = new List<DailyJournalEntry>(pageSize + 1);
@@ -3203,8 +3221,35 @@ public sealed partial class TradeFoundryDb
         transaction.Commit();
     }
 
+    private const string TradeDateSql = "(CASE WHEN t.status = 'closed' AND t.exit_utc IS NOT NULL THEN t.exit_utc ELSE t.entry_utc END)";
+
+    /// <summary>SQL for the journal filter: the trade's review timestamp inside the half-open UTC window, plus direction.</summary>
+    private static string TradeScopeSql(JournalFilterScope? scope)
+    {
+        if (scope is null || !scope.IsActive) return string.Empty;
+        var sql = string.Empty;
+        if (scope.StartUtc.HasValue) sql += $" AND {TradeDateSql} >= $filterStart";
+        if (scope.EndUtcExclusive.HasValue) sql += $" AND {TradeDateSql} < $filterEnd";
+        if (scope.Side is not null) sql += " AND t.direction = $filterSide COLLATE NOCASE";
+        return sql;
+    }
+
+    private static void AddTradeScopeParameters(SqliteCommand command, JournalFilterScope? scope)
+    {
+        if (scope is null || !scope.IsActive) return;
+        if (scope.StartUtc.HasValue) command.Parameters.AddWithValue("$filterStart", scope.StartUtc.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        if (scope.EndUtcExclusive.HasValue) command.Parameters.AddWithValue("$filterEnd", scope.EndUtcExclusive.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        if (scope.Side is not null) command.Parameters.AddWithValue("$filterSide", scope.Side);
+    }
+
     private static void AddTradeFilter(List<string> filters, SqliteCommand command, TradeQuery query)
     {
+        var scopeSql = TradeScopeSql(query.Scope);
+        if (scopeSql.Length > 0)
+        {
+            filters.Add(scopeSql[" AND ".Length..]);
+            AddTradeScopeParameters(command, query.Scope);
+        }
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             filters.Add("(t.symbol LIKE $search OR t.instrument LIKE $search OR t.account LIKE $search OR t.direction LIKE $search OR t.status LIKE $search)");

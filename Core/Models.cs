@@ -599,6 +599,8 @@ public sealed class TradeQuery
     public string Direction { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
     public string Sort { get; init; } = "entry_desc";
+    /// <summary>The journal filter, already resolved to the journal's time zone.</summary>
+    public JournalFilterScope? Scope { get; init; }
 }
 
 public sealed class ImportQuery
@@ -779,6 +781,12 @@ public sealed class DailyReviewModel
     public int OpenTradeCount => OpenTrades.Count;
     public DateOnly? PreviousDate { get; init; }
     public DateOnly? NextDate { get; init; }
+    /// <summary>Trades on this day in the direction the journal filter excludes.</summary>
+    public int HiddenTradeCount { get; init; }
+    /// <summary>The excluded trades are included anyway (asked for, or a direct link to one of them).</summary>
+    public bool ShowingHiddenTrades { get; init; }
+    /// <summary>The day falls outside the journal filter's date range (reached by a direct link).</summary>
+    public bool OutsideFilterDates { get; init; }
 }
 
 public sealed class DailyJournalEntry

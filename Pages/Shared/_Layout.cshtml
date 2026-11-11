@@ -21,6 +21,9 @@
     var exportJournalName = activeJournal?.Name ?? string.Empty;
     string JournalPath(string page) => activeJournal is null ? "/" : $"/journal/{activeJournal.Id:D}/{page}";
     var brandPath = activeJournal is null ? "/" : JournalPath("overview");
+    // Pages that apply the journal filter register it for this request; other journal pages only get a note when one is remembered.
+    var routeJournal = journals.FirstOrDefault(x => x.Id == requestedJournalId && Context.Request.RouteValues.ContainsKey("journalId"));
+    var filterContext = authenticated ? JournalFilterRequest.Current(Context, routeJournal) : null;
 }
 <!doctype html>
 <html lang="en" data-bs-theme="dark">
@@ -154,7 +157,7 @@
                 </div>
             </div>
             }
-            <div class="page-body"><div class="container-xl">@RenderBody()</div></div>
+            <div class="page-body"><div class="container-xl">@if (filterContext is not null){<partial name="_JournalFilterBar" model="filterContext" />}@RenderBody()</div></div>
         </div>
     </div>
 }

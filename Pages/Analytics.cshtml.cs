@@ -28,6 +28,7 @@ public class AnalyticsModel : PageModel
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
     public Journal? Journal { get; private set; }
     public JournalOverview? Overview { get; private set; }
+    public JournalFilterScope? Filter { get; private set; }
     public TearSheetIndicatorSet Indicators { get; private set; } = new();
     public EdgePersistenceMetrics EdgePersistence { get; private set; } = new();
     public TearSheetPeriodSummary PeriodSummary { get; private set; } = new();
@@ -114,12 +115,15 @@ public class AnalyticsModel : PageModel
         Journal = _database.GetJournal(JournalId);
         if (Journal is null) return NotFound();
 
-        Overview = _database.GetOverview(JournalId);
-        Trades = _database.GetAllTrades(JournalId);
+        Filter = JournalFilterRequest.Resolve(HttpContext, Journal);
+        Overview = _database.GetOverview(JournalId, Filter.Filter);
+        // Benchmark caching follows the whole journal; the page itself shows only the filtered trades.
+        var allTrades = _database.GetAllTrades(JournalId);
+        Trades = Filter.Apply(allTrades);
         var benchmarkRefreshes = new List<(string Symbol, BenchmarkRefreshResult Result)>();
         foreach (var symbol in BenchmarkSymbolsForTrades(Trades))
         {
-            var refresh = await _benchmarkRefresh.RefreshAsync(JournalId, Trades, symbol, force: false, cancellationToken: cancellationToken);
+            var refresh = await _benchmarkRefresh.RefreshAsync(JournalId, allTrades, symbol, force: false, cancellationToken: cancellationToken);
             benchmarkRefreshes.Add((symbol, refresh));
         }
 
@@ -130,8 +134,9 @@ public class AnalyticsModel : PageModel
             BenchmarkRefreshMessageKind = "warning";
         }
 
-        OrderEvents = _database.GetOrderEvents(JournalId);
-        AccountBalances = _database.GetAccountBalanceEvents(JournalId);
+        OrderEvents = Filter.ApplyToOrders(_database.GetOrderEvents(JournalId), Trades);
+        // Actual balance observations belong to the whole account, so a filtered view measures its trades from the starting balance.
+        AccountBalances = Filter.IsActive ? Array.Empty<AccountBalanceEvent>() : _database.GetAccountBalanceEvents(JournalId);
         LoadBenchmarkPoints();
         BenchmarkStatus = _database.GetBenchmarkSeriesStatus(JournalId, BenchmarkSymbol);
         Indicators = TearSheetMetrics.Build(Trades, OrderEvents, AccountBalances, BenchmarkPoints, Overview?.StartingEquity, Journal.TimeZone, Journal.Currency);

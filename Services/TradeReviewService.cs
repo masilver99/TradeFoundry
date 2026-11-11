@@ -25,18 +25,46 @@ public sealed class TradeReviewService
         _imageFiles = new JournalImageFileStore(Path.Combine(Path.GetDirectoryName(database.DatabasePath) ?? AppContext.BaseDirectory, "review-attachments"));
     }
 
-    public DateOnly GetDefaultDate(Guid journalId)
+    public DateOnly GetDefaultDate(Guid journalId) => GetDefaultDate(journalId, null);
+
+    /// <summary>The latest trading day inside the filter; with no matching day, the end of the filter's range or today.</summary>
+    public DateOnly GetDefaultDate(Guid journalId, JournalFilterScope? scope)
     {
         var journal = _database.GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
-        return DailyTradeAggregation.Build(_database.GetAllTrades(journalId), journal.TimeZone).LastOrDefault()?.Date
-            ?? DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneCatalog.Resolve(journal.TimeZone)).DateTime);
+        var trades = scope?.Apply(_database.GetAllTrades(journalId)) ?? _database.GetAllTrades(journalId);
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneCatalog.Resolve(journal.TimeZone)).DateTime);
+        return DailyTradeAggregation.Build(trades, journal.TimeZone).LastOrDefault()?.Date
+            ?? (scope?.To is { } to && to < today ? to : today);
     }
 
-    public DailyReviewModel GetDay(Guid journalId, DateOnly date)
+    public DailyReviewModel GetDay(Guid journalId, DateOnly date) => GetDay(journalId, date, null);
+
+    /// <summary>
+    /// One review day. With a journal filter, previous/next only step between days that have matching trades,
+    /// and trades in the other direction are left out (counted in <see cref="DailyReviewModel.HiddenTradeCount"/>)
+    /// unless <paramref name="showHidden"/> is set or <paramref name="focusReviewKey"/> names one of them.
+    /// </summary>
+    public DailyReviewModel GetDay(Guid journalId, DateOnly date, JournalFilterScope? scope, bool showHidden = false, string? focusReviewKey = null)
     {
         var journal = _database.GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
-        var summaries = DailyTradeAggregation.Build(_database.GetAllTrades(journalId), journal.TimeZone);
+        var allTrades = _database.GetAllTrades(journalId);
+        var summaries = DailyTradeAggregation.Build(allTrades, journal.TimeZone);
+        var navigation = scope is { IsActive: true } ? DailyTradeAggregation.Build(scope.Apply(allTrades), journal.TimeZone) : summaries;
         var summary = summaries.FirstOrDefault(item => item.Date == date);
+        var completed = summary?.CompletedTrades ?? Array.Empty<Trade>();
+        var open = summary?.OpenTrades ?? Array.Empty<Trade>();
+        var hiddenCount = 0;
+        if (scope is { Filter.HasSide: true })
+        {
+            var hidden = completed.Concat(open).Where(trade => !scope.Filter.MatchesSide(trade)).ToArray();
+            hiddenCount = hidden.Length;
+            if (focusReviewKey is not null && hidden.Any(trade => trade.ReviewKey == focusReviewKey)) showHidden = true;
+            if (!showHidden && hiddenCount > 0)
+            {
+                completed = completed.Where(scope.Filter.MatchesSide).ToArray();
+                open = open.Where(scope.Filter.MatchesSide).ToArray();
+            }
+        }
         var annotations = _database.GetTradeReviewAnnotations(journalId);
         var imports = new Dictionary<Guid, ImportBatch>();
         var setupDefinitions = _setups?.GetSetups(journalId, includeInactive: true) ?? Array.Empty<TradingSetupSummary>();
@@ -66,15 +94,18 @@ public sealed class TradeReviewService
             };
         }
 
-        var previous = summaries.Where(item => item.Date < date).Select(item => (DateOnly?)item.Date).LastOrDefault();
-        var next = summaries.Where(item => item.Date > date).Select(item => (DateOnly?)item.Date).FirstOrDefault();
+        var previous = navigation.Where(item => item.Date < date).Select(item => (DateOnly?)item.Date).LastOrDefault();
+        var next = navigation.Where(item => item.Date > date).Select(item => (DateOnly?)item.Date).FirstOrDefault();
         return new DailyReviewModel
         {
             Journal = journal,
             Date = date,
             DailyJournal = _database.GetDailyJournal(journalId, date),
-            CompletedTrades = summary?.CompletedTrades.Select(Map).ToArray() ?? Array.Empty<DailyReviewTrade>(),
-            OpenTrades = summary?.OpenTrades.Select(Map).ToArray() ?? Array.Empty<DailyReviewTrade>(),
+            CompletedTrades = completed.Select(Map).ToArray(),
+            OpenTrades = open.Select(Map).ToArray(),
+            HiddenTradeCount = hiddenCount,
+            ShowingHiddenTrades = showHidden && hiddenCount > 0,
+            OutsideFilterDates = scope is { HasDateBounds: true } && !scope.IncludesDate(date),
             SetupDefinitions = setupDefinitions,
             PreviousDate = previous,
             NextDate = next

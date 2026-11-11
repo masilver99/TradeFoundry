@@ -16,8 +16,7 @@ public static class DailyTradeAggregation
         foreach (var trade in trades)
         {
             var completed = trade.ExitUtc.HasValue && trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase);
-            var timestamp = completed ? trade.ExitUtc!.Value : trade.EntryUtc;
-            var date = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timestamp, timeZone).DateTime);
+            var date = JournalFilter.TradeDate(trade, timeZone);
             if (!groups.TryGetValue(date, out var group))
             {
                 group = (new List<Trade>(), new List<Trade>());

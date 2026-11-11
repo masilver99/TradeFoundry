@@ -179,7 +179,8 @@ public sealed class SetupsModel : PageModel
         Journal = _database.GetJournal(JournalId);
         if (Journal is null) return;
         Setups = _setups.GetSetups(JournalId, includeInactive: true);
-        Performance = _setups.GetPerformance(JournalId);
+        var filter = JournalFilterRequest.Resolve(HttpContext, Journal);
+        Performance = _setups.GetPerformance(JournalId, filter is { IsActive: true } ? filter.Includes : null);
         var selectedId = SetupId;
         if (selectedId.HasValue)
         {

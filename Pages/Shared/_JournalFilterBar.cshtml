@@ -1,0 +1,67 @@
+@model TradeFoundry.Services.JournalFilterContext
+@using System.Globalization
+@using TradeFoundry.Core
+@using TradeFoundry.Services
+@{
+    var scope = Model.Scope;
+    var filter = scope.Filter;
+    var isCustom = filter.Period == "custom";
+    var fromText = filter.CustomFrom?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+    var toText = filter.CustomTo?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+    var presetDates = filter.HasPeriod && !isCustom ? JournalFilterScope.RangeText(scope.From, scope.To) : string.Empty;
+    var sides = new[] { ("all", "All"), ("long", "Long"), ("short", "Short") };
+}
+@if (!Model.AppliesToPage)
+{
+    @if (filter.IsActive)
+    {
+        <p class="tf-filter-note" role="note">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 8v6l-4-2v-4z"/></svg>
+            <span>Journal filter <strong>@scope.Summary</strong> doesn't apply to this page.</span>
+        </p>
+    }
+    return;
+}
+<form class="tf-filter-bar @(filter.IsActive ? "is-active" : null)" method="get" action="@(Context.Request.PathBase + Context.Request.Path)"
+      data-journal-filter data-filter-query="@filter.ToQueryString()" data-filter-from-url="@(Model.FromUrl ? "true" : "false")" aria-label="Journal filter">
+    @foreach (var item in JournalFilterRequest.PreservedQuery(Context.Request))
+    {
+        <input type="hidden" name="@item.Key" value="@item.Value" />
+    }
+    <span class="tf-filter-bar-label">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 8v6l-4-2v-4z"/></svg>
+        Journal filter
+    </span>
+    <div class="tf-filter-period">
+        <label class="visually-hidden" for="tf-filter-period">Dates</label>
+        <select id="tf-filter-period" name="@JournalFilter.PeriodKey" class="form-select form-select-sm" data-filter-period>
+            @foreach (var (value, label) in JournalFilter.Periods)
+            {
+                <option value="@value" selected="@(filter.Period == value)">@label</option>
+            }
+        </select>
+        @if (presetDates.Length > 0)
+        {
+            <span class="tf-filter-dates" data-filter-dates>@presetDates</span>
+        }
+    </div>
+    <div class="tf-filter-custom" data-filter-custom hidden="@(isCustom ? null : "hidden")">
+        <label><span class="visually-hidden">From</span><input type="date" class="form-control form-control-sm" name="@JournalFilter.FromKey" value="@fromText" disabled="@(isCustom ? null : "disabled")" aria-label="From date" data-filter-from /></label>
+        <span aria-hidden="true">–</span>
+        <label><span class="visually-hidden">To</span><input type="date" class="form-control form-control-sm" name="@JournalFilter.ToKey" value="@toText" disabled="@(isCustom ? null : "disabled")" aria-label="To date" data-filter-to /></label>
+        <button type="submit" class="btn btn-sm btn-primary" data-filter-apply>Apply</button>
+        <span class="tf-filter-error" data-filter-error role="alert" hidden></span>
+    </div>
+    <div class="tf-filter-side" role="radiogroup" aria-label="Direction">
+        @foreach (var (value, label) in sides)
+        {
+            <input type="radio" class="btn-check" name="@JournalFilter.SideKey" id="tf-filter-side-@value" value="@value" checked="@(filter.Side == value)" autocomplete="off" data-filter-side />
+            <label class="btn btn-sm" for="tf-filter-side-@value">@label</label>
+        }
+    </div>
+    @if (filter.IsActive)
+    {
+        <a class="tf-filter-clear" href="@JournalFilterRequest.ClearUrl(Context.Request)" data-filter-clear>Clear filter</a>
+    }
+    <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button></noscript>
+</form>

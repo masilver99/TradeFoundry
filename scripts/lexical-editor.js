@@ -11,7 +11,7 @@ import {
 import {registerMarkdownShortcuts, TRANSFORMERS} from "@lexical/markdown";
 import {$setBlocksType} from "@lexical/selection";
 import {$createHeadingNode, $createQuoteNode, HeadingNode, QuoteNode, registerRichText} from "@lexical/rich-text";
-import {$applyNodeReplacement, $createParagraphNode, $getNodeByKey, $getRoot, $getSelection, $isRangeSelection, $setSelection, createEditor, ElementNode, FORMAT_TEXT_COMMAND, REDO_COMMAND, UNDO_COMMAND} from "lexical";
+import {$applyNodeReplacement, $createParagraphNode, $getNodeByKey, $getRoot, $getSelection, $isRangeSelection, $setSelection, createEditor, ElementNode, FORMAT_TEXT_COMMAND, REDO_COMMAND, RootNode, UNDO_COMMAND} from "lexical";
 
 class DailyJournalImageNode extends ElementNode {
   static getType() {
@@ -213,8 +213,9 @@ function initializeEditor(container) {
   registerList(editor);
   registerHistory(editor, createEmptyHistoryState(), 1000);
   registerMarkdownShortcuts(editor, TRANSFORMERS);
+  editor.registerNodeTransform(RootNode, $ensureEditableImageBoundaries);
   restoreLexicalState(editor, source.value);
-  ensureTrailingParagraphAfterImage(editor);
+  editor.update($ensureEditableImageBoundaries, { discrete: true });
 
   let lastValidState = editor.getEditorState();
   let lastDocumentJson = JSON.stringify(lastValidState.toJSON().root);
@@ -402,15 +403,15 @@ function registerDailyJournalImagePaste(editor, container, root, limitStatus, ma
   });
 }
 
-function ensureTrailingParagraphAfterImage(editor) {
-  editor.update(() => {
-    const root = $getRoot();
-    const last = root.getLastChild();
-    if (last?.getType() !== DailyJournalImageNode.getType()) return;
-    const paragraph = $createParagraphNode();
-    last.insertAfter(paragraph);
-    paragraph.selectStart();
-  }, { discrete: true });
+function $ensureEditableImageBoundaries() {
+  const root = $getRoot();
+  // A blank editor needs a paragraph before the first Enter, and non-editable
+  // images need text positions on both sides, including in older saved notes.
+  if (root.getChildrenSize() === 0) root.append($createParagraphNode());
+  const first = root.getFirstChild();
+  if (first?.getType() === DailyJournalImageNode.getType()) first.insertBefore($createParagraphNode());
+  const last = root.getLastChild();
+  if (last?.getType() === DailyJournalImageNode.getType()) last.insertAfter($createParagraphNode());
 }
 
 function placeCaretAfterImages(nodes) {

@@ -65,9 +65,22 @@ public static class JournalFilterRequest
     /// <summary>The current page with the filter cleared (explicitly, so the remembered filter is forgotten too).</summary>
     /// <param name="keepSide">Keep this direction (a dates-only page clears just its dates).</param>
     public static string ClearUrl(HttpRequest request, string? keepSide = null) =>
-        Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(request.PathBase + request.Path,
-            PreservedQuery(request).Select(item => new KeyValuePair<string, string?>(item.Key, item.Value))
-                .Append(new(JournalFilter.PeriodKey, "all")).Append(new(JournalFilter.SideKey, keepSide ?? "all")));
+        ApplyUrl(request, JournalFilter.Parse("all", null, null, keepSide));
+
+    /// <summary>
+    /// The current page showing <paramref name="filter"/>. Period and direction are always written,
+    /// even when "all", so the link replaces the remembered filter rather than mixing with it.
+    /// </summary>
+    public static string ApplyUrl(HttpRequest request, JournalFilter filter)
+    {
+        var values = filter.ToQuery();
+        var filterValues = new List<KeyValuePair<string, string?>> { new(JournalFilter.PeriodKey, filter.Period) };
+        if (values.TryGetValue(JournalFilter.FromKey, out var from)) filterValues.Add(new(JournalFilter.FromKey, from));
+        if (values.TryGetValue(JournalFilter.ToKey, out var to)) filterValues.Add(new(JournalFilter.ToKey, to));
+        filterValues.Add(new(JournalFilter.SideKey, filter.Side));
+        return Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(request.PathBase + request.Path,
+            PreservedQuery(request).Select(item => new KeyValuePair<string, string?>(item.Key, item.Value)).Concat(filterValues));
+    }
 
     private static (JournalFilter Filter, bool FromUrl) Read(HttpContext context, Guid journalId, bool cookieOnly = false)
     {
@@ -76,11 +89,7 @@ public static class JournalFilterRequest
             return (JournalFilter.Parse(query[JournalFilter.PeriodKey], query[JournalFilter.FromKey], query[JournalFilter.ToKey], query[JournalFilter.SideKey]), true);
 
         if (context.Request.Cookies.TryGetValue(CookieName(journalId), out var stored) && !string.IsNullOrWhiteSpace(stored))
-        {
-            var values = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(stored);
-            string? Value(string key) => values.TryGetValue(key, out var item) ? item.ToString() : null;
-            return (JournalFilter.Parse(Value(JournalFilter.PeriodKey), Value(JournalFilter.FromKey), Value(JournalFilter.ToKey), Value(JournalFilter.SideKey)), false);
-        }
+            return (JournalFilter.FromQueryString(stored), false);
 
         return (JournalFilter.None, false);
     }

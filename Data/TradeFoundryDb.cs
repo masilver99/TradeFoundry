@@ -172,6 +172,7 @@ public sealed partial class TradeFoundryDb
 
         InitializeExpenses(connection);
         InitializePublishing(connection);
+        InitializeSavedFilters(connection);
 
         // The application started without migrations, so keep schema upgrades
         // additive and idempotent for existing local SQLite files.

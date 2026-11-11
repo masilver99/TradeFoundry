@@ -149,6 +149,62 @@ public sealed class JournalFilterTests
         Assert.False(JournalFilterRequest.Resolve(fromCookie, other).IsActive);
     }
 
+    [Fact]
+    public void Saved_filters_round_trip_replace_by_name_and_stay_in_their_journal()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var (database, journal) = CreateFixture(directory);
+            var other = database.CreateJournal("Sim", "sim", string.Empty, NewYork, "USD", "flat_to_flat");
+
+            var shorts = database.SaveFilter(journal.Id, "  Q4   shorts ", JournalFilter.Parse("custom", "2026-10-01", "2026-12-31", "short"));
+            Assert.Equal("Q4 shorts", shorts.Name);
+            database.SaveFilter(journal.Id, "month", JournalFilter.Parse("this-month", null, null, null));
+
+            var saved = database.GetSavedFilters(journal.Id);
+            Assert.Equal(new[] { "month", "Q4 shorts" }, saved.Select(item => item.Name));
+            Assert.Equal(JournalFilter.Parse("custom", "2026-10-01", "2026-12-31", "short"), saved[1].Filter);
+            // A preset is kept by name, not as the dates it meant when saved.
+            Assert.Equal("this-month", saved[0].Filter.Period);
+            Assert.Null(saved[0].Filter.CustomFrom);
+            Assert.Equal("This month · All directions", saved[0].Filter.Describe());
+            Assert.Equal("Oct 1 – Dec 31, 2026 · Short only", saved[1].Filter.Describe());
+
+            // Saving under an existing name (any case) replaces it.
+            var replaced = database.SaveFilter(journal.Id, "q4 SHORTS", JournalFilter.Parse("this-quarter", null, null, "short"));
+            Assert.Equal(shorts.Id, replaced.Id);
+            saved = database.GetSavedFilters(journal.Id);
+            Assert.Equal(2, saved.Count);
+            Assert.Equal("this-quarter", saved.Single(item => item.Id == shorts.Id).Filter.Period);
+
+            Assert.Empty(database.GetSavedFilters(other.Id));
+            Assert.False(database.DeleteSavedFilter(other.Id, shorts.Id));
+            Assert.True(database.DeleteSavedFilter(journal.Id, shorts.Id));
+            Assert.Single(database.GetSavedFilters(journal.Id));
+
+            Assert.Throws<InvalidOperationException>(() => database.SaveFilter(journal.Id, "Everything", JournalFilter.None));
+            Assert.Throws<InvalidOperationException>(() => database.SaveFilter(journal.Id, "   ", JournalFilter.Parse("this-year", null, null, null)));
+            Assert.Throws<InvalidOperationException>(() => database.SaveFilter(journal.Id, new string('x', TradeFoundryDb.SavedFilterNameMaxLength + 1), JournalFilter.Parse("this-year", null, null, null)));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Apply_url_writes_period_and_direction_and_keeps_page_values()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/journal/x/trades";
+        context.Request.QueryString = new QueryString("?symbol=MES&period=this-year&side=long&pageNumber=3");
+        Assert.Equal("/journal/x/trades?symbol=MES&period=last-month&side=all", JournalFilterRequest.ApplyUrl(context.Request, JournalFilter.Parse("last-month", null, null, null)));
+        Assert.Equal("/journal/x/trades?symbol=MES&period=custom&from=2026-10-01&to=2026-10-31&side=short",
+            JournalFilterRequest.ApplyUrl(context.Request, JournalFilter.Parse("custom", "2026-10-01", "2026-10-31", "short")));
+        Assert.Equal("/journal/x/trades?symbol=MES&period=all&side=long", JournalFilterRequest.ClearUrl(context.Request, "long"));
+    }
+
     private static void AssertFilter(TradeFoundryDb database, Journal journal, JournalFilter filter, int expectedCount, decimal expectedNet, int expectedOpen = 0)
     {
         var scope = filter.Scope(journal.TimeZone, new DateOnly(2026, 11, 11));

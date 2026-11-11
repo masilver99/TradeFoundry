@@ -66,6 +66,15 @@ public sealed record JournalFilter
         return new JournalFilter { Period = normalizedPeriod, CustomFrom = fromDate, CustomTo = toDate, Side = normalizedSide };
     }
 
+    /// <summary>Reads a query string written by <see cref="ToQueryString"/> (a cookie or a saved filter).</summary>
+    public static JournalFilter FromQueryString(string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return None;
+        var values = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(query);
+        string? Value(string key) => values.TryGetValue(key, out var item) ? item.ToString() : null;
+        return Parse(Value(PeriodKey), Value(FromKey), Value(ToKey), Value(SideKey));
+    }
+
     public static DateOnly? ParseDate(string? value)
         => DateOnly.TryParseExact(value?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : null;
 
@@ -96,6 +105,17 @@ public sealed record JournalFilter
         return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(completed ? trade.ExitUtc!.Value : trade.EntryUtc, timeZone).DateTime);
     }
 
+    public string SideLabel => Side switch { "long" => "Long only", "short" => "Short only", _ => "All directions" };
+
+    /// <summary>Names the filter without resolving presets to dates ("This month · Short only").</summary>
+    public string Describe()
+    {
+        var period = !HasPeriod ? "All dates"
+            : Period == "custom" ? JournalFilterScope.RangeText(CustomFrom, CustomTo)
+            : Periods.First(item => item.Value == Period).Label;
+        return $"{period} · {SideLabel}";
+    }
+
     public bool MatchesSide(Trade trade) => !HasSide || trade.Direction.Equals(Side, StringComparison.OrdinalIgnoreCase);
 
     public bool MatchesDate(DateOnly date, DateOnly today)
@@ -124,6 +144,9 @@ public sealed record JournalFilter
 
     public string ToQueryString() => string.Join("&", ToQuery().Select(item => $"{item.Key}={Uri.EscapeDataString(item.Value)}"));
 }
+
+/// <summary>A filter kept under a name in one journal. Presets keep their name, so a saved "This month" follows the calendar.</summary>
+public sealed record SavedJournalFilter(Guid Id, string Name, JournalFilter Filter);
 
 /// <summary>A filter resolved against one journal's time zone and today's date.</summary>
 public sealed class JournalFilterScope
@@ -179,7 +202,7 @@ public sealed class JournalFilterScope
         }
     }
 
-    public string SideLabel => Filter.Side switch { "long" => "Long only", "short" => "Short only", _ => "All directions" };
+    public string SideLabel => Filter.SideLabel;
 
     public string Summary => $"{PeriodLabel} · {SideLabel}";
 

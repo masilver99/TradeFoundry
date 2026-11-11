@@ -1466,6 +1466,29 @@ function initializeJournalFilter() {
       showError("Enter dates as year-month-day.");
     }
   });
+
+  // Saved filters menu: closes on Escape or a click elsewhere, and opens with the name box ready when saving.
+  const saved = form.querySelector("[data-filter-saved]");
+  if (saved) {
+    const name = saved.querySelector("input[name='name']");
+    saved.addEventListener("toggle", () => {
+      if (saved.open && name && !name.value) name.focus();
+    });
+    document.addEventListener("click", event => {
+      if (saved.open && !saved.contains(event.target)) saved.open = false;
+    });
+    saved.addEventListener("keydown", event => {
+      if (event.key !== "Escape" || !saved.open) return;
+      saved.open = false;
+      saved.querySelector("summary")?.focus();
+    });
+    if (saved.open) name?.focus();
+  }
+  const status = form.querySelector("[data-filter-status]");
+  if (status) {
+    window.setTimeout(() => status.classList.add("is-fading"), 4000);
+    window.setTimeout(() => status.remove(), 4500);
+  }
 }
 
 // Trade Ledger: filters apply as you type or choose, without a full reload, and any trade row opens its review.

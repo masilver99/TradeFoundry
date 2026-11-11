@@ -11,7 +11,8 @@ import {
 import {registerMarkdownShortcuts, TRANSFORMERS} from "@lexical/markdown";
 import {$setBlocksType} from "@lexical/selection";
 import {$createHeadingNode, $createQuoteNode, HeadingNode, QuoteNode, registerRichText} from "@lexical/rich-text";
-import {$applyNodeReplacement, $createParagraphNode, $getNodeByKey, $getRoot, $getSelection, $isRangeSelection, $setSelection, createEditor, ElementNode, FORMAT_TEXT_COMMAND, REDO_COMMAND, UNDO_COMMAND} from "lexical";
+import {openImageAnnotator, sanitizeAnnotationState} from "./image-annotator.js";
+import {$applyNodeReplacement, $createParagraphNode, $getNodeByKey, $getRoot, $getSelection, $isRangeSelection, $setSelection, createEditor, ElementNode, FORMAT_TEXT_COMMAND, REDO_COMMAND, RootNode, UNDO_COMMAND} from "lexical";
 
 class DailyJournalImageNode extends ElementNode {
   static getType() {
@@ -19,12 +20,24 @@ class DailyJournalImageNode extends ElementNode {
   }
 
   static clone(node) {
-    return new DailyJournalImageNode(node.__attachmentId, node.__src, node.__altText, node.__width, node.__key);
+    const clone = new DailyJournalImageNode(node.__attachmentId, node.__src, node.__altText, node.__width, node.__key);
+    clone.__originalAttachmentId = node.__originalAttachmentId;
+    clone.__originalSrc = node.__originalSrc;
+    clone.__annotation = node.__annotation;
+    return clone;
   }
 
   static importJSON(serializedNode) {
-    return $createDailyJournalImageNode(serializedNode.attachmentId, serializedNode.src, serializedNode.altText, serializedNode.width)
+    const node = $createDailyJournalImageNode(serializedNode.attachmentId, serializedNode.src, serializedNode.altText, serializedNode.width)
       .updateFromJSON(serializedNode);
+    const originalSrc = normalizeDailyJournalImageUrl(serializedNode.originalSrc);
+    const annotation = sanitizeAnnotationState(serializedNode.annotation);
+    if (originalSrc && serializedNode.originalAttachmentId && annotation) {
+      node.__originalAttachmentId = String(serializedNode.originalAttachmentId);
+      node.__originalSrc = originalSrc;
+      node.__annotation = annotation;
+    }
+    return node;
   }
 
   static importDOM() {
@@ -49,6 +62,11 @@ class DailyJournalImageNode extends ElementNode {
     this.__src = normalizeDailyJournalImageUrl(src);
     this.__altText = String(altText || "Pasted image");
     this.__width = normalizeImageWidth(width);
+    // When annotated, attachmentId/src point at the rendered copy (which is what
+    // publishing and every reader uses), and the untouched upload is kept here.
+    this.__originalAttachmentId = "";
+    this.__originalSrc = "";
+    this.__annotation = null;
   }
 
   createDOM() {
@@ -77,7 +95,14 @@ class DailyJournalImageNode extends ElementNode {
     resizeButton.setAttribute("aria-label", `Resize image ${this.__altText}. Drag or use the left and right arrow keys.`);
     resizeButton.title = "Drag or use the left and right arrow keys to resize";
     resizeButton.textContent = "⤡";
-    figure.append(image, removeButton, resizeButton);
+    const annotateButton = document.createElement("button");
+    annotateButton.type = "button";
+    annotateButton.className = "tf-lexical-image-annotate";
+    annotateButton.dataset.dailyJournalImageAnnotate = "";
+    annotateButton.setAttribute("aria-label", `Annotate image ${this.__altText}`);
+    annotateButton.title = "Draw lines, arrows, and boxes on this image";
+    annotateButton.textContent = "Annotate";
+    figure.append(image, removeButton, annotateButton, resizeButton);
     return figure;
   }
 
@@ -85,6 +110,7 @@ class DailyJournalImageNode extends ElementNode {
     const image = dom.querySelector("img");
     if (!image) return true;
     if (previousNode.__src !== this.__src) image.src = this.__src;
+    if (previousNode.__attachmentId !== this.__attachmentId) dom.dataset.dailyJournalImageId = this.__attachmentId;
     if (previousNode.__altText !== this.__altText) image.alt = this.__altText;
     if (previousNode.__width !== this.__width) {
       if (this.__width > 0) image.style.width = `${this.__width}px`;
@@ -112,8 +138,48 @@ class DailyJournalImageNode extends ElementNode {
       attachmentId: this.__attachmentId,
       src: this.__src,
       altText: this.__altText,
-      width: this.__width
+      width: this.__width,
+      ...(this.__annotation ? {
+        originalAttachmentId: this.__originalAttachmentId,
+        originalSrc: this.__originalSrc,
+        annotation: this.__annotation
+      } : {})
     };
+  }
+
+  getAnnotationSource() {
+    return {
+      src: this.__annotation ? this.__originalSrc : this.__src,
+      attachmentId: this.__annotation ? this.__originalAttachmentId : this.__attachmentId,
+      annotation: this.__annotation,
+      altText: this.__altText
+    };
+  }
+
+  forgetOriginal() {
+    const writable = this.getWritable();
+    writable.__originalAttachmentId = "";
+    writable.__originalSrc = "";
+    writable.__annotation = null;
+    return writable;
+  }
+
+  setAnnotation(rendered, original, annotation) {
+    const writable = this.getWritable();
+    if (annotation && rendered) {
+      writable.__attachmentId = String(rendered.id);
+      writable.__src = normalizeDailyJournalImageUrl(rendered.src);
+      writable.__originalAttachmentId = String(original.attachmentId);
+      writable.__originalSrc = normalizeDailyJournalImageUrl(original.src);
+      writable.__annotation = annotation;
+    } else {
+      writable.__attachmentId = String(original.attachmentId);
+      writable.__src = normalizeDailyJournalImageUrl(original.src);
+      writable.__originalAttachmentId = "";
+      writable.__originalSrc = "";
+      writable.__annotation = null;
+    }
+    return writable;
   }
 
   setWidth(width) {
@@ -213,8 +279,9 @@ function initializeEditor(container) {
   registerList(editor);
   registerHistory(editor, createEmptyHistoryState(), 1000);
   registerMarkdownShortcuts(editor, TRANSFORMERS);
+  editor.registerNodeTransform(RootNode, $ensureEditableImageBoundaries);
   restoreLexicalState(editor, source.value);
-  ensureTrailingParagraphAfterImage(editor);
+  editor.update($ensureEditableImageBoundaries, { discrete: true });
 
   let lastValidState = editor.getEditorState();
   let lastDocumentJson = JSON.stringify(lastValidState.toJSON().root);
@@ -273,6 +340,8 @@ function initializeEditor(container) {
     editor.update(() => {
       const visit = node => {
         if (node instanceof DailyJournalImageNode && node.exportJSON().attachmentId === event.detail.id) node.remove();
+        // The annotated copy stays visible, but it can no longer be re-annotated without its original.
+        else if (node instanceof DailyJournalImageNode && node.getAnnotationSource().annotation && node.getAnnotationSource().attachmentId === event.detail.id) node.forgetOriginal();
         else if (typeof node.getChildren === 'function') node.getChildren().forEach(visit);
       };
       visit($getRoot());
@@ -280,7 +349,10 @@ function initializeEditor(container) {
     });
   });
   registerDailyJournalImageResize(editor, root);
-  registerDailyJournalImagePaste(editor, container, root, limitStatus, maxLength);
+  const uploader = createDailyJournalImageUploader(container);
+  registerDailyJournalImagePaste(editor, uploader, root, limitStatus, maxLength);
+  registerDailyJournalImageAnnotation(editor, uploader, root, maxLength);
+  if (!uploader) root.classList.add("tf-lexical-no-image-upload");
 
   container.dataset.lexicalInitialized = "true";
   source.hidden = true;
@@ -288,16 +360,107 @@ function initializeEditor(container) {
   root.setAttribute("contenteditable", "true");
 }
 
-function registerDailyJournalImagePaste(editor, container, root, limitStatus, maxLength) {
+function createDailyJournalImageUploader(container) {
   const uploadUrl = container.dataset.imageUploadUrl;
   const form = container.closest("form[data-daily-journal-form], form[data-review-form]");
   const status = container.querySelector("[data-lexical-image-status]");
-  if (!uploadUrl || !form || !status) return;
+  if (!uploadUrl || !form || !status) return null;
 
-  const supportedTypes = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
   const setStatus = text => {
     status.textContent = text;
   };
+
+  const upload = async file => {
+    const token = form.querySelector('input[name="__RequestVerificationToken"]');
+    const date = form.closest("[data-daily-journal-entry]")?.dataset.entryDate || new URL(uploadUrl, window.location.href).searchParams.get("date") || "";
+    if (!token?.value) throw new Error("The image upload could not be started. Reload this journal and try again.");
+    const body = new FormData();
+    body.append("image", file, file.name);
+    body.append("date", date);
+    body.append(token.name, token.value);
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      body,
+      credentials: "same-origin",
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    });
+    let result = {};
+    try { result = await response.json(); } catch { /* The error status below is enough. */ }
+    if (!response.ok || !result.saved || !result.image?.id || !result.image?.src) {
+      throw new Error(result.message || "The image could not be uploaded.");
+    }
+    const src = normalizeDailyJournalImageUrl(result.image.src);
+    if (!src) throw new Error("The uploaded image URL was not valid.");
+    if (result.day) window.updateDailyReviewSummary?.(result.day);
+    if (result.attachment) container.closest('[data-review-editor]')?.dispatchEvent(new CustomEvent('review-inline-image-uploaded', {detail:result}));
+    return { ...result.image, src };
+  };
+
+  return { upload, setStatus };
+}
+
+function registerDailyJournalImageAnnotation(editor, uploader, root, maxLength) {
+  root.addEventListener("click", async event => {
+    const button = event.target instanceof Element ? event.target.closest("[data-daily-journal-image-annotate]") : null;
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!uploader) return;
+    const { upload, setStatus } = uploader;
+    const nodeKey = button.closest("[data-lexical-node-key]")?.dataset.lexicalNodeKey;
+    if (!nodeKey) return;
+
+    const source = editor.getEditorState().read(() => {
+      const node = $getNodeByKey(nodeKey);
+      return node instanceof DailyJournalImageNode ? node.getAnnotationSource() : null;
+    });
+    if (!source?.src || !source.attachmentId) {
+      setStatus("This image cannot be annotated.");
+      return;
+    }
+
+    const result = await openImageAnnotator({ src: source.src, state: source.annotation, title: `Annotate ${source.altText}` });
+    if (!result) return;
+
+    const original = { attachmentId: source.attachmentId, src: source.src };
+    const applyAnnotation = (rendered, annotation) => editor.update(() => {
+      const node = $getNodeByKey(nodeKey);
+      if (node instanceof DailyJournalImageNode) node.setAnnotation(rendered, original, annotation);
+    });
+
+    if (!result.state) {
+      if (source.annotation) {
+        applyAnnotation(null, null);
+        setStatus("Annotations removed.");
+      }
+      return;
+    }
+
+    const currentLength = JSON.stringify(editor.getEditorState().toJSON()).length;
+    const previousLength = source.annotation ? JSON.stringify(source.annotation).length : 0;
+    if (maxLength > 0 && currentLength - previousLength + JSON.stringify(result.state).length + 512 > maxLength) {
+      setStatus("There is not enough room in this journal entry to save these annotations.");
+      return;
+    }
+
+    setStatus("Uploading annotated image…");
+    try {
+      const baseName = String(source.altText || "image").replace(/\.[a-z0-9]+$/i, "").replace(/-annotated$/i, "") || "image";
+      const extension = result.blob.type === "image/jpeg" ? "jpg" : "png";
+      const file = new File([result.blob], `${baseName}-annotated.${extension}`, { type: result.blob.type, lastModified: Date.now() });
+      const rendered = await upload(file);
+      applyAnnotation(rendered, result.state);
+      setStatus("Annotations saved.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "The annotated image could not be uploaded.");
+    }
+  });
+}
+
+function registerDailyJournalImagePaste(editor, uploader, root, limitStatus, maxLength) {
+  if (!uploader) return;
+  const { upload, setStatus } = uploader;
+  const supportedTypes = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
 
   root.addEventListener("paste", async event => {
     const items = Array.from(event.clipboardData?.items || []).filter(item => item.kind === "file" && String(item.type || "").toLowerCase().startsWith("image/"));
@@ -336,13 +499,6 @@ function registerDailyJournalImagePaste(editor, container, root, limitStatus, ma
       return;
     }
 
-    const token = form.querySelector('input[name="__RequestVerificationToken"]');
-    const date = form.closest("[data-daily-journal-entry]")?.dataset.entryDate || new URL(uploadUrl, window.location.href).searchParams.get("date") || "";
-    if (!token?.value) {
-      setStatus("The image upload could not be started. Reload this journal and try again.");
-      return;
-    }
-
     const savedSelection = editor.getEditorState().read(() => {
       const selection = $getSelection();
       return $isRangeSelection(selection) ? selection.clone() : null;
@@ -351,29 +507,9 @@ function registerDailyJournalImagePaste(editor, container, root, limitStatus, ma
     const uploadedImages = [];
     let uploadError = "";
     for (let index = 0; index < files.length; index++) {
-      const file = files[index];
       setStatus(`Uploading image ${index + 1} of ${files.length}…`);
-      const body = new FormData();
-      body.append("image", file, file.name);
-      body.append("date", date);
-      body.append(token.name, token.value);
       try {
-        const response = await fetch(uploadUrl, {
-          method: "POST",
-          body,
-          credentials: "same-origin",
-          headers: { "X-Requested-With": "XMLHttpRequest" }
-        });
-        let result = {};
-        try { result = await response.json(); } catch { /* The error status below is enough. */ }
-        if (!response.ok || !result.saved || !result.image?.id || !result.image?.src) {
-          throw new Error(result.message || "The image could not be uploaded.");
-        }
-        const src = normalizeDailyJournalImageUrl(result.image.src);
-        if (!src) throw new Error("The uploaded image URL was not valid.");
-        uploadedImages.push({ ...result.image, src });
-        if (result.day) window.updateDailyReviewSummary?.(result.day);
-        if (result.attachment) container.closest('[data-review-editor]')?.dispatchEvent(new CustomEvent('review-inline-image-uploaded', {detail:result}));
+        uploadedImages.push(await upload(files[index]));
       } catch (error) {
         uploadError = error instanceof Error ? error.message : "The image could not be uploaded.";
         break;
@@ -402,15 +538,15 @@ function registerDailyJournalImagePaste(editor, container, root, limitStatus, ma
   });
 }
 
-function ensureTrailingParagraphAfterImage(editor) {
-  editor.update(() => {
-    const root = $getRoot();
-    const last = root.getLastChild();
-    if (last?.getType() !== DailyJournalImageNode.getType()) return;
-    const paragraph = $createParagraphNode();
-    last.insertAfter(paragraph);
-    paragraph.selectStart();
-  }, { discrete: true });
+function $ensureEditableImageBoundaries() {
+  const root = $getRoot();
+  // A blank editor needs a paragraph before the first Enter, and non-editable
+  // images need text positions on both sides, including in older saved notes.
+  if (root.getChildrenSize() === 0) root.append($createParagraphNode());
+  const first = root.getFirstChild();
+  if (first?.getType() === DailyJournalImageNode.getType()) first.insertBefore($createParagraphNode());
+  const last = root.getLastChild();
+  if (last?.getType() === DailyJournalImageNode.getType()) last.insertAfter($createParagraphNode());
 }
 
 function placeCaretAfterImages(nodes) {

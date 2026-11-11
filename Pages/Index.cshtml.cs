@@ -29,6 +29,7 @@ public class IndexModel : PageModel
 
     public IReadOnlyList<Journal> Journals { get; private set; } = Array.Empty<Journal>();
     public JournalOverview? Overview { get; private set; }
+    public JournalFilterScope? Filter { get; private set; }
     public AccountSummary? Account { get; private set; }
     public string? FlashMessage { get; private set; }
     public string? FlashKind { get; private set; }
@@ -60,9 +61,10 @@ public class IndexModel : PageModel
 
     public IActionResult OnGetEquityChart(Guid journalId, bool daily)
     {
-        if (_database.GetJournal(journalId) is null) return NotFound();
+        var journal = _database.GetJournal(journalId);
+        if (journal is null) return NotFound();
 
-        var overview = _database.GetOverview(journalId);
+        var overview = _database.GetOverview(journalId, JournalFilterRequest.Resolve(HttpContext, journal).Filter);
         var chart = daily ? ChartRenderer.Equity(overview.DailyPnl) : ChartRenderer.Equity(overview.Equity);
         return Content(chart, "text/html; charset=utf-8");
     }
@@ -116,7 +118,9 @@ public class IndexModel : PageModel
         if (selected.HasValue)
         {
             JournalId = selected.Value;
-            Overview = _database.GetOverview(selected.Value);
+            var journal = Journals.First(x => x.Id == selected.Value);
+            Filter = JournalFilterRequest.Resolve(HttpContext, journal);
+            Overview = _database.GetOverview(selected.Value, Filter.Filter);
             Account = _accounts.GetSummary(selected.Value);
             GroupingPolicy = Overview.Journal.GroupingPolicy;
         }

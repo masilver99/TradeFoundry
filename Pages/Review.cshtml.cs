@@ -36,6 +36,8 @@ public class ReviewModel : PageModel
     [BindProperty(SupportsGet = true)] public string? Interval { get; set; }
     [BindProperty(SupportsGet = true)] public bool Saved { get; set; }
     [BindProperty(SupportsGet = true)] public bool JournalSaved { get; set; }
+    /// <summary>Show trades the journal filter's direction would hide on this day.</summary>
+    [BindProperty(SupportsGet = true, Name = "showHidden")] public bool ShowHidden { get; set; }
     [BindProperty] public TradeReviewPatch Edit { get; set; } = new();
     [BindProperty] public string? DailyJournalStateJson { get; set; }
     [BindProperty] public IFormFile? Screenshot { get; set; }
@@ -56,8 +58,8 @@ public class ReviewModel : PageModel
     {
         try
         {
-            var date = Date ?? _reviews.GetDefaultDate(JournalId);
-            Day = _reviews.GetDay(JournalId, date);
+            var date = Date ?? _reviews.GetDefaultDate(JournalId, FilterScope);
+            Day = GetFilteredDay(date);
             MaeTargets = _database.GetMaeTargetSettings(JournalId);
             Date = date;
             DailyJournalStateJson = Day.DailyJournal.Text;
@@ -213,14 +215,14 @@ public class ReviewModel : PageModel
             if (!saveAndNext)
                 return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = reviewKey, section = "review", saved = true });
 
-            var next = NextTradeKey(_reviews.GetDay(JournalId, date), reviewKey);
+            var next = NextTradeKey(GetFilteredDay(date, reviewKey), reviewKey);
             if (next is not null)
                 return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = next, section = "review", saved = true });
 
-            var currentDay = _reviews.GetDay(JournalId, date);
+            var currentDay = GetFilteredDay(date);
             if (currentDay.NextDate.HasValue)
             {
-                var nextDay = _reviews.GetDay(JournalId, currentDay.NextDate.Value);
+                var nextDay = GetFilteredDay(currentDay.NextDate.Value);
                 return RedirectToPage(new { journalId = JournalId, date = currentDay.NextDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = FirstTradeKey(nextDay), section = "review", saved = true });
             }
 
@@ -261,7 +263,7 @@ public class ReviewModel : PageModel
                 });
             }
 
-            var day = _reviews.GetDay(JournalId, date);
+            var day = GetFilteredDay(date, reviewKey);
             var trade = day.CompletedTrades.Concat(day.OpenTrades).FirstOrDefault(item => item.Trade.ReviewKey == reviewKey)?.Trade;
             object? tradePayload = trade is null
                 ? null
@@ -314,7 +316,7 @@ public class ReviewModel : PageModel
         try
         {
             (_setups ?? throw new InvalidOperationException("Setup tracking is not available.")).SaveEvaluations(JournalId, tradeSetupId, SetupCriterionEvaluations);
-            if (IsAjaxRequest()) return new JsonResult(new { saved = true, day = _reviews.GetDay(JournalId, date).Summary });
+            if (IsAjaxRequest()) return new JsonResult(new { saved = true, day = GetFilteredDay(date, reviewKey).Summary });
             return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus = reviewKey, section = "setups", saved = true });
         }
         catch (InvalidOperationException exception)
@@ -422,7 +424,7 @@ public class ReviewModel : PageModel
                 saved = true,
                 image = new { id = attachment.Id, src = url, altText = attachment.OriginalFileName },
                 attachment = new { id = attachment.Id, url, captionUrl = Url.Page("/Review", "UpdateAttachmentCaption", new { journalId = JournalId }), originalFileName = attachment.OriginalFileName, caption = attachment.Caption, length = attachment.Length },
-                day = _reviews.GetDay(JournalId, date).Summary
+                day = GetFilteredDay(date, reviewKey).Summary
             });
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
@@ -448,7 +450,7 @@ public class ReviewModel : PageModel
                 return new JsonResult(new
                 {
                     saved = true,
-                    day = _reviews.GetDay(JournalId, date).Summary,
+                    day = GetFilteredDay(date, reviewKey).Summary,
                     attachment = new
                     {
                         id = attachment.Id,
@@ -511,7 +513,7 @@ public class ReviewModel : PageModel
             }
 
             bool? hasReviewImages = string.IsNullOrWhiteSpace(focus) ? null : _reviews.GetAttachments(JournalId, focus).Count > 0;
-            return new JsonResult(new { removed = true, attachmentId, hasReviewImages, day = _reviews.GetDay(JournalId, date).Summary });
+            return new JsonResult(new { removed = true, attachmentId, hasReviewImages, day = GetFilteredDay(date, focus).Summary });
         }
 
         return RedirectToPage(new { journalId = JournalId, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), focus, section = "media", saved = true });
@@ -593,11 +595,29 @@ public class ReviewModel : PageModel
 
     public string DecimalInput(decimal? value) => value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
 
+    /// <summary>The journal filter for this request, or null when there is no request (unit tests) or no journal.</summary>
+    public JournalFilterScope? FilterScope
+    {
+        get
+        {
+            if (_filterResolved) return _filterScope;
+            _filterResolved = true;
+            var journal = HttpContext is null ? null : _database.GetJournal(JournalId);
+            _filterScope = journal is null ? null : JournalFilterRequest.Resolve(HttpContext!, journal);
+            return _filterScope;
+        }
+    }
+
+    private JournalFilterScope? _filterScope;
+    private bool _filterResolved;
+
+    private DailyReviewModel GetFilteredDay(DateOnly date, string? focusReviewKey = null) => _reviews.GetDay(JournalId, date, FilterScope, ShowHidden, focusReviewKey ?? Focus);
+
     private bool IsAjaxRequest() => string.Equals(Request.Headers["X-Requested-With"].ToString(), "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
 
     private void LoadDay()
     {
-        Day = _reviews.GetDay(JournalId, Date ?? _reviews.GetDefaultDate(JournalId));
+        Day = GetFilteredDay(Date ?? _reviews.GetDefaultDate(JournalId, FilterScope));
         MaeTargets = _database.GetMaeTargetSettings(JournalId);
     }
 

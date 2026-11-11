@@ -97,7 +97,9 @@ public sealed class ExpenseTests : IDisposable
         for (var i = 1; i <= 30; i++) _db.CreateExpense(_journal.Id, Draft(0.1m) with { Date = new(2026, 9, i), Description = "Expense " + i });
         _db.CreateExpense(_journal.Id, Draft(2m) with { CategoryId = otherCategory, Date = new(2026, 8, 31) });
         var model = PageModel();
-        model.Start = new(2026, 9, 1); model.End = new(2026, 9, 30); model.PageNumber = 2;
+        // The range comes from the shared journal filter in the URL.
+        model.PageContext.HttpContext.Request.QueryString = new QueryString("?period=custom&from=2026-09-01&to=2026-09-30");
+        model.PageNumber = 2;
         Assert.IsType<PageResult>(model.OnGet());
         Assert.Equal(30, model.Matches.Count);
         Assert.Equal(5, model.Rows.Count);
@@ -107,6 +109,12 @@ public sealed class ExpenseTests : IDisposable
         Assert.Single(_db.GetExpenses(_journal.Id, new(2026, 8, 31), new(2026, 9, 1), otherCategory));
         var export = Assert.IsType<FileContentResult>(model.OnGetExport());
         Assert.Equal(32, Encoding.UTF8.GetString(export.FileContents).Split("\r\n").Length); // header + 30 rows + trailing newline
+        Assert.Equal("expenses-20260901-20260930.csv", export.FileDownloadName);
+
+        // Without a range every expense matches, including August.
+        var unfiltered = PageModel();
+        Assert.IsType<PageResult>(unfiltered.OnGet());
+        Assert.Equal(31, unfiltered.Matches.Count);
     }
 
     [Theory]

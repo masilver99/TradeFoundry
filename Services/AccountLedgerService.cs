@@ -33,6 +33,13 @@ public sealed class AccountLedgerService
     }
 
     public AccountLedgerPage GetLedger(Guid journalId, int page = 1, int pageSize = DefaultPageSize)
+        => GetLedger(journalId, page, pageSize, null, null);
+
+    /// <summary>
+    /// The ledger with rows limited to a half-open UTC window. Balances are still calculated over the
+    /// whole history, so each row shows the real running balance; <see cref="AccountLedgerPage.Period"/> sums the window.
+    /// </summary>
+    public AccountLedgerPage GetLedger(Guid journalId, int page, int pageSize, DateTimeOffset? windowStartUtc, DateTimeOffset? windowEndUtcExclusive)
     {
         var journal = _database.GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         return Build(
@@ -41,7 +48,9 @@ public sealed class AccountLedgerService
             _database.GetAllTrades(journalId),
             _database.GetAccountBalanceEvents(journalId),
             page,
-            pageSize);
+            pageSize,
+            windowStartUtc,
+            windowEndUtcExclusive);
     }
 
     /// <summary>
@@ -55,7 +64,9 @@ public sealed class AccountLedgerService
         IEnumerable<Trade> trades,
         IEnumerable<AccountBalanceEvent> snapshots,
         int page = 1,
-        int pageSize = DefaultPageSize)
+        int pageSize = DefaultPageSize,
+        DateTimeOffset? windowStartUtc = null,
+        DateTimeOffset? windowEndUtcExclusive = null)
     {
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(transactions);
@@ -349,9 +360,16 @@ public sealed class AccountLedgerService
             StatusMessage = string.Join(" ", statusMessages)
         };
 
+        bool InWindow(LedgerEvent item) =>
+            (!windowStartUtc.HasValue || item.EffectiveUtc >= windowStartUtc.Value)
+            && (!windowEndUtcExclusive.HasValue || item.EffectiveUtc < windowEndUtcExclusive.Value);
+        var hasWindow = windowStartUtc.HasValue || windowEndUtcExclusive.HasValue;
+        var period = hasWindow ? BuildPeriod(ordered, InWindow, windowStartUtc, openingBalance) : null;
+
         var safePageSize = Math.Clamp(pageSize, 1, 200);
         var safePage = Math.Max(1, page);
         var newestFirst = ordered
+            .Where(item => !hasWindow || InWindow(item))
             .OrderByDescending(item => item.EffectiveUtc)
             .ThenByDescending(item => item.Priority)
             .ThenByDescending(item => item.TieUtc)
@@ -363,10 +381,35 @@ public sealed class AccountLedgerService
         return new AccountLedgerPage
         {
             Summary = summary,
+            Period = period,
             Entries = newestFirst.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToArray(),
             Page = safePage,
             PageSize = safePageSize,
             TotalCount = newestFirst.Length
+        };
+    }
+
+    /// <summary>Opening and closing calculated balances around the window, and the cash flows and realized profit inside it.</summary>
+    private static AccountPeriodSummary BuildPeriod(IReadOnlyList<LedgerEvent> ordered, Func<LedgerEvent, bool> inWindow, DateTimeOffset? windowStartUtc, decimal openingBalance)
+    {
+        var counted = ordered.Where(item => !item.Entry.IsBeforeBaseline).ToArray();
+        var before = windowStartUtc.HasValue ? counted.LastOrDefault(item => item.EffectiveUtc < windowStartUtc.Value) : null;
+        var inside = counted.Where(inWindow).ToArray();
+        // A window with a start opens at the balance just before it (nothing recorded yet → unknown);
+        // a window open at the start begins with the account's opening baseline.
+        var opening = windowStartUtc.HasValue
+            ? before?.Entry.CalculatedBalance
+            : inside.FirstOrDefault(item => item.IsOpening)?.Entry.CalculatedBalance ?? openingBalance;
+        var closing = inside.LastOrDefault(item => item.Entry.CalculatedBalance.HasValue)?.Entry.CalculatedBalance ?? opening;
+        return new AccountPeriodSummary
+        {
+            OpeningBalance = opening,
+            ClosingBalance = closing,
+            Deposits = inside.Where(item => item.Kind == "deposit").Sum(item => item.SignedAmount ?? 0m),
+            Withdrawals = -inside.Where(item => item.Kind == "withdrawal").Sum(item => item.SignedAmount ?? 0m),
+            RealizedProfit = inside.Where(item => item.IsTradePnl).Sum(item => item.SignedAmount ?? 0m),
+            RealizedTradeCount = inside.Count(item => item.IsTradePnl),
+            RowCount = ordered.Count(inWindow)
         };
     }
 

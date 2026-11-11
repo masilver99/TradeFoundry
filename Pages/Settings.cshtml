@@ -89,3 +89,15 @@
         </section>
     </div>
 </section>
+
+<section class="card tf-card mt-3"><div class="card-body">
+<h3 class="tf-card-title">Image storage</h3>
+<p>New daily journal images and trade screenshots are saved as WebP. These settings apply to this journal. Existing images and expense receipts keep their current format.</p>
+@if (Model.ImageSettingsStatus is not null) { <p role="status">@Model.ImageSettingsStatus</p> }
+<form method="post" asp-page-handler="Images">
+<div asp-validation-summary="All" class="text-danger"></div>
+<label class="form-check mb-3"><input asp-for="ImageSettings.Lossless" class="form-check-input" /><span class="form-check-label">Lossless encoding (preserves chart text and detail)</span></label>
+<div class="mb-3"><label asp-for="ImageSettings.Quality" class="form-label">Quality (0 to 100)</label><input asp-for="ImageSettings.Quality" min="0" max="100" class="form-control" /><p class="form-text">Higher values retain more detail in lossy mode, or spend more compression effort in lossless mode.</p></div>
+<div class="mb-3"><label asp-for="ImageSettings.Method" class="form-label">Compression effort (0 to 6)</label><input asp-for="ImageSettings.Method" min="0" max="6" class="form-control" /><p class="form-text">0 is fastest; 6 spends more time reducing file size. Dimensions and transparency are retained. Animated images are rejected.</p></div>
+<button class="btn btn-primary" type="submit">Save image settings</button>
+</form></div></section>

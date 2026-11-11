@@ -57,6 +57,28 @@
 <span class="tf-review-indicator tf-daily-journal-indicator" data-review-daily-indicator hidden="@(!summary.HasDailyJournal)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h3M8 18h6"/></svg></span>
 Daily journal <span class="visually-hidden" data-review-daily-state>@(summary.HasDailyJournal ? "populated" : "empty")</span></button>
 <button type="button" class="btn btn-outline-secondary tf-review-shortcuts-button" data-review-shortcuts title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button></header>
+    @if (Model.FilterScope is { IsActive: true } filterScope && (Model.Day.OutsideFilterDates || Model.Day.HiddenTradeCount > 0))
+    {
+        var hiddenSide = filterScope.Filter.Side == "long" ? "short" : "long";
+        var hiddenNoun = $"{Model.Day.HiddenTradeCount} {hiddenSide} trade{(Model.Day.HiddenTradeCount == 1 ? string.Empty : "s")}";
+        <div class="tf-filter-notice" role="status" data-review-filter-notice>
+            @if (Model.Day.OutsideFilterDates)
+            {
+                <span>This day is outside the journal filter (@filterScope.PeriodLabel). Previous and next stay within the filter.</span>
+            }
+            @if (Model.Day.HiddenTradeCount > 0 && !Model.Day.ShowingHiddenTrades)
+            {
+                <span>@hiddenNoun hidden by the <strong>@filterScope.SideLabel</strong> filter.</span>
+                <a href="@TradeFoundry.Services.JournalFilterRequest.UrlWith(Model.Request, ("showHidden", "true"))">Show</a>
+            }
+            else if (Model.Day.ShowingHiddenTrades)
+            {
+                <span>Showing @hiddenNoun outside the <strong>@filterScope.SideLabel</strong> filter.</span>
+                <a href="@TradeFoundry.Services.JournalFilterRequest.UrlWith(Model.Request, ("showHidden", null), ("focus", null))">Hide</a>
+            }
+            <a href="@TradeFoundry.Services.JournalFilterRequest.ClearUrl(Model.Request)">Clear filter</a>
+        </div>
+    }
     @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
     {
         <div class="alert alert-danger" role="alert">@Model.ErrorMessage</div>

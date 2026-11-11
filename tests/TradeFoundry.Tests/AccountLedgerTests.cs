@@ -39,6 +39,44 @@ public sealed class AccountLedgerTests
     }
 
     [Fact]
+    public void DateWindowKeepsRunningBalancesFromFullHistoryAndSumsOnlyTheWindow()
+    {
+        var journalId = Guid.NewGuid();
+        var start = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
+        var journal = Journal(journalId, 1_000m, start);
+        var earlyDeposit = Transaction(journalId, AccountTransactionType.Deposit, 500m, start.AddDays(1), 1);
+        var earlyTrade = Trade(journalId, 200m, start.AddDays(2), 1);
+        var windowTrade = Trade(journalId, -50m, start.AddDays(10), 2);
+        var windowWithdrawal = Transaction(journalId, AccountTransactionType.Withdrawal, 100m, start.AddDays(11), 2);
+        var lateTrade = Trade(journalId, 75m, start.AddDays(30), 3);
+
+        var windowStart = start.AddDays(5);
+        var windowEnd = start.AddDays(20);
+        var ledger = AccountLedgerService.Build(journal, [earlyDeposit, windowWithdrawal], [earlyTrade, windowTrade, lateTrade], [], 1, 50, windowStart, windowEnd);
+
+        // Rows are limited to the window, but each keeps the real running balance.
+        Assert.Equal(2, ledger.TotalCount);
+        Assert.Equal(1_650m, ledger.Entries.Single(entry => entry.Kind == "realized_trade_pnl").CalculatedBalance);
+        Assert.Equal(1_550m, ledger.Entries.Single(entry => entry.Kind == "withdrawal").CalculatedBalance);
+        // The whole-account summary is unchanged by the window.
+        Assert.Equal(1_625m, ledger.Summary.CurrentBalance);
+
+        var period = Assert.IsType<AccountPeriodSummary>(ledger.Period);
+        Assert.Equal(1_700m, period.OpeningBalance);
+        Assert.Equal(1_550m, period.ClosingBalance);
+        Assert.Equal(-50m, period.RealizedProfit);
+        Assert.Equal(1, period.RealizedTradeCount);
+        Assert.Equal(0m, period.Deposits);
+        Assert.Equal(100m, period.Withdrawals);
+
+        // A window before any activity has no opening balance and an empty ledger.
+        var empty = AccountLedgerService.Build(journal, [earlyDeposit], [earlyTrade], [], 1, 50, start.AddYears(-1), start.AddYears(-1).AddDays(7));
+        Assert.Equal(0, empty.TotalCount);
+        Assert.Null(empty.Period!.OpeningBalance);
+        Assert.Null(AccountLedgerService.Build(journal, [earlyDeposit], [earlyTrade], []).Period);
+    }
+
+    [Fact]
     public void EarliestImportedSnapshotIsFallbackBaselineAndLaterSnapshotsReconcile()
     {
         var journalId = Guid.NewGuid();

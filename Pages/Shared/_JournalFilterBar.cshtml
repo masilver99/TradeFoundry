@@ -1,0 +1,160 @@
+@model TradeFoundry.Services.JournalFilterContext
+@using System.Globalization
+@using TradeFoundry.Core
+@using TradeFoundry.Data
+@using TradeFoundry.Pages
+@using TradeFoundry.Services
+@inject TradeFoundryDb Database
+@{
+    var scope = Model.Scope;
+    var filter = scope.Filter;
+    var isCustom = filter.Period == "custom";
+    var fromText = filter.CustomFrom?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+    var toText = filter.CustomTo?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+    var presetDates = filter.HasPeriod && !isCustom ? JournalFilterScope.RangeText(scope.From, scope.To) : string.Empty;
+    var sides = new[] { ("all", "All"), ("long", "Long"), ("short", "Short") };
+}
+@if (!Model.AppliesToPage)
+{
+    @if (filter.IsActive)
+    {
+        <p class="tf-filter-note" role="note">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 8v6l-4-2v-4z"/></svg>
+            <span>Journal filter <strong>@scope.Summary</strong> doesn't apply to this page.</span>
+        </p>
+    }
+    return;
+}
+@{
+    var saved = Database.GetSavedFilters(Model.JournalId);
+    var currentSaved = saved.FirstOrDefault(item => item.Filter == filter);
+    var savedMessage = TempData[JournalFiltersModel.MessageKey] as string;
+    var savedError = TempData[JournalFiltersModel.ErrorKey] as string;
+    var filtersUrl = $"/journal/{Model.JournalId:D}/filters";
+    var returnUrl = Context.Request.PathBase + Context.Request.Path + Context.Request.QueryString;
+}
+<form class="tf-filter-bar @((Model.DatesOnly ? filter.HasPeriod : filter.IsActive) ? "is-active" : null)" method="get" action="@(Context.Request.PathBase + Context.Request.Path)"
+      data-journal-filter data-filter-query="@filter.ToQueryString()" data-filter-from-url="@(Model.FromUrl ? "true" : "false")" aria-label="Journal filter">
+    @foreach (var item in JournalFilterRequest.PreservedQuery(Context.Request))
+    {
+        <input type="hidden" name="@item.Key" value="@item.Value" />
+    }
+    <span class="tf-filter-bar-label">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 8v6l-4-2v-4z"/></svg>
+        Journal filter
+    </span>
+    <div class="tf-filter-period">
+        <label class="visually-hidden" for="tf-filter-period">Dates</label>
+        <select id="tf-filter-period" name="@JournalFilter.PeriodKey" class="form-select form-select-sm" data-filter-period>
+            @foreach (var (value, label) in JournalFilter.Periods)
+            {
+                <option value="@value" selected="@(filter.Period == value)">@label</option>
+            }
+        </select>
+        @if (presetDates.Length > 0)
+        {
+            <span class="tf-filter-dates" data-filter-dates>@presetDates</span>
+        }
+    </div>
+    <div class="tf-filter-custom" data-filter-custom hidden="@(isCustom ? null : "hidden")">
+        <label><span class="visually-hidden">From</span><input type="date" class="form-control form-control-sm" name="@JournalFilter.FromKey" value="@fromText" disabled="@(isCustom ? null : "disabled")" aria-label="From date" data-filter-from /></label>
+        <span aria-hidden="true">–</span>
+        <label><span class="visually-hidden">To</span><input type="date" class="form-control form-control-sm" name="@JournalFilter.ToKey" value="@toText" disabled="@(isCustom ? null : "disabled")" aria-label="To date" data-filter-to /></label>
+        <button type="submit" class="btn btn-sm btn-primary" data-filter-apply>Apply</button>
+        <span class="tf-filter-error" data-filter-error role="alert" hidden></span>
+    </div>
+    @if (Model.DatesOnly)
+    {
+        @* Direction is kept for the other pages but has nothing to filter here. *@
+        <input type="hidden" name="@JournalFilter.SideKey" value="@filter.Side" />
+        @if (filter.HasSide)
+        {
+            <span class="tf-filter-dates" title="Deposits, withdrawals, and expenses have no direction.">@scope.SideLabel doesn't apply here</span>
+        }
+    }
+    else
+    {
+    <div class="tf-filter-side" role="radiogroup" aria-label="Direction">
+        @foreach (var (value, label) in sides)
+        {
+            <input type="radio" class="btn-check" name="@JournalFilter.SideKey" id="tf-filter-side-@value" value="@value" checked="@(filter.Side == value)" autocomplete="off" data-filter-side />
+            <label class="btn btn-sm" for="tf-filter-side-@value">@label</label>
+        }
+    </div>
+    }
+    @if (Model.DatesOnly ? filter.HasPeriod : filter.IsActive)
+    {
+        <a class="tf-filter-clear" href="@JournalFilterRequest.ClearUrl(Context.Request, Model.DatesOnly ? filter.Side : null)" data-filter-clear>@(Model.DatesOnly ? "Clear dates" : "Clear filter")</a>
+    }
+    <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button></noscript>
+    @if (savedMessage is not null)
+    {
+        <span class="tf-filter-status" role="status" data-filter-status>@savedMessage</span>
+    }
+    @* Save and delete post through the forms after this one (forms can't nest), via the form attribute. *@
+    <details class="tf-filter-saved" data-filter-saved open="@(savedError is not null ? "open" : null)">
+        <summary class="btn btn-sm @(currentSaved is not null ? "is-current" : null)" title="@(currentSaved is not null ? $"Showing saved filter “{currentSaved.Name}”" : "Saved filters")">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 7v14l-6-4-6 4V7a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4z"/></svg>
+            <span class="tf-filter-saved-label">@(currentSaved?.Name ?? "Saved")</span>
+            @if (saved.Count > 0 && currentSaved is null)
+            {
+                <span class="tf-filter-saved-count">@saved.Count</span>
+            }
+        </summary>
+        <div class="tf-filter-saved-menu">
+            @if (saved.Count == 0)
+            {
+                <p class="tf-filter-saved-empty">No saved filters yet.</p>
+            }
+            else
+            {
+                <ul class="tf-filter-saved-list" aria-label="Saved filters">
+                    @foreach (var item in saved)
+                    {
+                        var isCurrent = item == currentSaved;
+                        <li class="@(isCurrent ? "is-current" : null)">
+                            <a href="@JournalFilterRequest.ApplyUrl(Context.Request, item.Filter)" aria-current="@(isCurrent ? "true" : null)">
+                                <span>@item.Name</span>
+                                <small>@item.Filter.Describe()</small>
+                            </a>
+                            <button type="submit" form="tf-filter-delete-form" name="filterId" value="@item.Id" class="tf-filter-saved-delete" title="Delete “@item.Name”" aria-label="Delete saved filter @item.Name">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+            <div class="tf-filter-saved-new">
+                @if (filter.IsActive)
+                {
+                    <label for="tf-filter-save-name">Save this filter (@filter.Describe())</label>
+                    <div class="input-group input-group-sm">
+                        <input id="tf-filter-save-name" form="tf-filter-save-form" name="name" class="form-control" maxlength="@TradeFoundryDb.SavedFilterNameMaxLength" required value="@currentSaved?.Name" placeholder="Name, e.g. Q4 shorts" autocomplete="off" />
+                        <button type="submit" form="tf-filter-save-form" class="btn btn-primary">Save</button>
+                    </div>
+                    @if (savedError is not null)
+                    {
+                        <p class="tf-filter-error" role="alert">@savedError</p>
+                    }
+                    <small>Presets such as "This month" keep following the calendar. Reusing a name replaces that filter.</small>
+                }
+                else
+                {
+                    <small>Choose dates or a direction, then save it here to come back to it later.</small>
+                }
+            </div>
+        </div>
+    </details>
+</form>
+<form id="tf-filter-save-form" method="post" action="@filtersUrl?handler=Save" hidden>
+    @Html.AntiForgeryToken()
+    @foreach (var value in filter.ToQuery())
+    {
+        <input type="hidden" name="@value.Key" value="@value.Value" />
+    }
+    <input type="hidden" name="returnUrl" value="@returnUrl" />
+</form>
+<form id="tf-filter-delete-form" method="post" action="@filtersUrl?handler=Delete" hidden>
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="returnUrl" value="@returnUrl" />
+</form>

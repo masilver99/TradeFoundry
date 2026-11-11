@@ -579,9 +579,24 @@ public sealed class AccountLedgerEntry
     public string Note { get; init; } = string.Empty;
 }
 
+/// <summary>Account activity inside the journal filter's date range; balances come from the full history.</summary>
+public sealed class AccountPeriodSummary
+{
+    /// <summary>Calculated balance just before the range, or null when nothing was recorded yet.</summary>
+    public decimal? OpeningBalance { get; init; }
+    public decimal? ClosingBalance { get; init; }
+    public decimal Deposits { get; init; }
+    public decimal Withdrawals { get; init; }
+    public decimal RealizedProfit { get; init; }
+    public int RealizedTradeCount { get; init; }
+    public int RowCount { get; init; }
+}
+
 public sealed class AccountLedgerPage
 {
     public AccountSummary Summary { get; init; } = new();
+    /// <summary>Set when the ledger is limited to a date range.</summary>
+    public AccountPeriodSummary? Period { get; init; }
     public IReadOnlyList<AccountLedgerEntry> Entries { get; init; } = Array.Empty<AccountLedgerEntry>();
     public int Page { get; init; }
     public int PageSize { get; init; }
@@ -599,6 +614,8 @@ public sealed class TradeQuery
     public string Direction { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
     public string Sort { get; init; } = "entry_desc";
+    /// <summary>The journal filter, already resolved to the journal's time zone.</summary>
+    public JournalFilterScope? Scope { get; init; }
 }
 
 public sealed class ImportQuery
@@ -779,6 +796,12 @@ public sealed class DailyReviewModel
     public int OpenTradeCount => OpenTrades.Count;
     public DateOnly? PreviousDate { get; init; }
     public DateOnly? NextDate { get; init; }
+    /// <summary>Trades on this day in the direction the journal filter excludes.</summary>
+    public int HiddenTradeCount { get; init; }
+    /// <summary>The excluded trades are included anyway (asked for, or a direct link to one of them).</summary>
+    public bool ShowingHiddenTrades { get; init; }
+    /// <summary>The day falls outside the journal filter's date range (reached by a direct link).</summary>
+    public bool OutsideFilterDates { get; init; }
 }
 
 public sealed class DailyJournalEntry

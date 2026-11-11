@@ -14,14 +14,16 @@ namespace TradeFoundry.Pages;
 public sealed class ExpensesModel(TradeFoundryDb database, ExpenseService service) : PageModel
 {
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
-    [BindProperty(SupportsGet = true)] public DateOnly? Start { get; set; }
-    [BindProperty(SupportsGet = true)] public DateOnly? End { get; set; }
     [BindProperty(SupportsGet = true)] public Guid? Category { get; set; }
     [BindProperty(SupportsGet = true)] public Guid? Edit { get; set; }
     [BindProperty(SupportsGet = true)] public int PageNumber { get; set; } = 1;
     [BindProperty] public ExpenseDraft Input { get; set; } = new();
     [BindProperty] public IFormFile? Receipt { get; set; }
     public Journal? Journal { get; private set; }
+    /// <summary>The journal filter's date range (direction doesn't apply to expenses); open ends mean no limit.</summary>
+    public JournalFilterScope Filter { get; private set; } = JournalFilter.None.Scope(null);
+    public DateOnly? Start => Filter.From;
+    public DateOnly? End => Filter.To;
     public Expense? Editing { get; private set; }
     public IReadOnlyList<ExpenseCategory> Categories { get; private set; } = [];
     public IReadOnlyList<Expense> Matches { get; private set; } = [];
@@ -32,7 +34,7 @@ public sealed class ExpensesModel(TradeFoundryDb database, ExpenseService servic
     public bool EditorOpen { get; private set; }
     public bool SaveConflict { get; private set; }
     public string BaseUrl => $"/journal/{JournalId:D}/expenses";
-    public string FilterUrl(int page = 1) => $"{BaseUrl}?start={Start:yyyy-MM-dd}&end={End:yyyy-MM-dd}&category={Category}&pageNumber={page}";
+    public string FilterUrl(int page = 1) => $"{BaseUrl}?category={Category}&pageNumber={page}{(Filter.Filter.ToQueryString() is { Length: > 0 } query ? "&" + query : string.Empty)}";
     public string ReceiptUrl(ExpenseReceipt receipt, bool download = false) => $"{BaseUrl}?handler=Receipt&expenseId={receipt.ExpenseId:D}&receiptId={receipt.Id:D}&download={download}";
 
     private bool Load()
@@ -40,13 +42,10 @@ public sealed class ExpensesModel(TradeFoundryDb database, ExpenseService servic
         Input ??= new();
         Journal = database.GetJournal(JournalId);
         if (Journal is null) return false;
-        var today = DateOnly.FromDateTime(TimeZoneCatalog.Convert(DateTimeOffset.UtcNow, Journal.TimeZone).DateTime);
-        Start ??= new DateOnly(today.Year, 1, 1);
-        End ??= new DateOnly(today.Year, 12, 31);
+        Filter = JournalFilterRequest.Resolve(HttpContext, Journal, datesOnly: true);
         Categories = database.GetExpenseCategories(JournalId);
-        if (Start > End) ModelState.AddModelError("Start", "Start date must be on or before end date.");
         if (Category.HasValue && !Categories.Any(c => c.Id == Category)) ModelState.AddModelError("Category", "Choose a category from this journal.");
-        Matches = database.GetExpenses(JournalId, Start.Value, End.Value, Category);
+        Matches = database.GetExpenses(JournalId, Start ?? DateOnly.MinValue, End ?? DateOnly.MaxValue, Category);
         PageNumber = Math.Clamp(PageNumber, 1, PageCount);
         Rows = Matches.Skip((PageNumber - 1) * 25).Take(25).ToArray();
         Editing = Edit.HasValue ? database.GetExpense(JournalId, Edit.Value) : null;
@@ -146,7 +145,8 @@ public sealed class ExpensesModel(TradeFoundryDb database, ExpenseService servic
     public IActionResult OnGetExport()
     {
         if (!Load()) return NotFound();
-        if (!ModelState.IsValid) return BadRequest("Choose a valid date range and category.");
-        return File(ExpenseService.ExportCsv(Matches), "text/csv; charset=utf-8", $"expenses-{Start:yyyyMMdd}-{End:yyyyMMdd}.csv");
+        if (!ModelState.IsValid) return BadRequest("Choose a category from this journal.");
+        var range = Start.HasValue || End.HasValue ? $"{Start?.ToString("yyyyMMdd") ?? "start"}-{End?.ToString("yyyyMMdd") ?? "today"}" : "all";
+        return File(ExpenseService.ExportCsv(Matches), "text/csv; charset=utf-8", $"expenses-{range}.csv");
     }
 }

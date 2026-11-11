@@ -34,6 +34,7 @@ public sealed class DailyJournalModel : PageModel
     public bool HasMore { get; private set; }
     public DateOnly? NextBefore { get; private set; }
     public string? ErrorMessage { get; private set; }
+    public JournalFilterScope Filter { get; private set; } = JournalFilter.None.Scope(null);
     private IReadOnlyList<DailyTradeSummary> TradeDays { get; set; } = Array.Empty<DailyTradeSummary>();
     private IReadOnlyDictionary<DateOnly, DailyTradeSummary> TradeDaysByDate { get; set; } = new Dictionary<DateOnly, DailyTradeSummary>();
 
@@ -201,14 +202,21 @@ public sealed class DailyJournalModel : PageModel
         if (journal is null) return false;
         Journal = journal;
         Today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneCatalog.Resolve(journal.TimeZone)).DateTime);
-        TradeDays = DailyTradeAggregation.Build(_database.GetAllTrades(JournalId), journal.TimeZone);
+        // Dates limit which days are listed; direction narrows each day's trade summary but never the journal text.
+        Filter = JournalFilterRequest.Resolve(HttpContext, journal);
+        TradeDays = DailyTradeAggregation.Build(Filter.Apply(_database.GetAllTrades(JournalId)), journal.TimeZone);
         TradeDaysByDate = TradeDays.ToDictionary(day => day.Date);
         return true;
     }
 
     private DailyJournalFeedPage BuildEntriesPage(DateOnly? beforeDate)
     {
-        var journalPage = _database.GetDailyJournalEntries(JournalId, Today, beforeDate, PageSize + 1);
+        if (Filter.To.HasValue)
+        {
+            var afterRange = Filter.To.Value.AddDays(1);
+            beforeDate = beforeDate.HasValue && beforeDate.Value < afterRange ? beforeDate : afterRange;
+        }
+        var journalPage = _database.GetDailyJournalEntries(JournalId, Today, beforeDate, PageSize + 1, Filter.From);
         return DailyJournalFeedBuilder.Build(JournalId, Today, beforeDate, PageSize, TradeDays, journalPage.Entries);
     }
 

@@ -171,10 +171,14 @@ public sealed class TradingSetupService
         };
     }
 
-    public IReadOnlyList<SetupPerformanceSummary> GetPerformance(Guid journalId)
+    public IReadOnlyList<SetupPerformanceSummary> GetPerformance(Guid journalId) => GetPerformance(journalId, null);
+
+    /// <summary>Setup performance over closed trades, optionally limited to those <paramref name="include"/> accepts (the journal filter).</summary>
+    public IReadOnlyList<SetupPerformanceSummary> GetPerformance(Guid journalId, Func<Trade, bool>? include)
     {
         var trades = _database.GetAllTrades(journalId)
             .Where(trade => trade.ExitUtc.HasValue && trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase))
+            .Where(trade => include is null || include(trade))
             .ToDictionary(trade => trade.Id);
         var associations = _database.GetTradeSetupsForJournal(journalId);
         if (associations.Count == 0) return Array.Empty<SetupPerformanceSummary>();

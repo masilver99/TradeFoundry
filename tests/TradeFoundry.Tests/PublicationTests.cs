@@ -359,7 +359,7 @@ public sealed class PublicationTests
         var exporter = new PublicationExportService(data.Database, images);
         var snapshot = exporter.Build(data.Journal.Id, new(Title: "Public"));
         Assert.Equal(today, Assert.Single(snapshot.Days).Date);
-        Assert.Equal(Png(), Assert.Single(snapshot.Images).Content);
+        Assert.Equal(File.ReadAllBytes(images.GetPath(data.Journal.Id, image)!), Assert.Single(snapshot.Images).Content);
         Assert.DoesNotContain("/private/source", JsonSerializer.Serialize(snapshot));
         File.Delete(images.GetPath(data.Journal.Id, image)!);
         Assert.Contains("Missing journal image", Assert.Throws<InvalidOperationException>(() => exporter.Build(data.Journal.Id, new(Title: "Public"))).Message);
@@ -613,7 +613,13 @@ public sealed class PublicationTests
     public void PublishingRejectsUnsafeDestinations(string url) => Assert.Throws<InvalidOperationException>(() => PublicationWorkflow.Destination(url));
 
     private static int Count(string text, string fragment) => text.Split(fragment).Length - 1;
-    private static byte[] Png() => Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=");
+    private static byte[] TestImageBytes()
+    {
+        using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.Transparent, 2, 2);
+        return image.ToByteArray(ImageMagick.MagickFormat.Png);
+    }
+
+    private static byte[] Png() => TestImageBytes();
     private static Journal Journal(string timeZone = "UTC") => new() { Id = Guid.NewGuid(), Name = "PRIVATE-JOURNAL", TimeZone = timeZone, Currency = "USD", StartingEquity = 1000, CreatedUtc = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero) };
     private static Trade Trade(Guid journalId, decimal pnl, DateTimeOffset exit) => new()
     {

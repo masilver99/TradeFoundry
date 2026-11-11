@@ -1,3 +1,5 @@
+using ImageMagick;
+
 namespace TradeFoundry.Services;
 
 public sealed record StoredJournalImage(string StorageKey, string ContentType, long Length);
@@ -51,7 +53,41 @@ public sealed class JournalImageFileStore
                     throw new InvalidOperationException($"The {imageNoun} content does not match its image type.");
             }
 
-            return new StoredJournalImage(storageKey, normalizedType, actualLength);
+            var settings = JournalImageSettings.Load(Path.GetDirectoryName(_root)!, journalId);
+            var webpKey = $"{Guid.NewGuid():N}.webp";
+            var webpPath = Path.Combine(directory, webpKey);
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var format = normalizedType switch { "image/png" => MagickFormat.Png, "image/jpeg" => MagickFormat.Jpeg, _ => MagickFormat.WebP };
+                using var info = new MagickImage();
+                info.Ping(path, new MagickReadSettings { Format = format });
+                if (info.Width > 16383 || info.Height > 16383 || (long)info.Width * info.Height > 40_000_000)
+                    throw new InvalidOperationException("Images must contain at most 40 million pixels and measure at most 16,383 pixels per side.");
+                using var frames = new MagickImageCollection();
+                frames.Read(path, new MagickReadSettings { Format = format, FrameCount = 2 });
+                if (frames.Count != 1)
+                    throw new InvalidOperationException("Animated images are not supported.");
+                var image = frames[0];
+                image.Quality = (uint)settings.Quality;
+                image.Settings.SetDefine(MagickFormat.WebP, "lossless", settings.Lossless ? "true" : "false");
+                image.Settings.SetDefine(MagickFormat.WebP, "method", settings.Method.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                image.Write(webpPath, MagickFormat.WebP);
+                cancellationToken.ThrowIfCancellationRequested();
+                var length = new FileInfo(webpPath).Length;
+                File.Delete(path);
+                return new StoredJournalImage(webpKey, "image/webp", length);
+            }
+            catch (MagickException ex)
+            {
+                File.Delete(webpPath);
+                throw new InvalidOperationException("The image could not be decoded. Upload a valid PNG, JPEG, or WebP image.", ex);
+            }
+            catch
+            {
+                File.Delete(webpPath);
+                throw;
+            }
         }
         catch
         {

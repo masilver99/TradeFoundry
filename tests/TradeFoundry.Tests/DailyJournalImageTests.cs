@@ -26,7 +26,7 @@ public sealed class DailyJournalImageTests
             await using var png = new MemoryStream(PngSignature());
             var image = await service.SaveAsync(journal.Id, date, png, "opening-chart.png", "image/png", png.Length);
 
-            Assert.Equal("image/png", image.ContentType);
+            Assert.Equal("image/webp", image.ContentType);
             Assert.Equal("opening-chart.png", image.OriginalFileName);
             Assert.True(File.Exists(service.GetPath(journal.Id, image)));
             Assert.Equal(image.Id, service.Get(journal.Id, date, image.Id)?.Id);
@@ -99,7 +99,13 @@ public sealed class DailyJournalImageTests
 
     private static TradeFoundryDb CreateDatabase(string directory) => new(Options.Create(new StorageOptions { DataDirectory = directory, DatabaseFileName = "journal.db" }));
 
-    private static byte[] PngSignature() => [137, 80, 78, 71, 13, 10, 26, 10];
+    private static byte[] TestImageBytes()
+    {
+        using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.Transparent, 2, 2);
+        return image.ToByteArray(ImageMagick.MagickFormat.Png);
+    }
+
+    private static byte[] PngSignature() => TestImageBytes();
 
     private static string NewDirectory()
     {

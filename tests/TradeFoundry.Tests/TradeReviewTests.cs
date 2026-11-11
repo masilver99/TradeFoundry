@@ -744,7 +744,13 @@ public sealed class TradeReviewTests
         return counts;
     }
 
-    private static byte[] PngSignature() => [137, 80, 78, 71, 13, 10, 26, 10];
+    private static byte[] TestImageBytes()
+    {
+        using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.Transparent, 2, 2);
+        return image.ToByteArray(ImageMagick.MagickFormat.Png);
+    }
+
+    private static byte[] PngSignature() => TestImageBytes();
 
     private static string NewDirectory()
     {

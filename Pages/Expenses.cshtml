@@ -19,15 +19,17 @@
 <div asp-validation-summary="All" class="text-danger mb-3" aria-live="assertive"></div>
 <section class="card tf-card mb-3" aria-label="Expense filters">
     <div class="card-body"><form method="get" action="@Model.BaseUrl" class="tf-expense-filters">
-        <div><label class="form-label" for="start">From</label><input id="start" name="start" type="date" class="form-control" value="@Model.Start?.ToString("yyyy-MM-dd")" required /></div>
-        <div><label class="form-label" for="end">Through</label><input id="end" name="end" type="date" class="form-control" value="@Model.End?.ToString("yyyy-MM-dd")" required /></div>
+        @foreach (var item in Model.Filter.Filter.ToQuery())
+        {
+            <input type="hidden" name="@item.Key" value="@item.Value" />
+        }
         <div><label class="form-label" for="category">Category</label><select id="category" name="category" class="form-select"><option value="">All categories</option>@foreach (var category in Model.Categories){<option value="@category.Id" selected="@(Model.Category == category.Id)">@category.Name@(category.Active ? "" : " (archived)")</option>}</select></div>
-        <div class="tf-expense-actions"><button type="submit" class="btn btn-outline-primary">Apply filters</button><a class="btn btn-outline-secondary" href="@formUrl&handler=Export">Export CSV</a></div>
+        <div class="tf-expense-actions"><button type="submit" class="btn btn-outline-primary">Apply category</button><a class="btn btn-outline-secondary" href="@formUrl&handler=Export">Export CSV</a></div>
     </form></div>
 </section>
 <section class="card tf-card mb-3" aria-label="Expense summary"><div class="card-body">
-    <div class="tf-section-heading"><h2 class="tf-card-title">Filtered expenses</h2><span class="text-secondary">@Model.Matches.Count expense(s)</span></div>
-    @if (Model.Matches.Count == 0){<p class="text-secondary mb-0 mt-2">No expenses in this date range.</p>}
+    <div class="tf-section-heading"><h2 class="tf-card-title">Filtered expenses</h2><span class="text-secondary">@Model.Matches.Count expense(s) · @Model.Filter.PeriodLabel</span></div>
+    @if (Model.Matches.Count == 0){<p class="text-secondary mb-0 mt-2">@(Model.Filter.HasDateBounds ? $"No expenses within {Model.Filter.PeriodLabel}." : "No expenses recorded yet.")</p>}
     @foreach (var currency in Model.Matches.GroupBy(e => e.Currency).OrderBy(g => g.Key))
     {
         <div class="tf-expense-summary"><strong class="tf-metric-value">@currency.Sum(e => e.Details.Amount).ToString("N2") <small>@currency.Key</small></strong><div class="tf-expense-breakdown">@foreach (var group in currency.GroupBy(e => e.CategoryName).OrderBy(g => g.Key)){<span>@group.Key <strong>@group.Sum(e => e.Details.Amount).ToString("N2")</strong></span>}</div></div>

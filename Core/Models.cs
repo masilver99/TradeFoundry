@@ -579,9 +579,24 @@ public sealed class AccountLedgerEntry
     public string Note { get; init; } = string.Empty;
 }
 
+/// <summary>Account activity inside the journal filter's date range; balances come from the full history.</summary>
+public sealed class AccountPeriodSummary
+{
+    /// <summary>Calculated balance just before the range, or null when nothing was recorded yet.</summary>
+    public decimal? OpeningBalance { get; init; }
+    public decimal? ClosingBalance { get; init; }
+    public decimal Deposits { get; init; }
+    public decimal Withdrawals { get; init; }
+    public decimal RealizedProfit { get; init; }
+    public int RealizedTradeCount { get; init; }
+    public int RowCount { get; init; }
+}
+
 public sealed class AccountLedgerPage
 {
     public AccountSummary Summary { get; init; } = new();
+    /// <summary>Set when the ledger is limited to a date range.</summary>
+    public AccountPeriodSummary? Period { get; init; }
     public IReadOnlyList<AccountLedgerEntry> Entries { get; init; } = Array.Empty<AccountLedgerEntry>();
     public int Page { get; init; }
     public int PageSize { get; init; }

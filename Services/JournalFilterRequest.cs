@@ -3,7 +3,8 @@ using TradeFoundry.Core;
 namespace TradeFoundry.Services;
 
 /// <summary>What the layout needs to draw the journal filter bar for this request.</summary>
-public sealed record JournalFilterContext(Guid JournalId, JournalFilterScope Scope, bool AppliesToPage, bool FromUrl);
+/// <param name="DatesOnly">The page applies the date range but not direction (account and expenses).</param>
+public sealed record JournalFilterContext(Guid JournalId, JournalFilterScope Scope, bool AppliesToPage, bool FromUrl, bool DatesOnly = false);
 
 /// <summary>
 /// Reads the journal filter for a request. The URL is the source of truth; with no filter
@@ -18,14 +19,14 @@ public static class JournalFilterRequest
     public static string CookieName(Guid journalId) => $"tf-filter-{journalId:N}";
 
     /// <summary>Resolves and remembers the filter for a page that applies it.</summary>
-    public static JournalFilterScope Resolve(HttpContext? context, Journal journal)
+    public static JournalFilterScope Resolve(HttpContext? context, Journal journal, bool datesOnly = false)
     {
         // A page model built without a request (unit tests) shows the whole journal.
         if (context is null) return JournalFilter.None.Scope(journal.TimeZone);
         var (filter, fromUrl) = Read(context, journal.Id);
         if (fromUrl) Remember(context, journal.Id, filter);
         var scope = filter.Scope(journal.TimeZone);
-        context.Items[ItemsKey] = new JournalFilterContext(journal.Id, scope, true, fromUrl);
+        context.Items[ItemsKey] = new JournalFilterContext(journal.Id, scope, true, fromUrl, datesOnly);
         return scope;
     }
 
@@ -41,7 +42,7 @@ public static class JournalFilterRequest
     /// <summary>Query keys that belong to one view (paging, focus, flash flags) and are dropped when the filter changes.</summary>
     public static readonly IReadOnlySet<string> TransientKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "page", "before", "focus", "showHidden", "handler", "saved", "journalSaved"
+        "page", "pageNumber", "before", "focus", "showHidden", "handler", "saved", "journalSaved", "edit", "add", "categories"
     };
 
     /// <summary>The current page's query values that survive a filter change.</summary>
@@ -62,10 +63,11 @@ public static class JournalFilterRequest
     }
 
     /// <summary>The current page with the filter cleared (explicitly, so the remembered filter is forgotten too).</summary>
-    public static string ClearUrl(HttpRequest request) =>
+    /// <param name="keepSide">Keep this direction (a dates-only page clears just its dates).</param>
+    public static string ClearUrl(HttpRequest request, string? keepSide = null) =>
         Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(request.PathBase + request.Path,
             PreservedQuery(request).Select(item => new KeyValuePair<string, string?>(item.Key, item.Value))
-                .Append(new(JournalFilter.PeriodKey, "all")).Append(new(JournalFilter.SideKey, "all")));
+                .Append(new(JournalFilter.PeriodKey, "all")).Append(new(JournalFilter.SideKey, keepSide ?? "all")));
 
     private static (JournalFilter Filter, bool FromUrl) Read(HttpContext context, Guid journalId, bool cookieOnly = false)
     {

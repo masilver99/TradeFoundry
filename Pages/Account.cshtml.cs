@@ -29,6 +29,10 @@ public sealed class AccountModel : PageModel
 
     public Journal? Journal { get; private set; }
     public AccountLedgerPage Ledger { get; private set; } = new();
+    /// <summary>The journal filter; only its dates apply to account activity.</summary>
+    public JournalFilterScope Filter { get; private set; } = JournalFilter.None.Scope(null);
+    public bool IsDateFiltered => Filter.HasDateBounds;
+    public string FilterSuffix => Filter.Filter.ToQueryString() is { Length: > 0 } query ? "&" + query : string.Empty;
     public AccountTransaction? EditingTransaction { get; private set; }
     public string? FlashMessage { get; private set; }
     public string? FlashKind { get; private set; }
@@ -162,7 +166,8 @@ public sealed class AccountModel : PageModel
         Journal = _database.GetJournal(JournalId);
         if (Journal is null) return;
 
-        Ledger = _accounts.GetLedger(JournalId, PageNumber, AccountLedgerService.DefaultPageSize);
+        Filter = JournalFilterRequest.Resolve(HttpContext, Journal, datesOnly: true);
+        Ledger = _accounts.GetLedger(JournalId, PageNumber, AccountLedgerService.DefaultPageSize, Filter.StartUtc, Filter.EndUtcExclusive);
         EditingTransaction = EditId.HasValue
             ? _database.GetAccountTransaction(JournalId, EditId.Value)
             : null;

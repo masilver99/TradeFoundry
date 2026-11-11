@@ -22,7 +22,7 @@
     }
     return;
 }
-<form class="tf-filter-bar @(filter.IsActive ? "is-active" : null)" method="get" action="@(Context.Request.PathBase + Context.Request.Path)"
+<form class="tf-filter-bar @((Model.DatesOnly ? filter.HasPeriod : filter.IsActive) ? "is-active" : null)" method="get" action="@(Context.Request.PathBase + Context.Request.Path)"
       data-journal-filter data-filter-query="@filter.ToQueryString()" data-filter-from-url="@(Model.FromUrl ? "true" : "false")" aria-label="Journal filter">
     @foreach (var item in JournalFilterRequest.PreservedQuery(Context.Request))
     {
@@ -52,6 +52,17 @@
         <button type="submit" class="btn btn-sm btn-primary" data-filter-apply>Apply</button>
         <span class="tf-filter-error" data-filter-error role="alert" hidden></span>
     </div>
+    @if (Model.DatesOnly)
+    {
+        @* Direction is kept for the other pages but has nothing to filter here. *@
+        <input type="hidden" name="@JournalFilter.SideKey" value="@filter.Side" />
+        @if (filter.HasSide)
+        {
+            <span class="tf-filter-dates" title="Deposits, withdrawals, and expenses have no direction.">@scope.SideLabel doesn't apply here</span>
+        }
+    }
+    else
+    {
     <div class="tf-filter-side" role="radiogroup" aria-label="Direction">
         @foreach (var (value, label) in sides)
         {
@@ -59,9 +70,10 @@
             <label class="btn btn-sm" for="tf-filter-side-@value">@label</label>
         }
     </div>
-    @if (filter.IsActive)
+    }
+    @if (Model.DatesOnly ? filter.HasPeriod : filter.IsActive)
     {
-        <a class="tf-filter-clear" href="@JournalFilterRequest.ClearUrl(Context.Request)" data-filter-clear>Clear filter</a>
+        <a class="tf-filter-clear" href="@JournalFilterRequest.ClearUrl(Context.Request, Model.DatesOnly ? filter.Side : null)" data-filter-clear>@(Model.DatesOnly ? "Clear dates" : "Clear filter")</a>
     }
     <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button></noscript>
 </form>

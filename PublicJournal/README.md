@@ -56,6 +56,8 @@ docker compose --profile https up -d --build
 
 The application is reachable at `http://127.0.0.1:9080`; the optional Caddy proxy terminates HTTPS. Its [request body limit](https://caddyserver.com/docs/caddyfile/directives/request_body) matches the application's 128 MiB limit. When using another proxy, forward to that loopback address and allow request bodies up to 128 MiB with a generous upload timeout. Remote publishing requires HTTPS. HTTP publishing is accepted only for loopback destinations. Redirects are never followed with the publishing token; configure the final URL directly. Deploying or rotating the token requires recreating the journal container and saving the same token in TradeFoundry.
 
+Canonical links, Open Graph URLs and the Atom feed at `/feed.xml` use the request host plus the scheme in `X-Forwarded-Proto` (Caddy sends it by default; add `proxy_set_header X-Forwarded-Proto $scheme;` to nginx). To pin the public address instead, set `Publishing__SiteUrl=https://journal.example.com/`.
+
 The `/health` endpoint checks database availability and returns `{"status":"ok"}`. Publication logs contain snapshot IDs and revision numbers, not content or tokens. Treat container environment configuration as secret-bearing.
 
 ## Forgejo deployment to trades.shaa.one

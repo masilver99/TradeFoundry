@@ -40,10 +40,10 @@
     <section class="mb-3" aria-labelledby="account-period-heading">
         <div class="tf-section-heading mb-2"><h2 id="account-period-heading" class="tf-card-title">@Model.Filter.PeriodLabel</h2><span class="text-secondary">@period.RowCount row(s) in range · balances use the full account history</span></div>
         <div class="row row-cards">
-            <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric tf-metric-account"><div class="card-body"><div class="tf-metric-label">Balance at end of range</div><div class="tf-metric-value @(period.ClosingBalance is < 0m ? "negative" : "positive")">@(period.ClosingBalance.HasValue ? Model.Money(period.ClosingBalance.Value) : "—")</div><div class="tf-metric-note">Start of range @(period.OpeningBalance.HasValue ? Model.Money(period.OpeningBalance.Value) : "— (no earlier activity)")</div></div></div></div>
+            <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric tf-metric-account"><div class="card-body"><div class="tf-metric-label">Balance at end of range</div><div class="tf-metric-value @(period.DisplayClosingBalance is < 0m ? "negative" : "positive")">@(period.DisplayClosingBalance.HasValue ? Model.Money(period.DisplayClosingBalance.Value) : "—")</div><div class="tf-metric-note">Start of range @(period.DisplayOpeningBalance.HasValue ? Model.Money(period.DisplayOpeningBalance.Value) : "— (no earlier activity)")</div>@if (period.IsBrokerAnchored){<div class="tf-metric-note" title="Latest imported broker balance, plus any trades or cash flows recorded after it">Broker-reported · calculated @(period.ClosingBalance.HasValue ? Model.Money(period.ClosingBalance.Value) : "—")</div>}</div></div></div>
             <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Realized trading profit</div><div class="tf-metric-value @(period.RealizedProfit < 0m ? "negative" : "positive")">@Model.Money(period.RealizedProfit)</div><div class="tf-metric-note">@period.RealizedTradeCount closed trade(s) in range · all directions</div></div></div></div>
-            <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Deposits / withdrawals</div><div class="tf-metric-value">@Model.Money(period.Deposits) <span class="text-secondary">/</span> @Model.Money(period.Withdrawals)</div><div class="tf-metric-note">Net cash flow @Model.SignedMoney(periodNet)</div></div></div></div>
-            <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Change in balance</div><div class="tf-metric-value @(period.ClosingBalance - (period.OpeningBalance ?? 0m) is < 0m ? "negative" : "positive")">@(period.ClosingBalance.HasValue ? Model.SignedMoney(period.ClosingBalance.Value - (period.OpeningBalance ?? 0m)) : "—")</div><div class="tf-metric-note">Trading profit plus net cash flow</div></div></div></div>
+            <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Deposits / withdrawals</div><div class="tf-metric-value">@Model.Money(period.Deposits) <span class="text-secondary">/</span> @Model.Money(period.Withdrawals)</div><div class="tf-metric-note">Net cash flow @Model.SignedMoney(periodNet)@if (period.Corrections != 0m){<text> · Corrections @Model.SignedMoney(period.Corrections)</text>}</div></div></div></div>
+            <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Change in balance</div><div class="tf-metric-value @(period.DisplayClosingBalance - (period.DisplayOpeningBalance ?? 0m) is < 0m ? "negative" : "positive")">@(period.DisplayClosingBalance.HasValue ? Model.SignedMoney(period.DisplayClosingBalance.Value - (period.DisplayOpeningBalance ?? 0m)) : "—")</div><div class="tf-metric-note">Trading profit plus net cash flow</div></div></div></div>
         </div>
     </section>
     <h2 class="tf-card-title mb-2">Whole account</h2>
@@ -53,7 +53,7 @@
     <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric tf-metric-account"><div class="card-body"><div class="tf-metric-label">Calculated balance</div><div class="tf-metric-value @(summary.CurrentBalance is < 0m ? "negative" : "positive")">@(summary.CurrentBalance.HasValue ? Model.Money(summary.CurrentBalance.Value) : "—")</div><div class="tf-metric-note">Opening @Model.Money(summary.OpeningBalance ?? 0m)</div></div></div></div>
     <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Realized trading profit</div><div class="tf-metric-value @(summary.RealizedProfit < 0m ? "negative" : "positive")">@Model.Money(summary.RealizedProfit)</div><div class="tf-metric-note">Closed trades only · net of fees</div></div></div></div>
     <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Realized TWR</div><div class="tf-metric-value @(summary.RealizedTwrPercent is < 0m ? "negative" : "positive")">@(summary.RealizedTwrPercent.HasValue ? Model.Percent(summary.RealizedTwrPercent.Value) : "Unavailable")</div><div class="tf-metric-note">Cash flows excluded from performance</div></div></div></div>
-    <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Deposits / withdrawals</div><div class="tf-metric-value">@Model.Money(summary.TotalDeposits) <span class="text-secondary">/</span> @Model.Money(summary.TotalWithdrawals)</div><div class="tf-metric-note">Positive entered amounts</div></div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Deposits / withdrawals</div><div class="tf-metric-value">@Model.Money(summary.TotalDeposits) <span class="text-secondary">/</span> @Model.Money(summary.TotalWithdrawals)</div><div class="tf-metric-note">Positive entered amounts@if (summary.NetCorrections != 0m){<text> · Corrections @Model.SignedMoney(summary.NetCorrections)</text>}</div></div></div></div>
 </section>
 
 <section class="row row-cards mb-3" aria-label="Account reconciliation">
@@ -70,7 +70,7 @@
 <section class="card tf-card mb-3" id="account-entry-form">
     <div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">MANUAL CASH FLOW</div><h2 class="tf-card-title">@(isEditing ? "Edit account entry" : "Add account entry")</h2></div><span class="text-secondary">@journal.TimeZone</span></div></div>
     <div class="card-body">
-        <p class="text-secondary small">Enter a positive amount. A withdrawal can take the calculated balance below zero; the ledger will warn you without blocking the record.</p>
+        <p class="text-secondary small">Enter a positive amount for deposits and withdrawals. A correction fixes an incorrect balance and accepts a positive or negative amount. A withdrawal can take the calculated balance below zero; the ledger will warn you without blocking the record.</p>
         <form method="post" action="@formAction" class="row g-3 tf-account-entry-form">
             @Html.AntiForgeryToken()
             <div asp-validation-summary="All" class="col-12 text-danger small"></div>
@@ -79,8 +79,8 @@
                 <input type="hidden" name="transactionId" value="@Model.EditingTransaction!.Id" />
                 <input type="hidden" name="expectedRevision" value="@Model.EditingTransaction.Revision" />
             }
-            <div class="col-md-3"><label class="form-label" for="Input_Type">Type<select asp-for="Input.Type" class="form-select" id="Input_Type"><option value="Deposit">Deposit</option><option value="Withdrawal">Withdrawal</option></select></label><span asp-validation-for="Input.Type" class="text-danger small"></span></div>
-            <div class="col-md-3"><label class="form-label" for="Input_Amount">Amount<input asp-for="Input.Amount" class="form-control" id="Input_Amount" type="number" min="0.01" step="0.01" required /></label><span asp-validation-for="Input.Amount" class="text-danger small"></span></div>
+            <div class="col-md-3"><label class="form-label" for="Input_Type">Type<select asp-for="Input.Type" class="form-select" id="Input_Type"><option value="Deposit">Deposit</option><option value="Withdrawal">Withdrawal</option><option value="Correction">Correction</option></select></label><span asp-validation-for="Input.Type" class="text-danger small"></span></div>
+            <div class="col-md-3"><label class="form-label" for="Input_Amount">Amount<input asp-for="Input.Amount" class="form-control" id="Input_Amount" type="number" min="@(Model.Input.Type == AccountTransactionType.Correction ? null : "0.01")" step="0.01" required /></label><span asp-validation-for="Input.Amount" class="text-danger small"></span></div>
             <div class="col-md-3"><label class="form-label" for="Input_EffectiveLocal">Effective date / time<input class="form-control" id="Input_EffectiveLocal" name="Input.EffectiveLocal" type="datetime-local" value="@Model.Input.EffectiveLocal.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture)" required /></label><span asp-validation-for="Input.EffectiveLocal" class="text-danger small"></span></div>
             <div class="col-md-3"><label class="form-label" for="Input_Note">Note <span class="text-secondary">(optional)</span><input asp-for="Input.Note" class="form-control" id="Input_Note" maxlength="500" placeholder="Funding, transfer, owner draw…" /></label><span asp-validation-for="Input.Note" class="text-danger small"></span></div>
             <div class="col-12 tf-account-form-actions"><button class="btn btn-primary" type="submit">@(isEditing ? "Save changes" : "Add entry")</button>@if (isEditing){<a class="btn btn-outline-secondary" href="@($"/journal/{journal.Id:D}/account")">Cancel edit</a>}</div>
@@ -153,3 +153,14 @@
         </ul></div>
     }
 </section>
+
+<script>
+    (() => {
+        const type = document.getElementById("Input_Type");
+        const amount = document.getElementById("Input_Amount");
+        if (!type || !amount) return;
+        const sync = () => type.value === "Correction" ? amount.removeAttribute("min") : amount.setAttribute("min", "0.01");
+        type.addEventListener("change", sync);
+        sync();
+    })();
+</script>

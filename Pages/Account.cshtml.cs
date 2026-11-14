@@ -150,9 +150,14 @@ public sealed class AccountModel : PageModel
 
     private bool ValidateInput()
     {
-        if (Input.Type is not AccountTransactionType.Deposit and not AccountTransactionType.Withdrawal)
-            ModelState.AddModelError("Input.Type", "Choose a deposit or withdrawal.");
-        if (Input.Amount <= 0m)
+        if (Input.Type is not AccountTransactionType.Deposit and not AccountTransactionType.Withdrawal and not AccountTransactionType.Correction)
+            ModelState.AddModelError("Input.Type", "Choose a deposit, withdrawal, or correction.");
+        if (Input.Type == AccountTransactionType.Correction)
+        {
+            if (Input.Amount == 0m)
+                ModelState.AddModelError("Input.Amount", "Enter a non-zero correction; use a negative amount to lower the balance.");
+        }
+        else if (Input.Amount <= 0m)
             ModelState.AddModelError("Input.Amount", "Enter an amount greater than zero.");
         if (Input.EffectiveLocal == default)
             ModelState.AddModelError("Input.EffectiveLocal", "Choose the effective date and time.");

@@ -15,6 +15,10 @@
     ViewData["UsesLightweightCharts"] = allTrades.Length > 0;
     ViewData["UsesLexical"] = true;
     ViewData["ReviewModel"] = Model;
+    var dayRating = Model.Day.DailyRating;
+    var ratingTone = !dayRating.IsRated ? "unrated" : dayRating.IsPoor ? "poor" : dayRating.IsExcellent ? "excellent" : "neutral";
+    var dialogRating = Model.HasPendingRatingInput ? Model.PendingRating : dayRating.Rating;
+    var dialogDescription = Model.HasPendingRatingInput ? Model.PendingRatingDescription : dayRating.Description;
 }
 
 <section class="tf-review-shell" data-focus="@activeReviewKey" data-active-key="@activeReviewKey" data-review-section="@Model.Section" data-currency="@Model.Day.Journal.Currency">
@@ -56,6 +60,17 @@
 <button type="button" class="btn btn-outline-secondary" data-review-journal-open>
 <span class="tf-review-indicator tf-daily-journal-indicator" data-review-daily-indicator hidden="@(!summary.HasDailyJournal)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h3M8 18h6"/></svg></span>
 Daily journal <span class="visually-hidden" data-review-daily-state>@(summary.HasDailyJournal ? "populated" : "empty")</span></button>
+<button type="button" class="btn btn-outline-secondary tf-day-rating-button" data-review-rating-open data-rating-tone="@ratingTone" title="@(dayRating.IsRated ? (string.IsNullOrWhiteSpace(dayRating.Description) ? "No description" : dayRating.Description) : "Rate this trading day (R)")">
+@if (dayRating.Rating is int ratedValue)
+{
+    <span class="tf-day-rating-badge" aria-hidden="true">@(dayRating.IsExcellent ? "★" : string.Empty)@ratedValue</span>
+    <span>Day rated @ratedValue/5 · @DailyRating.Label(ratedValue)</span>
+}
+else
+{
+    <span>Rate day</span>
+}
+</button>
 <button type="button" class="btn btn-outline-secondary tf-review-shortcuts-button" data-review-shortcuts title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button></header>
     @if (Model.FilterScope is { IsActive: true } filterScope && (Model.Day.OutsideFilterDates || Model.Day.HiddenTradeCount > 0))
     {
@@ -122,6 +137,38 @@ Daily journal <span class="visually-hidden" data-review-daily-state>@(summary.Ha
         </form>
     </section>
 
+</dialog>
+<dialog id="review-rating-dialog" class="tf-day-rating-dialog" aria-labelledby="day-rating-heading" data-reopen="@(Model.ReopenRatingDialog ? "true" : "false")">
+    <form method="post" asp-page-handler="SaveDailyRating" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" data-day-rating-form>
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="expectedRevision" value="@dayRating.Revision" />
+        <div class="tf-day-rating-heading">
+            <h2 id="day-rating-heading" class="tf-card-title">Rate this day</h2>
+            <span class="text-secondary">@selectedDate.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture)</span>
+        </div>
+        <p class="tf-day-rating-hint">Judge your process: risk, trade quality and discipline. Don't judge the P&amp;L. On the calendar, each rated day gets a corner marker: red for 1–2, gray for 3, green for 4, and a gold star for 5. Unrated trading days show a hollow ring.</p>
+        <fieldset class="tf-day-rating-scale">
+            <legend class="visually-hidden">Rating from 1 (poor) to 5 (excellent)</legend>
+            @for (var value = DailyRating.MinRating; value <= DailyRating.MaxRating; value++)
+            {
+                var tone = value <= 2 ? "poor" : value == DailyRating.MaxRating ? "excellent" : "neutral";
+                <input type="radio" class="btn-check" name="rating" id="day-rating-@value" value="@value" checked="@(dialogRating == value)" required="@(value == DailyRating.MinRating)" />
+                <label class="tf-day-rating-option" for="day-rating-@value" data-rating-tone="@tone"><strong>@(value == DailyRating.MaxRating ? "★ " : string.Empty)@value</strong><small>@DailyRating.Label(value)</small></label>
+            }
+        </fieldset>
+        <label class="form-label" for="day-rating-description">Why this rating?</label>
+        <textarea id="day-rating-description" class="form-control" name="ratingDescription" rows="6" maxlength="@DailyRating.DescriptionMaxLength" data-day-rating-description placeholder="What earned this rating? For example: sized up after the first loss and kept adding to a losing position.">@dialogDescription</textarea>
+        <small class="tf-day-rating-count text-secondary" data-day-rating-count aria-live="polite"></small>
+        <div class="tf-day-rating-actions">
+            @if (dayRating.IsRated)
+            {
+                <button type="submit" class="btn btn-outline-danger" name="clear" value="true" formnovalidate data-day-rating-clear>Clear rating</button>
+            }
+            <span class="tf-day-rating-spacer"></span>
+            <button type="button" class="btn btn-outline-secondary" data-review-rating-close>Cancel</button>
+            <button type="submit" class="btn btn-primary">Save rating</button>
+        </div>
+    </form>
 </dialog>
     @if (allTrades.Length == 0)
     {

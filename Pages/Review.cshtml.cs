@@ -36,6 +36,13 @@ public class ReviewModel : PageModel
     [BindProperty(SupportsGet = true)] public string? Interval { get; set; }
     [BindProperty(SupportsGet = true)] public bool Saved { get; set; }
     [BindProperty(SupportsGet = true)] public bool JournalSaved { get; set; }
+    [BindProperty(SupportsGet = true)] public bool RatingSaved { get; set; }
+    [BindProperty(SupportsGet = true)] public bool RatingCleared { get; set; }
+    /// <summary>Values to show in the day rating dialog after a failed save, so the user's input is not lost.</summary>
+    public int? PendingRating { get; private set; }
+    public string? PendingRatingDescription { get; private set; }
+    public bool ReopenRatingDialog { get; private set; }
+    public bool HasPendingRatingInput { get; private set; }
     /// <summary>Show trades the journal filter's direction would hide on this day.</summary>
     [BindProperty(SupportsGet = true, Name = "showHidden")] public bool ShowHidden { get; set; }
     [BindProperty] public TradeReviewPatch Edit { get; set; } = new();
@@ -70,7 +77,9 @@ public class ReviewModel : PageModel
             return NotFound();
         }
 
-        if (JournalSaved) NoticeMessage = "Daily journal saved.";
+        if (RatingCleared) NoticeMessage = "Day rating cleared.";
+        else if (RatingSaved) NoticeMessage = "Day rating saved.";
+        else if (JournalSaved) NoticeMessage = "Daily journal saved.";
         else if (Saved) NoticeMessage = "Review saved.";
         return Page();
     }
@@ -142,6 +151,54 @@ public class ReviewModel : PageModel
         {
             return BadRequest(exception.Message);
         }
+    }
+
+    public IActionResult OnPostSaveDailyRating(int? rating, string? ratingDescription, int expectedRevision, DateOnly date, bool clear = false)
+    {
+        Date = date;
+        try
+        {
+            var result = clear
+                ? _reviews.SaveDailyRating(JournalId, date, null, null, expectedRevision)
+                : _reviews.SaveDailyRating(JournalId, date, rating, ratingDescription, expectedRevision);
+            if (result.Conflict)
+            {
+                return RatingError(rating, ratingDescription, "This day's rating changed in another window. The latest saved rating is shown; review it before saving again.", keepInput: false);
+            }
+
+            return RedirectToPage(new
+            {
+                journalId = JournalId,
+                date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                ratingSaved = clear ? (bool?)null : true,
+                ratingCleared = clear ? true : (bool?)null
+            });
+        }
+        catch (ArgumentException exception)
+        {
+            return RatingError(rating, ratingDescription, exception.Message, keepInput: true);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return RatingError(rating, ratingDescription, exception.Message, keepInput: true);
+        }
+    }
+
+    private IActionResult RatingError(int? rating, string? description, string message, bool keepInput)
+    {
+        LoadDay();
+        DailyJournalStateJson = Day.DailyJournal.Text;
+        Focus = ActiveTrade?.Trade.ReviewKey;
+        if (keepInput)
+        {
+            PendingRating = rating;
+            PendingRatingDescription = description;
+            HasPendingRatingInput = true;
+        }
+        ReopenRatingDialog = true;
+        ErrorMessage = message;
+        ModelState.AddModelError(string.Empty, message);
+        return Page();
     }
 
     public IActionResult OnPostSaveDailyJournal(string dailyJournalStateJson, int expectedRevision, DateOnly date)

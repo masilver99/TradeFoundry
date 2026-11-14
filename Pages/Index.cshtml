@@ -42,7 +42,7 @@ else
 {
     var overview = Model.Overview;
     var account = Model.Account;
-    var accountBalance = account?.CurrentBalance;
+    var accountBalance = account?.DisplayBalance;
     var accountTwr = account?.RealizedTwrPercent;
     var peakDaysAgo = overview.PeakProfit is null ? 0 : Math.Max(0, DateOnly.FromDateTime(TimeZoneCatalog.Convert(DateTimeOffset.UtcNow, overview.Journal.TimeZone).DateTime).DayNumber - DateOnly.FromDateTime(TimeZoneCatalog.Convert(overview.PeakProfit.ExitUtc, overview.Journal.TimeZone).DateTime).DayNumber);
     <div class="d-flex flex-wrap gap-2 mb-3">
@@ -55,14 +55,8 @@ else
     var feeBreakdown = $"Exchange {overview.ExchangeFees:C2} · NFA {overview.NfaFees:C2} · Clearing {overview.ClearingFees:C2}. All-in overrides are included in the total.";
     var feesPerTrade = overview.ClosedTradeCount == 0 ? (decimal?)null : overview.Fees / overview.ClosedTradeCount;
     <section id="overview-metrics" class="tf-metric-grid mb-3" aria-label="Journal metrics">
-        <div class="card tf-card tf-metric tf-metric-accent"><div class="card-body"><div class="tf-metric-label">Net P&amp;L</div><div class="tf-metric-value @(overview.NetPnl >= 0 ? "positive" : "negative")">@overview.NetPnl.ToString("C2")</div><div class="tf-metric-note">Gross @overview.GrossPnl.ToString("C2")</div></div></div>
-        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Win rate</div><div class="tf-metric-value">@overview.WinRate.ToString("0.0")%</div><div class="tf-metric-note">@overview.WinningTrades wins · @overview.LosingTrades losses</div></div></div>
-        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Profit factor</div><div class="tf-metric-value">@(overview.ProfitFactor == decimal.MaxValue ? "∞" : overview.ProfitFactor.ToString("0.00"))</div><div class="tf-metric-note">Winners ÷ losers</div></div></div>
-        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Max drawdown</div><div class="tf-metric-value @(overview.MaxDrawdown > 0m ? "negative" : string.Empty)">@((-overview.MaxDrawdown).ToString("C2"))</div><div class="tf-metric-note">Peak to trough, closed trades</div></div></div>
         <a class="card tf-card tf-metric tf-metric-account tf-account-summary-card" href="@($"/journal/{overview.Journal.Id:D}/account")"><div class="card-body"><div class="tf-metric-label">Account balance</div><div class="tf-metric-value @(accountBalance.HasValue && accountBalance.Value < 0m ? "negative" : "positive")">@(accountBalance?.ToString("C2") ?? "—")</div><div class="tf-metric-note">@(Model.Filter?.IsActive == true ? "Whole account · not filtered" : accountTwr.HasValue ? $"{accountTwr.Value:+0.00;-0.00;0.00}% realized TWR" : "TWR unavailable")</div><div class="tf-account-card-link">Open account ledger →</div></div></a>
-        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Closed trades</div><div class="tf-metric-value">@overview.ClosedTradeCount</div><div class="tf-metric-note">@overview.OpenTradeCount open</div></div></div>
-        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Trading days</div><div class="tf-metric-value">@overview.TradingDays</div><div class="tf-metric-note">Days with a trade entry</div></div></div>
-        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Points</div><div class="tf-metric-value">@overview.Points.ToString("0.##")</div><div class="tf-metric-note" title="Direction-adjusted points; fee-adjusted converts fees into points">Fee-adjusted @overview.FeeAdjustedPoints.ToString("0.##")</div></div></div>
+        <div class="card tf-card tf-metric tf-metric-accent"><div class="card-body"><div class="tf-metric-label">Net P&amp;L</div><div class="tf-metric-value @(overview.NetPnl >= 0 ? "positive" : "negative")">@overview.NetPnl.ToString("C2")</div><div class="tf-metric-note">Gross @overview.GrossPnl.ToString("C2")</div></div></div>
         <div class="card tf-card tf-metric"><div class="card-body">
             <div class="tf-metric-label">Peak profit</div>
             <div class="tf-metric-value @(overview.PeakProfit?.CumulativePnl < 0m ? "negative" : "positive")">@(overview.PeakProfit?.CumulativePnl.ToString("C2") ?? "—")</div>
@@ -75,16 +69,23 @@ else
                 <div class="tf-metric-note">No trades yet</div>
             }
         </div></div>
+        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Max drawdown</div><div class="tf-metric-value @(overview.MaxDrawdown > 0m ? "negative" : string.Empty)">@((-overview.MaxDrawdown).ToString("C2"))</div><div class="tf-metric-note">Peak to trough, closed trades</div></div></div>
+        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Win rate</div><div class="tf-metric-value">@overview.WinRate.ToString("0.0")%</div><div class="tf-metric-note">@overview.WinningTrades wins · @overview.LosingTrades losses</div></div></div>
+        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Profit factor</div><div class="tf-metric-value">@(overview.ProfitFactor == decimal.MaxValue ? "∞" : overview.ProfitFactor.ToString("0.00"))</div><div class="tf-metric-note">Winners ÷ losers</div></div></div>
+        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Closed trades</div><div class="tf-metric-value">@overview.ClosedTradeCount</div><div class="tf-metric-note">@overview.OpenTradeCount open</div></div></div>
+        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Trading days</div><div class="tf-metric-value">@overview.TradingDays</div><div class="tf-metric-note">Days with a trade entry</div></div></div>
+        <div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Points</div><div class="tf-metric-value">@overview.Points.ToString("0.##")</div><div class="tf-metric-note" title="Direction-adjusted points; fee-adjusted converts fees into points">Fee-adjusted @overview.FeeAdjustedPoints.ToString("0.##")</div></div></div>
         <div class="card tf-card tf-metric" title="@feeBreakdown"><div class="card-body"><div class="tf-metric-label">Fees</div><div class="tf-metric-value">@overview.Fees.ToString("C2")</div><div class="tf-metric-note">@(feesPerTrade.HasValue ? $"{feesPerTrade.Value:C2} per trade" : "No closed trades")</div></div></div>
     </section>
 
     <section id="overview-charts" class="row row-cards mb-3">
+        <div class="col-12"><div class="card tf-card tf-chart-card"><div class="card-header"><h3 class="tf-card-title">Equity curve (All time)</h3></div><div class="card-body">@Html.Raw(Model.FullEquityChart)</div></div></div>
         <div class="col-lg-6">
             <div class="card tf-card tf-chart-card">
                 <div class="card-header">
                     <div class="tf-section-heading">
                         <div>
-                            <h3 class="tf-card-title">Equity curve</h3>
+                            <h3 class="tf-card-title">Equity curve (Last 180)</h3>
                         </div>
                         <form method="get" class="tf-equity-view-toggle" data-equity-toggle-form>
                             <input type="hidden" name="journalId" value="@overview.Journal.Id" />

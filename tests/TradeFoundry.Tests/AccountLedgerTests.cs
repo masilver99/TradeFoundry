@@ -77,6 +77,37 @@ public sealed class AccountLedgerTests
     }
 
     [Fact]
+    public void DateWindowBalancesFollowTheBrokerReportedBalanceWhenImported()
+    {
+        var journalId = Guid.NewGuid();
+        var start = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
+        // A wrong starting equity and an unrecorded deposit put the calculated balance far from the broker's.
+        var journal = Journal(journalId, 2_605.30m, start);
+        var trades = new[] { Trade(journalId, -20m, start.AddDays(2), 1), Trade(journalId, 30m, start.AddDays(10), 2), Trade(journalId, 5m, start.AddDays(12), 3) };
+        var snapshots = new[] { Snapshot(journalId, 61.77m, start.AddDays(1), 1), Snapshot(journalId, 1_541.77m, start.AddDays(3), 2), Snapshot(journalId, 1_570m, start.AddDays(11), 3) };
+
+        var period = AccountLedgerService.Build(journal, [], trades, snapshots, 1, 50, start.AddDays(5), start.AddDays(20)).Period!;
+
+        Assert.Equal(1_541.77m, period.DisplayOpeningBalance);
+        // The latest broker balance, plus the trade recorded after it.
+        Assert.Equal(1_575m, period.DisplayClosingBalance);
+        Assert.True(period.IsBrokerAnchored);
+        Assert.Equal(2_620.30m, period.ClosingBalance);
+
+        // The whole-account balance shown on the overview and published site uses the same broker anchor.
+        var summary = AccountLedgerService.Build(journal, [], trades, snapshots).Summary;
+        Assert.Equal(1_575m, summary.DisplayBalance);
+        Assert.Equal(2_620.30m, summary.CurrentBalance);
+        var published = PublicationExportService.BuildSnapshot(journal, trades, summary, new Dictionary<DateOnly, List<TradeFoundry.Publishing.PublicationNode>>(), [], new(Title: "Public"), start.AddDays(30));
+        Assert.Equal(1_575m, published.Dashboard.Balance);
+
+        // Without imported balances the calculated figures are shown.
+        var calculated = AccountLedgerService.Build(journal, [], trades, [], 1, 50, start.AddDays(5), start.AddDays(20)).Period!;
+        Assert.False(calculated.IsBrokerAnchored);
+        Assert.Equal(calculated.ClosingBalance, calculated.DisplayClosingBalance);
+    }
+
+    [Fact]
     public void EarliestImportedSnapshotIsFallbackBaselineAndLaterSnapshotsReconcile()
     {
         var journalId = Guid.NewGuid();
@@ -221,6 +252,122 @@ public sealed class AccountLedgerTests
             Assert.Single(database.GetAccountBalanceEvents(journal.Id));
             database.RemoveImportBatch(import.Batch.Id);
             Assert.Empty(database.GetAccountBalanceEvents(journal.Id));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void CorrectionsAdjustBalanceBySignWithoutCountingAsCashFlowOrProfit()
+    {
+        var journalId = Guid.NewGuid();
+        var start = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
+        var journal = Journal(journalId, 1_000m, start);
+        var raise = Transaction(journalId, AccountTransactionType.Correction, 40m, start.AddDays(1), 1);
+        var lower = Transaction(journalId, AccountTransactionType.Correction, -15m, start.AddDays(2), 2);
+        var trade = Trade(journalId, 100m, start.AddDays(3), 1);
+
+        var ledger = AccountLedgerService.Build(journal, [raise, lower], [trade], []);
+
+        Assert.Equal(1_125m, ledger.Summary.CurrentBalance);
+        Assert.Equal(25m, ledger.Summary.NetCorrections);
+        Assert.Equal(0m, ledger.Summary.TotalDeposits);
+        Assert.Equal(0m, ledger.Summary.TotalWithdrawals);
+        Assert.Equal(100m, ledger.Summary.RealizedProfit);
+        var negative = Assert.Single(ledger.Entries, entry => entry.Amount == -15m);
+        Assert.Equal("correction", negative.Kind);
+        Assert.Equal("Correction", negative.Label);
+        Assert.Equal(1_025m, negative.CalculatedBalance);
+
+        var windowed = AccountLedgerService.Build(journal, [raise, lower], [trade], [], 1, 50, start.AddDays(2), start.AddDays(4));
+        Assert.Equal(-15m, windowed.Period!.Corrections);
+        Assert.Equal(1_040m, windowed.Period.OpeningBalance);
+    }
+
+    [Fact]
+    public void CorrectionsPersistSignedAndRejectZero()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var effective = new DateTimeOffset(2026, 9, 10, 13, 15, 0, TimeSpan.Zero);
+
+            var created = database.CreateAccountTransaction(journal.Id, new AccountTransactionDraft
+            {
+                Type = AccountTransactionType.Correction, EffectiveUtc = effective, Amount = -12.34m, Note = "Broker fee not imported"
+            });
+            var stored = database.GetAccountTransaction(journal.Id, created.Id)!;
+            Assert.Equal(AccountTransactionType.Correction, stored.Type);
+            Assert.Equal(-12.34m, stored.Amount);
+
+            Assert.Throws<ArgumentException>(() => database.CreateAccountTransaction(journal.Id, new AccountTransactionDraft
+            {
+                Type = AccountTransactionType.Correction, EffectiveUtc = effective, Amount = 0m
+            }));
+            Assert.Throws<ArgumentException>(() => database.CreateAccountTransaction(journal.Id, new AccountTransactionDraft
+            {
+                Type = AccountTransactionType.Deposit, EffectiveUtc = effective, Amount = -5m
+            }));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void LegacyAccountTransactionTableIsRebuiltToAcceptCorrections()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            Guid journalId;
+            Guid depositId;
+            var effective = new DateTimeOffset(2026, 9, 10, 13, 15, 0, TimeSpan.Zero);
+            {
+                var database = CreateDatabase(directory);
+                database.CreateOwner("Owner", "test-hash");
+                journalId = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat").Id;
+                depositId = database.CreateAccountTransaction(journalId, new AccountTransactionDraft
+                {
+                    Type = AccountTransactionType.Deposit, EffectiveUtc = effective, Amount = 500m, Note = "Funding"
+                }).Id;
+            }
+
+            // Recreate the pre-correction schema with its narrower CHECK constraint.
+            using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(directory, "journal.db")};Pooling=False"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    PRAGMA foreign_keys = OFF;
+                    BEGIN;
+                    CREATE TABLE legacy (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, transaction_type TEXT NOT NULL CHECK(transaction_type IN ('deposit', 'withdrawal')), effective_utc TEXT NOT NULL, amount TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL, deleted_utc TEXT NULL);
+                    INSERT INTO legacy SELECT id, journal_id, transaction_type, effective_utc, amount, note, revision, created_utc, updated_utc, deleted_utc FROM account_transactions;
+                    DROP TABLE account_transactions;
+                    ALTER TABLE legacy RENAME TO account_transactions;
+                    COMMIT;
+                    """;
+                command.ExecuteNonQuery();
+            }
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+            var migrated = CreateDatabase(directory);
+            var existing = migrated.GetAccountTransaction(journalId, depositId)!;
+            Assert.Equal(500m, existing.Amount);
+            Assert.Single(migrated.GetAccountTransactionHistory(journalId, depositId));
+
+            var correction = migrated.CreateAccountTransaction(journalId, new AccountTransactionDraft
+            {
+                Type = AccountTransactionType.Correction, EffectiveUtc = effective.AddHours(1), Amount = -20m
+            });
+            Assert.Equal(2, migrated.GetAccountTransactions(journalId).Count);
+            Assert.Equal(-20m, migrated.GetAccountTransaction(journalId, correction.Id)!.Amount);
         }
         finally
         {

@@ -20,6 +20,7 @@ public sealed class PublishingModel(TradeFoundryDb database, PublicationWorkflow
     [BindProperty] public string PublishingToken { get; set; } = "";
     public Journal? Journal { get; private set; }
     public PublishingState State { get; private set; } = null!;
+    public JournalFilterScope Filter { get; private set; } = JournalFilter.None.Scope(null);
     public string? Message { get; private set; }
     public string? Error { get; private set; }
 
@@ -27,6 +28,7 @@ public sealed class PublishingModel(TradeFoundryDb database, PublicationWorkflow
     {
         Journal = database.GetJournal(JournalId);
         if (Journal is null) return false;
+        Filter = JournalFilterRequest.Resolve(HttpContext, Journal);
         State = database.GetPublishingState(JournalId);
         if (settings) { GoogleTagScript = State.Settings.GoogleTagScript; DestinationUrl = State.Settings.DestinationUrl; PublicTitle = State.Settings.Title; Introduction = IntroductionEditorState(State.Settings.Introduction); }
         return true;
@@ -52,18 +54,21 @@ public sealed class PublishingModel(TradeFoundryDb database, PublicationWorkflow
         await workflow.SaveSettings(JournalId, new(DestinationUrl ?? "", PublicTitle ?? "", Introduction ?? "", GoogleTagScript ?? ""), PublishingToken, ct);
     }, "Settings saved. Create a new preview before publishing.", ct);
 
-    public Task<IActionResult> OnPostPreviewAsync(CancellationToken ct) => Action(() => workflow.Preview(JournalId, ct), "Preview prepared. Review the full snapshot below before publishing.", ct);
+    public Task<IActionResult> OnPostPreviewAsync(CancellationToken ct) => Action(() => workflow.Preview(JournalId, Filter, ct),
+        () => $"Preview prepared for {Filter.Summary}. Review the full snapshot below before publishing.", ct);
     public Task<IActionResult> OnPostPublishAsync(Guid snapshotId, CancellationToken ct) => Action(() => workflow.Publish(JournalId, snapshotId, ct), "Publication succeeded. The website now displays the previewed snapshot.", ct);
     public Task<IActionResult> OnPostStatusAsync(CancellationToken ct) => Action(() => workflow.RefreshStatus(JournalId, ct), "Website status refreshed.", ct);
     public Task<IActionResult> OnPostUnpublishAsync(long expectedRevision, bool resetBinding, CancellationToken ct) => Action(() => workflow.Unpublish(JournalId, expectedRevision, resetBinding, ct), "The website is unpublished.", ct);
 
-    private async Task<IActionResult> Action(Func<Task> action, string success, CancellationToken ct)
+    private Task<IActionResult> Action(Func<Task> action, string success, CancellationToken ct) => Action(action, () => success, ct);
+
+    private async Task<IActionResult> Action(Func<Task> action, Func<string> success, CancellationToken ct)
     {
         if (!Load(settings: false)) return NotFound();
         try
         {
             // Settings fields are irrelevant to preview/status/publish requests.
-            await action(); Message = success;
+            await action(); Message = success();
         }
         catch (InvalidOperationException ex) { Error = ex.Message; }
         catch (System.Text.Json.JsonException)

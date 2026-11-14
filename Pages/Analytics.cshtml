@@ -246,10 +246,21 @@
                                         {
                                             var tone = month.NetPnl > 0m ? "positive" : month.NetPnl < 0m ? "negative" : "flat";
                                             var tradeLabel = month.TradeCount == 1 ? "trade" : "trades";
-                                            <button type="button" class="tf-pnl-month" data-pnl-month="@month.Key" data-tone="@tone" aria-label="@month.Label: @month.NetPnl.ToString("C2") net P&amp;L, @month.TradeCount @tradeLabel">
+                                            var ratingLabel = (month.AverageRating is decimal averageRating ? $", average day rating {averageRating.ToString("0.0", CultureInfo.CurrentCulture)} across {month.RatedDayCount} rated {(month.RatedDayCount == 1 ? "day" : "days")}" : string.Empty)
+                                                + (month.ExcellentDayCount > 0 ? $", {month.ExcellentDayCount} starred {(month.ExcellentDayCount == 1 ? "day" : "days")}" : string.Empty)
+                                                + (month.PoorDayCount > 0 ? $", {month.PoorDayCount} poorly rated {(month.PoorDayCount == 1 ? "day" : "days")}" : string.Empty);
+                                            <button type="button" class="tf-pnl-month" data-pnl-month="@month.Key" data-tone="@tone" aria-label="@month.Label: @month.NetPnl.ToString("C2") net P&amp;L, @month.TradeCount @tradeLabel@ratingLabel">
                                                 <span class="tf-pnl-month-label">@month.Label</span>
                                                 <strong class="tf-pnl-month-value @tone">@month.NetPnl.ToString("C2")</strong>
                                                 <small class="tf-pnl-month-meta">@month.TradeCount @tradeLabel</small>
+                                                @if (month.AverageRating is decimal monthAverage)
+                                                {
+                                                    <small class="tf-pnl-month-ratings" aria-hidden="true" title="Average of @month.RatedDayCount rated @(month.RatedDayCount == 1 ? "day" : "days")">
+                                                        <span class="tf-pnl-month-rating-average">Avg @monthAverage.ToString("0.0", CultureInfo.CurrentCulture)</span>
+                                                        @if (month.ExcellentDayCount > 0) { <span class="tf-pnl-month-rating-excellent">★ @month.ExcellentDayCount</span> }
+                                                        @if (month.PoorDayCount > 0) { <span class="tf-pnl-month-rating-poor">◤ @month.PoorDayCount</span> }
+                                                    </small>
+                                                }
                                             </button>
                                         }
                                     </div>

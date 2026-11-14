@@ -99,7 +99,7 @@ public class AnalyticsModel : PageModel
     public string ExitTypeChart => ChartRenderer.ExitTypeAnalysis(Trades);
     public string OrderExecutionChart => ChartRenderer.OrderExecution(OrderEvents);
 
-    public sealed record PnlCalendarDay(string Date, int Day, decimal NetPnl, int TradeCount, decimal Points, decimal? MaeCurrency, decimal? ProfitPercent);
+    public sealed record PnlCalendarDay(string Date, int Day, decimal NetPnl, int TradeCount, decimal Points, decimal? MaeCurrency, decimal? ProfitPercent, int? Rating = null, string? RatingDescription = null);
 
     public sealed record PnlCalendarMonth(
         string Key,
@@ -108,7 +108,15 @@ public class AnalyticsModel : PageModel
         string Label,
         decimal NetPnl,
         int TradeCount,
-        IReadOnlyList<PnlCalendarDay> Days);
+        IReadOnlyList<PnlCalendarDay> Days)
+    {
+        /// <summary>Days rated 1–2, which the calendar marks with a red corner.</summary>
+        public int PoorDayCount => Days.Count(day => day.Rating is <= 2);
+        /// <summary>Days rated 5, which the calendar marks with a star.</summary>
+        public int ExcellentDayCount => Days.Count(day => day.Rating == DailyRating.MaxRating);
+        public int RatedDayCount => Days.Count(day => day.Rating.HasValue);
+        public decimal? AverageRating => RatedDayCount == 0 ? null : Math.Round((decimal)Days.Where(day => day.Rating.HasValue).Average(day => day.Rating!.Value), 1);
+    }
 
     public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
@@ -207,6 +215,8 @@ public class AnalyticsModel : PageModel
     {
         if (Journal is null) return;
 
+        // Ratings belong to the day, not to the filtered trades, so they show whatever the filter.
+        var ratings = _database.GetDailyRatings(JournalId);
         var startingEquity = Overview?.StartingEquity;
         var hasStartingEquity = startingEquity is > 0m;
 
@@ -236,6 +246,7 @@ public class AnalyticsModel : PageModel
                         var summary = daily.TryGetValue(date, out var value)
                             ? value
                             : (NetPnl: 0m, TradeCount: 0, Points: 0m, MaeCurrency: (decimal?)null, ProfitPercent: (decimal?)null);
+                        var rating = ratings.TryGetValue(date, out var dayRating) ? dayRating : null;
                         return new PnlCalendarDay(
                             date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                             dayNumber,
@@ -243,7 +254,9 @@ public class AnalyticsModel : PageModel
                             summary.TradeCount,
                             summary.Points,
                             summary.MaeCurrency,
-                            summary.ProfitPercent);
+                            summary.ProfitPercent,
+                            rating?.Rating,
+                            string.IsNullOrWhiteSpace(rating?.Description) ? null : rating.Description);
                     })
                     .ToArray();
 

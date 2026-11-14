@@ -44,14 +44,14 @@ public sealed class PublicationWorkflow(TradeFoundryDb database, PublicationExpo
         database.SavePublicationStatus(journalId, status, state.Draft?.Snapshot.SnapshotId == status.SnapshotId);
     }, cancellationToken);
 
-    public async Task Preview(Guid journalId, CancellationToken cancellationToken) => await Locked(journalId, async () =>
+    public async Task Preview(Guid journalId, JournalFilterScope? filter, CancellationToken cancellationToken) => await Locked(journalId, async () =>
     {
         var state = database.GetPublishingState(journalId);
         var status = await Request<PublicationStatus>(state, HttpMethod.Get, null, cancellationToken);
         database.SavePublicationStatus(journalId, status);
         if (status.BoundJournalId is not null && status.BoundJournalId != journalId)
             throw new InvalidOperationException("This website is bound to a different journal. Reset its binding from that journal before publishing here.");
-        var snapshot = exporter.Build(journalId, state.Settings);
+        var snapshot = exporter.Build(journalId, state.Settings, filter);
         var upload = new PublicationUpload(status.Revision, snapshot);
         if (JsonSerializer.SerializeToUtf8Bytes(upload, PublicationJson.Options).Length > PublicationJson.MaxUploadBytes)
             throw new InvalidOperationException("The publication exceeds the 128 MB upload limit. Reduce embedded image sizes before publishing.");

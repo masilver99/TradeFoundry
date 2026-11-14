@@ -16,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeMaeCalendar();
   initializeDailyJournal();
   initializeDailyReviewHeader();
+  initializeDayRatingDialog();
   initializeDailyJournalDisclosure();
   initializeDailyJournalFeed();
   initializeDailyJournalChartDialog();
@@ -1835,6 +1836,34 @@ function initializePnlCalendar() {
         ? `${day.date}: ${formatPnl(day.netPnl)}, ${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}, ${Number(day.points || 0).toFixed(2)} points${profitPercent === null ? ", profit percentage unavailable" : `, ${profitPercent} profit`}${day.maeCurrency === null || day.maeCurrency === undefined ? "" : `, ${formatMae(day.maeCurrency)} MAE`}`
         : `${day.date}: no completed trades`);
       if (day.tradeCount === 0) dayNode.classList.add("tf-pnl-day-no-trades");
+      const rating = Number(day.rating);
+      if (Number.isInteger(rating) && rating >= 1 && rating <= 5) {
+        const ratingTone = rating <= 2 ? "poor" : rating === 3 ? "neutral" : rating === 4 ? "good" : "excellent";
+        const ratingLabels = ["Poor", "Below par", "Acceptable", "Good", "Excellent"];
+        const ratingText = `Rated ${rating}/5 (${ratingLabels[rating - 1]})`;
+        const note = typeof day.ratingDescription === "string" ? day.ratingDescription.trim() : "";
+        const shortNote = note.length > 280 ? `${note.slice(0, 279)}…` : note;
+        dayNode.dataset.rating = String(rating);
+        dayNode.dataset.ratingTone = ratingTone;
+        dayNode.title = [dayNode.title, `${ratingText}${shortNote ? `: ${shortNote}` : ""}`].filter(Boolean).join("\n");
+        dayNode.setAttribute("aria-label", `${dayNode.getAttribute("aria-label")}, ${ratingText.toLowerCase()}`);
+        if (ratingTone !== "excellent") {
+          const corner = element("span", "tf-pnl-day-rating-corner");
+          corner.setAttribute("aria-hidden", "true");
+          dayNode.append(corner);
+        } else {
+          const star = element("span", "tf-pnl-day-rating-star", "★");
+          star.setAttribute("aria-hidden", "true");
+          dayNode.append(star);
+        }
+      } else if (day.tradeCount > 0) {
+        dayNode.dataset.ratingTone = "unrated";
+        dayNode.title = [dayNode.title, "Not rated yet"].filter(Boolean).join("\n");
+        dayNode.setAttribute("aria-label", `${dayNode.getAttribute("aria-label")}, not rated`);
+        const unrated = element("span", "tf-pnl-day-rating-unrated");
+        unrated.setAttribute("aria-hidden", "true");
+        dayNode.append(unrated);
+      }
       const footer = element("div", "tf-pnl-day-footer");
       footer.append(element("small", "tf-pnl-day-count", day.tradeCount > 0 ? `${day.tradeCount} ${day.tradeCount === 1 ? "trade" : "trades"}` : "no trades"));
       if (day.tradeCount > 0) {
@@ -2366,6 +2395,11 @@ function initializeReviewWorkspace() {
     } else if (key === "?") {
       event.preventDefault();
       shortcutHelp.showModal();
+    } else if (key === "r" || key === "R") {
+      const opener = document.querySelector("[data-review-rating-open]");
+      if (!opener) return;
+      event.preventDefault();
+      opener.click();
     }
   });
   editors.forEach(editor => setSection(editor, activeSection));
@@ -2412,6 +2446,7 @@ function createReviewShortcutHelp() {
     ["→", "Next trading day"],
     ["←", "Previous trading day"],
     ["1 – 5", "Switch tab"],
+    ["R", "Rate this day"],
     ["?", "Show this help"],
     ["Esc", "Close"]
   ];
@@ -3862,4 +3897,34 @@ function initializeDailyReviewHeader() {
   dialog.addEventListener('cancel',event=>{event.preventDefault();void close();});
   dialog.querySelector('[data-review-journal-close]').addEventListener('click',()=>void close());
   new ResizeObserver(()=>document.documentElement.style.setProperty('--review-header-height',`${header.offsetHeight+16}px`)).observe(header);
+}
+
+function initializeDayRatingDialog() {
+  const dialog = document.querySelector("#review-rating-dialog");
+  const opener = document.querySelector("[data-review-rating-open]");
+  if (!dialog || !opener) return;
+  const description = dialog.querySelector("[data-day-rating-description]");
+  const count = dialog.querySelector("[data-day-rating-count]");
+  const maxLength = Number(description?.getAttribute("maxlength") || 0);
+  const numberFormat = new Intl.NumberFormat();
+  const updateCount = () => {
+    if (!description || !count || !maxLength) return;
+    count.textContent = `${numberFormat.format(description.value.length)} / ${numberFormat.format(maxLength)}`;
+  };
+  const open = () => {
+    if (!dialog.open) dialog.showModal();
+    updateCount();
+    (dialog.querySelector("input[name=rating]:checked") || dialog.querySelector("input[name=rating]"))?.focus();
+  };
+  opener.addEventListener("click", open);
+  dialog.querySelector("[data-review-rating-close]")?.addEventListener("click", () => {
+    dialog.close();
+    opener.focus();
+  });
+  dialog.querySelector("[data-day-rating-clear]")?.addEventListener("click", event => {
+    if (!window.confirm("Clear this day's rating and description?")) event.preventDefault();
+  });
+  description?.addEventListener("input", updateCount);
+  updateCount();
+  if (dialog.dataset.reopen === "true") open();
 }

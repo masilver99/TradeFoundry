@@ -476,6 +476,7 @@ public sealed class JournalOverview
 
 public sealed class EquityPoint
 {
+    public decimal OpeningPnl { get; init; }
     public DateTimeOffset ExitUtc { get; init; }
     public decimal CumulativePnl { get; init; }
 }
@@ -483,7 +484,9 @@ public sealed class EquityPoint
 public enum AccountTransactionType
 {
     Deposit,
-    Withdrawal
+    Withdrawal,
+    /// <summary>Signed balance adjustment for an incorrect recorded balance; never zero, may be negative.</summary>
+    Correction
 }
 
 public sealed class AccountTransaction
@@ -540,11 +543,18 @@ public sealed class AccountSummary
 {
     public Guid JournalId { get; init; }
     public decimal? CurrentBalance { get; init; }
+    /// <summary>Latest broker-reported balance, rolled forward by any activity recorded after it; null without imported balances.</summary>
+    public decimal? ReportedCurrentBalance { get; init; }
+    /// <summary>The account balance to show: broker-anchored when available, otherwise calculated.</summary>
+    public decimal? DisplayBalance => ReportedCurrentBalance ?? CurrentBalance;
+    public bool IsBrokerAnchored => ReportedCurrentBalance.HasValue;
     public decimal? OpeningBalance { get; init; }
     public string OpeningBalanceSource { get; init; } = string.Empty;
     public decimal RealizedProfit { get; init; }
     public decimal TotalDeposits { get; init; }
     public decimal TotalWithdrawals { get; init; }
+    /// <summary>Net of all signed correction entries.</summary>
+    public decimal NetCorrections { get; init; }
     public decimal? RealizedTwrPercent { get; init; }
     public decimal? LatestReportedBalance { get; init; }
     public decimal? LatestReportedVariance { get; init; }
@@ -585,8 +595,19 @@ public sealed class AccountPeriodSummary
     /// <summary>Calculated balance just before the range, or null when nothing was recorded yet.</summary>
     public decimal? OpeningBalance { get; init; }
     public decimal? ClosingBalance { get; init; }
+    /// <summary>Latest broker-reported balance before the range, rolled forward by any later recorded activity; null without one.</summary>
+    public decimal? ReportedOpeningBalance { get; init; }
+    /// <summary>Latest broker-reported balance before the range end, rolled forward by any later recorded activity; null without one.</summary>
+    public decimal? ReportedClosingBalance { get; init; }
+    /// <summary>The balance to show at the start of the range: broker-anchored when available, otherwise calculated.</summary>
+    public decimal? DisplayOpeningBalance => ReportedOpeningBalance ?? OpeningBalance;
+    /// <summary>The balance to show at the end of the range: broker-anchored when available, otherwise calculated.</summary>
+    public decimal? DisplayClosingBalance => ReportedClosingBalance ?? ClosingBalance;
+    public bool IsBrokerAnchored => ReportedClosingBalance.HasValue;
     public decimal Deposits { get; init; }
     public decimal Withdrawals { get; init; }
+    /// <summary>Net of signed correction entries inside the range.</summary>
+    public decimal Corrections { get; init; }
     public decimal RealizedProfit { get; init; }
     public int RealizedTradeCount { get; init; }
     public int RowCount { get; init; }
@@ -788,6 +809,7 @@ public sealed class DailyReviewModel
     public Journal Journal { get; init; } = new();
     public DateOnly Date { get; init; }
     public DailyJournalEntry DailyJournal { get; init; } = new();
+    public DailyRating DailyRating { get; init; } = new();
     public IReadOnlyList<DailyReviewTrade> CompletedTrades { get; init; } = Array.Empty<DailyReviewTrade>();
     public IReadOnlyList<DailyReviewTrade> OpenTrades { get; init; } = Array.Empty<DailyReviewTrade>();
     public IReadOnlyList<TradingSetupSummary> SetupDefinitions { get; init; } = Array.Empty<TradingSetupSummary>();
@@ -850,6 +872,44 @@ public sealed class DailyJournalSaveResult
     public bool Saved { get; init; }
     public bool Conflict { get; init; }
     public DailyJournalEntry Entry { get; init; } = new();
+}
+
+/// <summary>
+/// A discretionary rating of the trading day as a whole (1 = poor, 5 = excellent) with the reason for it.
+/// It measures how the trader judges their own process that day, not the day's P&amp;L.
+/// </summary>
+public sealed class DailyRating
+{
+    public const int MinRating = 1;
+    public const int MaxRating = 5;
+    public const int DescriptionMaxLength = 4000;
+
+    public Guid JournalId { get; init; }
+    public DateOnly Date { get; init; }
+    public int Revision { get; init; }
+    public int? Rating { get; init; }
+    public string Description { get; init; } = string.Empty;
+    public DateTimeOffset? UpdatedUtc { get; init; }
+    public bool IsRated => Rating.HasValue;
+    public bool IsPoor => Rating is <= 2;
+    public bool IsExcellent => Rating == MaxRating;
+
+    public static string Label(int rating) => rating switch
+    {
+        1 => "Poor",
+        2 => "Below par",
+        3 => "Acceptable",
+        4 => "Good",
+        5 => "Excellent",
+        _ => string.Empty
+    };
+}
+
+public sealed class DailyRatingSaveResult
+{
+    public bool Saved { get; init; }
+    public bool Conflict { get; init; }
+    public DailyRating Rating { get; init; } = new();
 }
 
 public sealed class TradeReviewSaveResult

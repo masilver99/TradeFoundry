@@ -504,6 +504,70 @@ public sealed class TradeReviewTests
     }
 
     [Fact]
+    public void DailyRatingIsRevisionedClearableAndValidated()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var database = CreateDatabase(directory);
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", "", "UTC", "USD", "flat_to_flat");
+            var other = database.CreateJournal("Paper", "paper", "", "UTC", "USD", "flat_to_flat");
+            var reviews = new TradeReviewService(database);
+            var date = new DateOnly(2026, 11, 6);
+
+            var empty = database.GetDailyRating(journal.Id, date);
+            Assert.Equal(0, empty.Revision);
+            Assert.False(empty.IsRated);
+            Assert.Empty(database.GetDailyRatings(journal.Id));
+
+            var saved = reviews.SaveDailyRating(journal.Id, date, 1, "  Sized up to 5 contracts.\r\nKept adding to losers.  ", empty.Revision);
+            Assert.True(saved.Saved);
+            Assert.Equal(1, saved.Rating.Revision);
+            Assert.Equal(1, saved.Rating.Rating);
+            Assert.True(saved.Rating.IsPoor);
+            Assert.Equal("Sized up to 5 contracts.\nKept adding to losers.", saved.Rating.Description);
+            Assert.Equal(1, reviews.GetDay(journal.Id, date).DailyRating.Rating);
+            Assert.Equal(1, Assert.Single(database.GetDailyRatings(journal.Id)).Value.Rating);
+            Assert.Empty(database.GetDailyRatings(other.Id));
+
+            var conflict = database.SaveDailyRating(journal.Id, date, 5, "Stale window", expectedRevision: 0);
+            Assert.True(conflict.Conflict);
+            Assert.Equal(1, conflict.Rating.Rating);
+            Assert.Equal(1, database.GetDailyRating(journal.Id, date).Revision);
+
+            Assert.Throws<ArgumentException>(() => database.SaveDailyRating(journal.Id, date, 0, null, 1));
+            Assert.Throws<ArgumentException>(() => database.SaveDailyRating(journal.Id, date, 6, null, 1));
+            Assert.Throws<ArgumentException>(() => database.SaveDailyRating(journal.Id, date, null, "A reason without a rating", 1));
+            Assert.Throws<ArgumentException>(() => database.SaveDailyRating(journal.Id, date, 3, new string('x', DailyRating.DescriptionMaxLength + 1), 1));
+
+            var excellent = database.SaveDailyRating(journal.Id, date.AddDays(3), 5, string.Empty, 0);
+            Assert.True(excellent.Rating.IsExcellent);
+            Assert.Equal(2, database.GetDailyRatings(journal.Id).Count);
+
+            var cleared = database.SaveDailyRating(journal.Id, date, null, null, saved.Rating.Revision);
+            Assert.True(cleared.Saved);
+            Assert.Equal(2, cleared.Rating.Revision);
+            Assert.False(database.GetDailyRating(journal.Id, date).IsRated);
+            Assert.Equal(date.AddDays(3), Assert.Single(database.GetDailyRatings(journal.Id)).Key);
+
+            using var connection = new SqliteConnection($"Data Source={database.DatabasePath}");
+            connection.Open();
+            using var history = connection.CreateCommand();
+            history.CommandText = "SELECT action FROM daily_review_rating_history WHERE journal_id = $journal AND review_date = '2026-11-06' ORDER BY rowid";
+            history.Parameters.AddWithValue("$journal", journal.Id.ToString("D"));
+            var actions = new List<string>();
+            using (var reader = history.ExecuteReader())
+                while (reader.Read()) actions.Add(reader.GetString(0));
+            Assert.Equal(["saved", "conflict", "cleared"], actions);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void AllInCommissionOverrideReplacesDerivedFeeAcrossTradeReads()
     {
         var directory = NewDirectory();

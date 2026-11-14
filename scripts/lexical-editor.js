@@ -348,6 +348,7 @@ function initializeEditor(container) {
       if ($getRoot().getChildrenSize() === 0) $getRoot().append($createParagraphNode());
     });
   });
+  registerUserGestureFocusRecovery(root);
   registerDailyJournalImageResize(editor, root);
   const uploader = createDailyJournalImageUploader(container);
   registerDailyJournalImagePaste(editor, uploader, root, limitStatus, maxLength);
@@ -358,6 +359,35 @@ function initializeEditor(container) {
   source.hidden = true;
   container.hidden = false;
   root.setAttribute("contenteditable", "true");
+}
+
+// Chromium (Chrome, Edge, WebView2) only schedules spell checking for selection
+// changes when the focused editable was focused by a user gesture. When the editor
+// is focused from script (opening a journal date, returning from the annotator
+// dialog, finishing an image resize or upload), clicking inside it does not refocus
+// it, so existing text is never checked. Blurring on that next press lets the
+// browser refocus the editor from the user's click and resume spell checking.
+function registerUserGestureFocusRecovery(root) {
+  let focusedByUser = false;
+  let userInputPending = false;
+
+  const markUserInput = () => {
+    userInputPending = true;
+    window.setTimeout(() => { userInputPending = false; }, 0);
+  };
+
+  root.addEventListener("pointerdown", event => {
+    if (!event.isTrusted || event.button !== 0) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('[contenteditable="false"]')) return;
+    if (document.activeElement === root && !focusedByUser) root.blur();
+    markUserInput();
+  }, true);
+  document.addEventListener("keydown", event => {
+    if (event.isTrusted && event.key === "Tab") markUserInput();
+  }, true);
+  root.addEventListener("focus", () => { focusedByUser = userInputPending; });
+  root.addEventListener("blur", () => { focusedByUser = false; });
 }
 
 function createDailyJournalImageUploader(container) {

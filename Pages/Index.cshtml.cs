@@ -35,7 +35,8 @@ public class IndexModel : PageModel
     public string? FlashKind { get; private set; }
     public string EquityChart => Overview is null
         ? string.Empty
-        : ShowDailyEquity ? ChartRenderer.Equity(Overview.DailyPnl) : ChartRenderer.Equity(Overview.Equity);
+        : ShowDailyEquity ? ChartRenderer.Equity(Overview.DailyPnl, Overview.NetPnl - Overview.DailyPnl.Sum(day => day.NetPnl)) : ChartRenderer.Equity(Overview.Equity);
+    public string FullEquityChart { get; private set; } = string.Empty;
     public string DailyChart => Overview is null ? string.Empty : ChartRenderer.Daily(Overview.DailyPnl);
 
     [BindProperty] public string NewJournalName { get; set; } = string.Empty;
@@ -65,7 +66,7 @@ public class IndexModel : PageModel
         if (journal is null) return NotFound();
 
         var overview = _database.GetOverview(journalId, JournalFilterRequest.Resolve(HttpContext, journal).Filter);
-        var chart = daily ? ChartRenderer.Equity(overview.DailyPnl) : ChartRenderer.Equity(overview.Equity);
+        var chart = daily ? ChartRenderer.Equity(overview.DailyPnl, overview.NetPnl - overview.DailyPnl.Sum(day => day.NetPnl)) : ChartRenderer.Equity(overview.Equity);
         return Content(chart, "text/html; charset=utf-8");
     }
 
@@ -121,6 +122,7 @@ public class IndexModel : PageModel
             var journal = Journals.First(x => x.Id == selected.Value);
             Filter = JournalFilterRequest.Resolve(HttpContext, journal);
             Overview = _database.GetOverview(selected.Value, Filter.Filter);
+            FullEquityChart = ChartRenderer.Equity(_database.GetOverview(selected.Value, Filter.Filter, fullHistory: true).DailyPnl);
             Account = _accounts.GetSummary(selected.Value);
             GroupingPolicy = Overview.Journal.GroupingPolicy;
         }

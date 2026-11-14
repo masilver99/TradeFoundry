@@ -45,6 +45,14 @@ public static class PublicJournalApplication
         app.MapGet("/publication-assets/{name}", (string name) => PublicationAssets.Script(name) is { } script
             ? Results.Content(script, "text/javascript") : Results.NotFound());
         app.MapGet("/favicon.ico", () => Results.NoContent());
+        app.MapGet("/favicon.svg", () => Results.Content(PublicationAssets.Favicon, "image/svg+xml"));
+        app.MapGet("/feed.xml", (HttpContext context, PublicationStore store) =>
+        {
+            if (store.Read() is not { } current) return Results.NotFound();
+            var site = SiteUrl(context.Request);
+            return Results.Content(PublicationPresentation.Feed(current.Snapshot, current.Status.PublishedUtc, site,
+                id => $"{site}images/{current.Snapshot.SnapshotId:D}/{id}"), "application/atom+xml; charset=utf-8");
+        });
         app.MapGet("/health", (PublicationStore store) => { store.Status(); return Results.Ok(new { status = "ok" }); });
         app.MapGet("/api/v1/publication", (PublicationStore store) => Results.Json(store.Status(), PublicationJson.Options));
         app.MapPut("/api/v1/publication", async (HttpContext context, PublicationStore store, ILogger<PublicationStore> logger) =>
@@ -65,6 +73,18 @@ public static class PublicJournalApplication
             store.Image(snapshotId, imageId) is { } image ? Results.File(image.Content, image.ContentType) : Results.NotFound());
         app.MapRazorPages();
         return app;
+    }
+
+    /// <summary>Absolute site root for canonical, Open Graph and feed URLs. Publishing:SiteUrl overrides the request-derived value.</summary>
+    public static string SiteUrl(HttpRequest request)
+    {
+        var configured = request.HttpContext.RequestServices.GetRequiredService<IConfiguration>()["Publishing:SiteUrl"];
+        if (Uri.TryCreate(configured, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http")
+            return uri.GetLeftPart(UriPartial.Authority) + "/";
+        // Caddy and the nginx template terminate TLS and forward the original scheme.
+        var forwarded = request.Headers["X-Forwarded-Proto"].ToString().Split(',')[0].Trim();
+        var scheme = forwarded is "https" or "http" ? forwarded : request.Scheme;
+        return $"{scheme}://{request.Host.ToUriComponent()}/";
     }
 
     private static async Task<T> Read<T>(HttpContext context)

@@ -273,6 +273,7 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-account-type { display: inline-flex; align-items: center; border: 1px solid var(--tf-line); border-radius: 4px; padding: 2px 6px; color: var(--tf-muted); font-size: var(--tf-fs-2xs); font-weight: 600; text-transform: uppercase; white-space: nowrap; }
 .tf-account-type-deposit { border-color: rgba(63,185,80,.42); color: var(--tf-green); }
 .tf-account-type-withdrawal { border-color: rgba(248,81,73,.42); color: var(--tf-red); }
+.tf-account-type-correction { border-color: rgba(var(--tf-gold-rgb),.42); color: var(--tf-gold); }
 .tf-account-type-realized-trade-pnl { border-color: rgba(88,166,255,.42); color: var(--tf-blue); }
 .tf-account-type-imported-balance, .tf-account-type-opening-balance { border-color: var(--tf-line-strong); color: var(--tf-muted); }
 .tf-account-source { color: var(--tf-ink); }
@@ -1569,4 +1570,52 @@ body:has(.tf-review-shell) .page-body > .container-xl { padding-top:12px; }
   .tf-filter-clear { margin-left: 0; }
   .tf-filter-saved { margin-left: 0; }
   .tf-filter-saved-menu { left: 0; right: auto; }
+}
+
+/* Day ratings: a discretionary 1–5 grade of the trading day. 1–2 red corner, 3 gray, 4 green, 5 a gold star; unrated trade days a hollow ring. */
+.tf-pnl-day { position: relative; }
+.tf-pnl-day-rating-corner { position: absolute; top: -1px; right: -1px; width: 18px; height: 18px; border-top-right-radius: 4px; background: var(--tf-red); clip-path: polygon(0 0, 100% 0, 100% 100%); filter: drop-shadow(-1px 1px 0 rgba(0, 0, 0, .55)); pointer-events: none; }
+.tf-pnl-day[data-rating="1"] .tf-pnl-day-rating-corner { width: 24px; height: 24px; }
+.tf-pnl-day[data-rating="2"] .tf-pnl-day-rating-corner { background: #ff7b72; }
+.tf-pnl-day[data-rating="3"] .tf-pnl-day-rating-corner { width: 14px; height: 14px; background: #8b949e; }
+.tf-pnl-day[data-rating="4"] .tf-pnl-day-rating-corner { width: 16px; height: 16px; background: #56d364; }
+.tf-pnl-month-rating-average { color: var(--tf-ink); }
+.tf-pnl-day-rating-unrated { position: absolute; top: 4px; right: 4px; width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 50%; color: var(--tf-muted); opacity: .8; pointer-events: none; }
+.tf-pnl-day[data-tone="positive"] .tf-pnl-day-rating-unrated { color: #a7f3d0; }
+.tf-pnl-day[data-tone="negative"] .tf-pnl-day-rating-unrated { color: #fecaca; }
+.tf-pnl-day-rating-star { position: absolute; top: 2px; right: 5px; color: var(--tf-gold); font-size: 14px; line-height: 1; text-shadow: 0 1px 2px rgba(0, 0, 0, .6); pointer-events: none; }
+.tf-pnl-day-no-trades[data-rating] { opacity: .75; }
+.tf-pnl-month-ratings { display: flex; gap: 10px; font-size: var(--tf-fs-xs); font-weight: 600; }
+.tf-pnl-month-rating-excellent { color: var(--tf-gold); }
+.tf-pnl-month-rating-poor { color: #ff7b72; }
+.tf-pnl-month[data-tone="negative"] .tf-pnl-month-rating-poor { color: #ffa198; }
+
+.tf-day-rating-button { display: inline-flex; align-items: center; gap: 8px; }
+.tf-day-rating-badge { display: inline-flex; min-width: 22px; height: 22px; align-items: center; justify-content: center; padding: 0 5px; border-radius: 11px; background: var(--tf-surface-raised); border: 1px solid var(--tf-line); font-size: var(--tf-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums; }
+.tf-day-rating-button[data-rating-tone="poor"] { border-color: var(--tf-red); }
+.tf-day-rating-button[data-rating-tone="poor"] .tf-day-rating-badge { background: var(--tf-red); border-color: var(--tf-red); color: #0d1117; }
+.tf-day-rating-button[data-rating-tone="excellent"] { border-color: var(--tf-gold); }
+.tf-day-rating-button[data-rating-tone="excellent"] .tf-day-rating-badge { background: var(--tf-gold); border-color: var(--tf-gold); color: #0d1117; }
+
+.tf-day-rating-dialog { width: min(560px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; padding: 18px 20px; border: 1px solid var(--tf-line); border-radius: 8px; background: var(--tf-surface); color: var(--tf-ink); }
+.tf-day-rating-dialog::backdrop { background: #0009; }
+.tf-day-rating-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 6px; }
+.tf-day-rating-heading h2 { margin: 0; }
+.tf-day-rating-heading span { font-size: var(--tf-fs-xs); }
+.tf-day-rating-hint { margin: 0 0 14px; color: var(--tf-muted); font-size: var(--tf-fs-sm); }
+.tf-day-rating-scale { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 0 0 16px; padding: 0; border: 0; }
+.tf-day-rating-option { display: grid; justify-items: center; gap: 2px; padding: 8px 4px; border: 1px solid var(--tf-line); border-radius: 6px; background: var(--tf-surface-raised); color: var(--tf-ink); cursor: pointer; text-align: center; }
+.tf-day-rating-option strong { font-size: var(--tf-fs-lg); line-height: 1.1; }
+.tf-day-rating-option small { color: var(--tf-muted); font-size: var(--tf-fs-2xs); }
+.tf-day-rating-option:hover { border-color: var(--tf-muted); }
+.btn-check:focus-visible + .tf-day-rating-option { outline: 2px solid var(--tf-blue); outline-offset: 2px; }
+.btn-check:checked + .tf-day-rating-option { border-color: var(--tf-blue); background: rgba(var(--tf-blue-rgb), .16); }
+.btn-check:checked + .tf-day-rating-option[data-rating-tone="poor"] { border-color: var(--tf-red); background: rgba(248, 81, 73, .18); }
+.btn-check:checked + .tf-day-rating-option[data-rating-tone="excellent"] { border-color: var(--tf-gold); background: rgba(var(--tf-gold-rgb), .18); }
+.btn-check:checked + .tf-day-rating-option small { color: var(--tf-ink); }
+.tf-day-rating-count { display: block; margin-top: 4px; text-align: right; font-size: var(--tf-fs-2xs); font-variant-numeric: tabular-nums; }
+.tf-day-rating-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.tf-day-rating-spacer { flex: 1 1 auto; }
+@media (max-width: 480px) {
+  .tf-day-rating-option small { display: none; }
 }

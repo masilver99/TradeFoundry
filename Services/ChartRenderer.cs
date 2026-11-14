@@ -26,11 +26,11 @@ public static partial class ChartRenderer
         var points = source.OrderBy(x => x.ExitUtc).ToArray();
         if (points.Length == 0) return Empty("Import a completed trade to see the equity curve.");
 
-        var y = new[] { 0m }.Concat(points.Select(point => point.CumulativePnl)).ToArray();
+        var y = new[] { points[0].OpeningPnl }.Concat(points.Select(point => point.CumulativePnl)).ToArray();
         return IndexedLine(y, "cumulative net P&L", Blue, "trade number", "Trade");
     }
 
-    public static string Equity(IEnumerable<DailyPnl> source)
+    public static string Equity(IEnumerable<DailyPnl> source, decimal openingPnl = 0m)
     {
         var days = source
             .GroupBy(x => x.Date)
@@ -40,13 +40,13 @@ public static partial class ChartRenderer
             .ToArray();
         if (days.Length == 0) return Empty("Import a completed trade to see the equity curve.");
 
-        var cumulative = 0m;
+        var cumulative = openingPnl;
         var values = days.Select(day =>
         {
             cumulative += day.NetPnl;
             return cumulative;
         }).ToArray();
-        var y = new[] { 0m }.Concat(values).ToArray();
+        var y = new[] { openingPnl }.Concat(values).ToArray();
         return IndexedLine(y, "daily cumulative net P&L", Blue, "trade day number", "Trade day");
     }
 

@@ -93,7 +93,15 @@ public sealed class AccountLedgerService
             {
                 AccountTransactionType.Deposit => transaction.Amount,
                 AccountTransactionType.Withdrawal => -transaction.Amount,
+                AccountTransactionType.Correction => transaction.Amount,
                 _ => throw new InvalidOperationException("An account transaction has an invalid type.")
+            };
+
+            var (kind, label) = transaction.Type switch
+            {
+                AccountTransactionType.Deposit => ("deposit", "Deposit"),
+                AccountTransactionType.Withdrawal => ("withdrawal", "Withdrawal"),
+                _ => ("correction", "Correction")
             };
 
             events.Add(new LedgerEvent
@@ -103,13 +111,13 @@ public sealed class AccountLedgerService
                 TieUtc = transaction.CreatedUtc,
                 TieId = transaction.Id,
                 SignedAmount = signedAmount,
-                Kind = transaction.Type == AccountTransactionType.Deposit ? "deposit" : "withdrawal",
+                Kind = kind,
                 Entry = new AccountLedgerEntry
                 {
                     TransactionId = transaction.Id,
                     EffectiveUtc = transaction.EffectiveUtc.ToUniversalTime(),
-                    Kind = transaction.Type == AccountTransactionType.Deposit ? "deposit" : "withdrawal",
-                    Label = transaction.Type == AccountTransactionType.Deposit ? "Deposit" : "Withdrawal",
+                    Kind = kind,
+                    Label = label,
                     Description = string.IsNullOrWhiteSpace(transaction.Note) ? "Manual account entry" : transaction.Note.Trim(),
                     Source = "Manual",
                     Amount = signedAmount,
@@ -243,6 +251,7 @@ public sealed class AccountLedgerService
         var realizedProfit = 0m;
         var totalDeposits = 0m;
         var totalWithdrawals = 0m;
+        var netCorrections = 0m;
         var latestReportedBalance = (decimal?)null;
         var latestReportedVariance = (decimal?)null;
         var hasPreBaselineActivity = false;
@@ -291,6 +300,10 @@ public sealed class AccountLedgerService
                 else if (ledgerEvent.Kind == "withdrawal")
                 {
                     totalWithdrawals += -ledgerEvent.SignedAmount.Value;
+                }
+                else if (ledgerEvent.Kind == "correction")
+                {
+                    netCorrections += ledgerEvent.SignedAmount.Value;
                 }
                 else if (ledgerEvent.IsTradePnl)
                 {
@@ -345,11 +358,13 @@ public sealed class AccountLedgerService
         {
             JournalId = journal.Id,
             CurrentBalance = calculatedBalance,
+            ReportedCurrentBalance = ReportedBalanceBefore(ordered, _ => true),
             OpeningBalance = openingBalance,
             OpeningBalanceSource = openingSource,
             RealizedProfit = realizedProfit,
             TotalDeposits = totalDeposits,
             TotalWithdrawals = totalWithdrawals,
+            NetCorrections = netCorrections,
             RealizedTwrPercent = realizedTwr,
             LatestReportedBalance = latestReportedBalance,
             LatestReportedVariance = latestReportedVariance,
@@ -405,12 +420,31 @@ public sealed class AccountLedgerService
         {
             OpeningBalance = opening,
             ClosingBalance = closing,
+            ReportedOpeningBalance = windowStartUtc.HasValue ? ReportedBalanceBefore(ordered, item => item.EffectiveUtc < windowStartUtc.Value) : null,
+            ReportedClosingBalance = ReportedBalanceBefore(ordered, item => item.EffectiveUtc < windowStartUtc.GetValueOrDefault(DateTimeOffset.MinValue) || inWindow(item)),
             Deposits = inside.Where(item => item.Kind == "deposit").Sum(item => item.SignedAmount ?? 0m),
             Withdrawals = -inside.Where(item => item.Kind == "withdrawal").Sum(item => item.SignedAmount ?? 0m),
+            Corrections = inside.Where(item => item.Kind == "correction").Sum(item => item.SignedAmount ?? 0m),
             RealizedProfit = inside.Where(item => item.IsTradePnl).Sum(item => item.SignedAmount ?? 0m),
             RealizedTradeCount = inside.Count(item => item.IsTradePnl),
             RowCount = ordered.Count(inWindow)
         };
+    }
+
+    /// <summary>
+    /// The broker's own balance at the last point matching <paramref name="upTo"/>: the latest imported balance there,
+    /// plus the cash flows and realized trades recorded after it. Expenses never enter the ledger, so they are not deducted.
+    /// </summary>
+    private static decimal? ReportedBalanceBefore(IReadOnlyList<LedgerEvent> ordered, Func<LedgerEvent, bool> upTo)
+    {
+        decimal? balance = null;
+        foreach (var item in ordered)
+        {
+            if (!upTo(item)) continue;
+            if (item.IsSnapshot && item.ReportedBalance.HasValue) balance = item.ReportedBalance;
+            else if (balance.HasValue && !item.IsOpening && item.SignedAmount.HasValue) balance += item.SignedAmount.Value;
+        }
+        return balance;
     }
 
     private static AccountLedgerEntry WithCalculation(AccountLedgerEntry entry, decimal? calculatedBalance, decimal? variance, bool beforeBaseline) => new()

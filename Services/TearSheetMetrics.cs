@@ -1319,7 +1319,9 @@ public static class TearSheetMetrics
     {
         if (equity.Count < 2 || equity[0].Balance <= 0m || equity[^1].Balance <= 0m) return null;
         var years = Math.Max((equity[^1].Date.DayNumber - equity[0].Date.DayNumber) / 365.25m, 1m / 252m);
-        return (decimal)Math.Pow((double)(equity[^1].Balance / equity[0].Balance), (double)(1m / years)) - 1m;
+        // Compounding a short span can exceed decimal range; such a figure is meaningless, so leave it unavailable.
+        var growth = Math.Pow((double)(equity[^1].Balance / equity[0].Balance), (double)(1m / years));
+        return double.IsFinite(growth) && growth < (double)decimal.MaxValue / 2 ? (decimal)growth - 1m : null;
     }
 
     private static decimal? Sharpe(IReadOnlyList<decimal> values)

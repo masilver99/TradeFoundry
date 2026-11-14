@@ -21,6 +21,39 @@ namespace TradeFoundry.Tests;
 public sealed class PublicationTests
 {
     [Fact]
+    public void ExportAppliesJournalFilterToTradesEntriesAndStatistics()
+    {
+        using var data = new LocalData();
+        var csv = string.Join('\n', "Activity Type,DateTime,Symbol,Account,BuySell,Quantity,Fill Price,Order Action Source",
+            "Fills,2026-09-10 12:00:00,MESZ26,ACC,Buy,1,5000,SRC",
+            "Fills,2026-09-10 13:00:00,MESZ26,ACC,Sell,1,5002,SRC",
+            "Fills,2026-09-11 12:00:00,MESZ26,ACC,Sell,1,5000,SRC",
+            "Fills,2026-09-11 13:00:00,MESZ26,ACC,Buy,1,5001,SRC",
+            "Fills,2026-09-12 12:00:00,MESZ26,ACC,Buy,1,5000,SRC",
+            "Fills,2026-09-12 13:00:00,MESZ26,ACC,Sell,1,5004,SRC");
+        new ImportService(data.Database).ImportText(data.Journal.Id, "fixture.csv", csv, "sierra", "flat_to_flat", "source");
+        Assert.Equal(3, data.Database.GetAllTrades(data.Journal.Id).Count);
+        data.Database.SaveDailyJournal(data.Journal.Id, new DateOnly(2026, 9, 9), "Outside range", 0);
+        data.Database.SaveDailyJournal(data.Journal.Id, new DateOnly(2026, 9, 11), "Inside range", 0);
+        var exporter = new PublicationExportService(data.Database, new(data.Database));
+
+        var all = exporter.Build(data.Journal.Id, new(Title: "Public"), JournalFilter.None.Scope("UTC"));
+        Assert.Equal(3, all.Dashboard.CompletedTrades);
+        Assert.Equal(4, all.Days.Count);
+
+        var range = exporter.Build(data.Journal.Id, new(Title: "Public"),
+            JournalFilter.Parse("custom", "2026-09-10", "2026-09-11", null).Scope("UTC"));
+        Assert.Equal(2, range.Dashboard.CompletedTrades);
+        Assert.Equal(new[] { new DateOnly(2026, 9, 10), new DateOnly(2026, 9, 11) }, range.Days.Select(d => d.Date));
+        Assert.DoesNotContain("Outside range", JsonSerializer.Serialize(range, PublicationJson.Options));
+
+        var longOnly = exporter.Build(data.Journal.Id, new(Title: "Public"), JournalFilter.Parse("all", null, null, "long").Scope("UTC"));
+        Assert.Equal(2, longOnly.Dashboard.CompletedTrades);
+        Assert.All(longOnly.Days.SelectMany(d => d.Trades), t => Assert.Equal("long", t.Direction, ignoreCase: true));
+        Assert.Equal(all.Dashboard.Balance, longOnly.Dashboard.Balance);
+    }
+
+    [Fact]
     public void TradeSetupsPublishAssignedVersionsAndResultsWithoutPrivateReviewData()
     {
         using var data = new LocalData();
@@ -321,7 +354,7 @@ public sealed class PublicationTests
         var snapshot = PublicationExportService.BuildSnapshot(journal, [before, after], account, new Dictionary<DateOnly, List<PublicationNode>>(), [], new(Title: "Baseline"), DateTimeOffset.UtcNow);
         Assert.Equal(2050m, snapshot.Dashboard.Balance);
         Assert.Equal(150m, snapshot.Dashboard.LifetimeNetPnl);
-        Assert.Contains("inferred", snapshot.Dashboard.BalanceNote);
+        Assert.Contains("broker-reported", snapshot.Dashboard.BalanceNote);
 
     }
 
@@ -498,6 +531,23 @@ public sealed class PublicationTests
         Assert.Contains("class TradeExecutionDrawing", await visitor.GetStringAsync("/publication-assets/trade-execution-drawing.js"));
         Assert.Contains("5.2.0", await visitor.GetStringAsync("/publication-assets/lightweight-charts.standalone.production.js"));
         Assert.Equal(HttpStatusCode.NotFound, (await visitor.GetAsync("/publication-assets/private.js")).StatusCode);
+        Assert.Contains("data-equity-points", await visitor.GetStringAsync("/publication-assets/publication-reader.js"));
+        Assert.Contains("<svg", await visitor.GetStringAsync("/favicon.svg"));
+        using (var feedRequest = new HttpRequestMessage(HttpMethod.Get, "/feed.xml"))
+        {
+            feedRequest.Headers.Add("X-Forwarded-Proto", "https");
+            var feed = await (await visitor.SendAsync(feedRequest)).Content.ReadAsStringAsync();
+            Assert.Contains($"<id>https://{visitor.BaseAddress!.Authority}/</id>", feed);
+            Assert.Contains(snapshot.Title, feed);
+        }
+        using (var noRedirect = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = visitor.BaseAddress })
+        {
+            var day = snapshot.Days[0].Date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            var stale = await noRedirect.GetAsync($"/?date={day}&snapshot={Guid.NewGuid():D}");
+            Assert.Equal(HttpStatusCode.Redirect, stale.StatusCode);
+            Assert.Equal($"/?date={day}", stale.Headers.Location!.OriginalString);
+            Assert.Equal(HttpStatusCode.OK, (await noRedirect.GetAsync($"/?date={day}&snapshot={snapshot.SnapshotId:D}")).StatusCode);
+        }
         Assert.Equal(HttpStatusCode.BadRequest, (await host.Client.PutAsJsonAsync("/api/v1/publication", new PublicationUpload(1, malformed), PublicationJson.Options)).StatusCode);
         var unknownJson = JsonSerializer.Serialize(new PublicationUpload(1, snapshot), PublicationJson.Options).Replace("\"schemaVersion\":", "\"privateField\":\"secret\",\"schemaVersion\":");
         Assert.Equal(HttpStatusCode.BadRequest, (await host.Client.PutAsync("/api/v1/publication", new StringContent(unknownJson, Encoding.UTF8, "application/json"))).StatusCode);
@@ -565,7 +615,7 @@ public sealed class PublicationTests
         data.Database.SaveDailyJournal(data.Journal.Id, date, "Before preview", 0);
         await workflow.SaveSettings(data.Journal.Id, new(host.Client.BaseAddress!.AbsoluteUri, "Frozen", "Introduction"), host.Token, default);
         Assert.DoesNotContain(host.Token, data.Database.GetPublishingState(data.Journal.Id).ProtectedToken);
-        await workflow.Preview(data.Journal.Id, default);
+        await workflow.Preview(data.Journal.Id, null, default);
         var frozen = data.Database.GetPublishingState(data.Journal.Id).Draft!;
         data.Database.SaveDailyJournal(data.Journal.Id, date, "Edited after preview", 1);
         await workflow.Publish(data.Journal.Id, frozen.Snapshot.SnapshotId, default);
@@ -574,7 +624,7 @@ public sealed class PublicationTests
         Assert.DoesNotContain("Edited after preview", html);
         await workflow.Publish(data.Journal.Id, frozen.Snapshot.SnapshotId, default); // Retry is safe.
         Assert.Equal(1, (await host.Client.GetFromJsonAsync<PublicationStatus>("/api/v1/publication"))!.Revision);
-        await workflow.Preview(data.Journal.Id, default);
+        await workflow.Preview(data.Journal.Id, null, default);
         await Assert.ThrowsAsync<InvalidOperationException>(() => workflow.Publish(data.Journal.Id, frozen.Snapshot.SnapshotId, default));
         await workflow.SaveSettings(data.Journal.Id, new(host.Client.BaseAddress.AbsoluteUri, "New title", ""), "", default);
         Assert.Null(data.Database.GetPublishingState(data.Journal.Id).Draft);
@@ -617,13 +667,81 @@ public sealed class PublicationTests
         var snapshot = PublicationExportService.BuildSnapshot(journal, trades, new(), new Dictionary<DateOnly, List<PublicationNode>>(), [], new(Title: "History"), DateTimeOffset.UtcNow);
         var html = PublicationPresentation.Document(snapshot, DateTimeOffset.UtcNow, _ => "", "/", "/publication.css");
         Assert.Equal(10, Count(html, "class=\"panel day-entry\""));
-        Assert.Equal(1, Count(html, "class=\"month panel\" open"));
+        Assert.Equal(1, Count(html, "class=\"month panel current\""));
+        Assert.Equal(snapshot.Months.Count, Count(html, "class=\"month panel"));
         Assert.Contains("Load older entries", html);
+        Assert.DoesNotContain("Newer entries", html);
+        Assert.Contains($"entries 1–10 of {snapshot.Days.Count}", html);
+        // Day permalinks omit the snapshot so shared links survive republishing.
+        Assert.Contains($"href=\"/?date={snapshot.Days[^1].Date:yyyy-MM-dd}#day-{snapshot.Days[^1].Date:yyyy-MM-dd}\"", html);
+        Assert.DoesNotContain($"&amp;snapshot={snapshot.SnapshotId:D}#day-", html);
+        Assert.Equal(36, Count(html, "<a class=\"pnl-column"));
         var older = PublicationPresentation.Document(snapshot, null, _ => "", "/", "/publication.css", before: snapshot.Days[^10].Date);
         Assert.Equal(10, Count(older, "class=\"panel day-entry\""));
-        var selected = PublicationPresentation.Document(snapshot, null, _ => "", "/", "/publication.css", selected: snapshot.Days[0].Date);
+        Assert.DoesNotContain("Newer entries", older);
+        var third = PublicationPresentation.Document(snapshot, null, _ => "", "/", "/publication.css", before: snapshot.Days[^20].Date);
+        Assert.Contains($"?before={snapshot.Days[^10].Date:yyyy-MM-dd}&amp;snapshot={snapshot.SnapshotId:D}#entries\">Newer entries", third);
+        Assert.Contains($"entries 21–30 of {snapshot.Days.Count}", third);
+        var middle = snapshot.Days[^5].Date;
+        var selected = PublicationPresentation.Document(snapshot, null, _ => "", "/", "/publication.css", selected: middle);
         Assert.Equal(1, Count(selected, "class=\"panel day-entry\""));
-        Assert.Contains($"id=\"day-{snapshot.Days[0].Date:yyyy-MM-dd}\"", selected);
+        Assert.Contains($"id=\"day-{middle:yyyy-MM-dd}\"", selected);
+        Assert.Contains($"rel=\"prev\" href=\"/?date={snapshot.Days[^6].Date:yyyy-MM-dd}", selected);
+        Assert.Contains($"rel=\"next\" href=\"/?date={snapshot.Days[^4].Date:yyyy-MM-dd}", selected);
+        Assert.Contains($"<a href=\"#month-{middle:yyyy-MM}\">", selected);
+        Assert.Contains($"class=\"month panel current\" id=\"month-{middle:yyyy-MM}\"", selected);
+        Assert.Contains($"<title>{middle.ToString("dddd, MMMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture)} &#183; History</title>", selected);
+    }
+
+    [Fact]
+    public void ReaderRendersNavigationHeatmapWeeklyTotalsAndMetadata()
+    {
+        var journal = Journal();
+        var trades = new[] { 30m, -10m, 20m }.Select((pnl, i) => Trade(journal.Id, pnl, new DateTimeOffset(2026, 3, 2 + i, 15, 0, 0, TimeSpan.Zero))).ToArray();
+        var snapshot = PublicationExportService.BuildSnapshot(journal, trades, new(), new Dictionary<DateOnly, List<PublicationNode>>(), [], new(Title: "Meta <journal>"), DateTimeOffset.UtcNow);
+        var html = PublicationPresentation.Document(snapshot, null, _ => "", "/", "/publication.css", siteUrl: "https://journal.example/");
+        foreach (var section in new[] { "overview", "performance", "calendar", "entries" })
+        {
+            Assert.Contains($"href=\"#{section}\" data-section=\"{section}\"", html);
+            Assert.Contains($"id=\"{section}\"", html);
+        }
+        Assert.Contains("<link rel=\"canonical\" href=\"https://journal.example/\">", html);
+        Assert.Contains("property=\"og:title\" content=\"Meta &lt;journal&gt;\"", html);
+        Assert.Contains("name=\"description\" content=\"Public trading journal: 3 completed trades", html);
+        Assert.Contains("href=\"/favicon.svg\"", html);
+        Assert.Contains("application/atom+xml", html);
+        Assert.Contains("/publication-assets/publication-reader.js", html);
+        Assert.Contains("data-equity-points=", html);
+        Assert.Contains("class=\"drawdown-area\"", html);
+        Assert.Contains("Maximum USD -10.00", html);
+        Assert.Contains("aria-label=\"2026 daily results\"", html);
+        Assert.Contains("href=\"#month-2026-03\"", html);
+        // March 1-7 2026 is one Sunday-start week: 30 - 10 + 20.
+        Assert.Contains("<div class=\"calendar-week positive\"><span>Week</span><strong>40.00</strong><small>3 trades</small></div>", html);
+        Assert.Contains("class=\"calendar-day positive l4\"", html);
+        Assert.Contains("<dt>Profit factor</dt><dd>5.00", html);
+        Assert.DoesNotContain("<dt>Alpha</dt>", html);
+        var preview = PublicationPresentation.Document(snapshot, null, _ => "", "/", "/publication.css", preview: true, siteUrl: "https://journal.example/");
+        Assert.DoesNotContain("rel=\"canonical\"", preview);
+        Assert.DoesNotContain("favicon.svg", preview);
+        Assert.Contains("href=\"#day-2026-03-03\"", preview);
+    }
+
+    [Fact]
+    public void FeedListsNewestDaysWithAbsoluteLinksAndEncodedContent()
+    {
+        var journal = Journal();
+        var trades = Enumerable.Range(0, 40).Select(i => Trade(journal.Id, i, new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero).AddDays(i))).ToArray();
+        var notes = new Dictionary<DateOnly, List<PublicationNode>> { [new(2026, 2, 9)] = PublicationExportService.ConvertContent("Note <b>", _ => throw new Exception()) };
+        var snapshot = PublicationExportService.BuildSnapshot(journal, trades, new(), notes, [], new(Title: "Feed"), DateTimeOffset.UtcNow);
+        var feed = PublicationPresentation.Feed(snapshot, null, "https://journal.example/", id => "https://journal.example/images/" + id);
+        var document = System.Xml.Linq.XDocument.Parse(feed);
+        System.Xml.Linq.XNamespace atom = "http://www.w3.org/2005/Atom";
+        var entries = document.Root!.Elements(atom + "entry").ToArray();
+        Assert.Equal(PublicationPresentation.FeedSize, entries.Length);
+        Assert.Equal("https://journal.example/?date=2026-02-09", entries[0].Element(atom + "id")!.Value);
+        Assert.Contains("Note &lt;b&gt;", entries[0].Element(atom + "content")!.Value);
+        Assert.Equal("https://journal.example/feed.xml", document.Root.Elements(atom + "link").Single(l => (string?)l.Attribute("rel") == "self").Attribute("href")!.Value);
     }
 
     [Theory]

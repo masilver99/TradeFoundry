@@ -135,7 +135,7 @@ public sealed partial class TradeFoundryDb
             "CREATE INDEX IF NOT EXISTS ix_order_events_journal_parent ON order_events(journal_id, parent_order_id, event_utc)",
             "CREATE TABLE IF NOT EXISTS account_balance_events (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id), import_batch_id TEXT NOT NULL REFERENCES import_batches(id), source_type TEXT NOT NULL, source_key TEXT NOT NULL, event_utc TEXT NOT NULL, transaction_utc TEXT NULL, source_time_text TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', balance TEXT NULL, note TEXT NOT NULL DEFAULT '', row_number INTEGER NOT NULL, UNIQUE(journal_id, source_type, source_key))",
             "CREATE INDEX IF NOT EXISTS ix_account_balance_events_journal_time ON account_balance_events(journal_id, account, event_utc, row_number)",
-            "CREATE TABLE IF NOT EXISTS account_transactions (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, transaction_type TEXT NOT NULL CHECK(transaction_type IN ('deposit', 'withdrawal')), effective_utc TEXT NOT NULL, amount TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL, deleted_utc TEXT NULL)",
+            "CREATE TABLE IF NOT EXISTS account_transactions (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, transaction_type TEXT NOT NULL CHECK(transaction_type IN ('deposit', 'withdrawal', 'correction')), effective_utc TEXT NOT NULL, amount TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL, deleted_utc TEXT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_account_transactions_journal_time ON account_transactions(journal_id, effective_utc, created_utc, id)",
             "CREATE TABLE IF NOT EXISTS account_transaction_history (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, transaction_id TEXT NOT NULL REFERENCES account_transactions(id) ON DELETE CASCADE, revision INTEGER NOT NULL, action TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', created_utc TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_account_transaction_history_transaction ON account_transaction_history(journal_id, transaction_id, revision DESC)",
@@ -173,6 +173,7 @@ public sealed partial class TradeFoundryDb
         InitializeExpenses(connection);
         InitializePublishing(connection);
         InitializeSavedFilters(connection);
+        InitializeDailyRatings(connection);
 
         // The application started without migrations, so keep schema upgrades
         // additive and idempotent for existing local SQLite files.
@@ -249,6 +250,7 @@ public sealed partial class TradeFoundryDb
         EnsureColumn(connection, "bars", "bid_volume", "INTEGER NULL");
         EnsureColumn(connection, "bars", "ask_volume", "INTEGER NULL");
 
+        AllowAccountCorrectionType(connection);
         BackfillTradeReviewKeys(connection);
         BackfillDailyJournalSearchText(connection);
         using (var reviewKeyIndex = connection.CreateCommand())
@@ -1128,7 +1130,7 @@ public sealed partial class TradeFoundryDb
     public JournalOverview GetOverview(Guid journalId) => GetOverview(journalId, null);
 
     /// <summary>Overview metrics for the trades inside <paramref name="filter"/>; a null or inactive filter covers the whole journal.</summary>
-    public JournalOverview GetOverview(Guid journalId, JournalFilter? filter)
+    public JournalOverview GetOverview(Guid journalId, JournalFilter? filter, bool fullHistory = false)
     {
         var journal = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         var scope = filter is { IsActive: true } ? filter.Scope(journal.TimeZone) : null;
@@ -1229,7 +1231,7 @@ public sealed partial class TradeFoundryDb
         var dailyPnl = new List<DailyPnl>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT substr(t.exit_utc, 1, 10), SUM({EffectiveNetPnlSql}), COUNT(*) FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql} AND t.exit_utc IS NOT NULL GROUP BY substr(t.exit_utc, 1, 10) ORDER BY substr(t.exit_utc, 1, 10) DESC LIMIT 180";
+            command.CommandText = $"SELECT substr(t.exit_utc, 1, 10), SUM({EffectiveNetPnlSql}), COUNT(*) FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql} AND t.exit_utc IS NOT NULL GROUP BY substr(t.exit_utc, 1, 10) ORDER BY substr(t.exit_utc, 1, 10) DESC{(fullHistory ? string.Empty : " LIMIT 180")}";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
@@ -1240,11 +1242,11 @@ public sealed partial class TradeFoundryDb
         var equity = new List<EquityPoint>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"WITH running AS (SELECT t.id, t.exit_utc, t.sequence, SUM({EffectiveNetPnlSql}) OVER (ORDER BY t.exit_utc, t.sequence, t.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pnl FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql} AND t.exit_utc IS NOT NULL) SELECT exit_utc, cumulative_pnl FROM running ORDER BY exit_utc DESC, sequence DESC, id DESC LIMIT 180";
+            command.CommandText = $"WITH running AS (SELECT t.id, t.exit_utc, t.sequence, {EffectiveNetPnlSql} AS trade_pnl, SUM({EffectiveNetPnlSql}) OVER (ORDER BY t.exit_utc, t.sequence, t.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pnl FROM {TradeFrom} WHERE t.journal_id = $journal{scopeSql} AND t.exit_utc IS NOT NULL) SELECT exit_utc, cumulative_pnl, cumulative_pnl - trade_pnl FROM running ORDER BY exit_utc DESC, sequence DESC, id DESC{(fullHistory ? string.Empty : " LIMIT 180")}";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             AddTradeScopeParameters(command, scope);
             using var reader = command.ExecuteReader();
-            while (reader.Read()) equity.Add(new EquityPoint { ExitUtc = ParseDate(reader.GetString(0)), CumulativePnl = AggregateDecimal(reader, 1) });
+            while (reader.Read()) equity.Add(new EquityPoint { ExitUtc = ParseDate(reader.GetString(0)), CumulativePnl = AggregateDecimal(reader, 1), OpeningPnl = AggregateDecimal(reader, 2) });
         }
         equity.Reverse();
 
@@ -3902,9 +3904,14 @@ public sealed partial class TradeFoundryDb
 
     private static void ValidateAccountTransactionDraft(AccountTransactionDraft draft)
     {
-        if (draft.Type is not AccountTransactionType.Deposit and not AccountTransactionType.Withdrawal)
+        if (draft.Type is not AccountTransactionType.Deposit and not AccountTransactionType.Withdrawal and not AccountTransactionType.Correction)
             throw new ArgumentException("The account transaction type is invalid.", nameof(draft));
-        if (draft.Amount <= 0m)
+        if (draft.Type == AccountTransactionType.Correction)
+        {
+            if (draft.Amount == 0m)
+                throw new ArgumentException("An account correction amount cannot be zero.", nameof(draft));
+        }
+        else if (draft.Amount <= 0m)
             throw new ArgumentException("Account transaction amount must be greater than zero.", nameof(draft));
         if (draft.EffectiveUtc == default)
             throw new ArgumentException("Account transaction time is required.", nameof(draft));
@@ -3914,6 +3921,7 @@ public sealed partial class TradeFoundryDb
     {
         AccountTransactionType.Deposit => "deposit",
         AccountTransactionType.Withdrawal => "withdrawal",
+        AccountTransactionType.Correction => "correction",
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
 
@@ -3921,6 +3929,7 @@ public sealed partial class TradeFoundryDb
     {
         "deposit" => AccountTransactionType.Deposit,
         "withdrawal" => AccountTransactionType.Withdrawal,
+        "correction" => AccountTransactionType.Correction,
         _ => throw new FormatException($"Unknown account transaction type '{value}'.")
     };
 
@@ -4092,6 +4101,51 @@ public sealed partial class TradeFoundryDb
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         var value = command.ExecuteScalar();
         return value is null or DBNull ? null : ParseDecimal(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty);
+    }
+
+    /// <summary>
+    /// Databases created before correction entries carry a CHECK constraint that only allows deposits and
+    /// withdrawals. SQLite cannot alter a CHECK in place, so rebuild the table (rows, ids, and history kept).
+    /// </summary>
+    private static void AllowAccountCorrectionType(SqliteConnection connection)
+    {
+        using (var query = connection.CreateCommand())
+        {
+            query.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'account_transactions'";
+            if (query.ExecuteScalar() is not string sql || sql.Contains("'correction'", StringComparison.OrdinalIgnoreCase)) return;
+        }
+
+        void Execute(string text, SqliteTransaction? transaction = null)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = text;
+            command.ExecuteNonQuery();
+        }
+
+        // Foreign keys must be off outside a transaction so account_transaction_history survives the swap.
+        Execute("PRAGMA foreign_keys = OFF");
+        try
+        {
+            using var transaction = connection.BeginTransaction();
+            Execute("CREATE TABLE account_transactions_rebuild (id TEXT PRIMARY KEY, journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, transaction_type TEXT NOT NULL CHECK(transaction_type IN ('deposit', 'withdrawal', 'correction')), effective_utc TEXT NOT NULL, amount TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL, deleted_utc TEXT NULL)", transaction);
+            Execute("INSERT INTO account_transactions_rebuild (id, journal_id, transaction_type, effective_utc, amount, note, revision, created_utc, updated_utc, deleted_utc) SELECT id, journal_id, transaction_type, effective_utc, amount, note, revision, created_utc, updated_utc, deleted_utc FROM account_transactions", transaction);
+            Execute("DROP TABLE account_transactions", transaction);
+            Execute("ALTER TABLE account_transactions_rebuild RENAME TO account_transactions", transaction);
+            Execute("CREATE INDEX IF NOT EXISTS ix_account_transactions_journal_time ON account_transactions(journal_id, effective_utc, created_utc, id)", transaction);
+            using (var check = connection.CreateCommand())
+            {
+                check.Transaction = transaction;
+                check.CommandText = "PRAGMA foreign_key_check";
+                using var reader = check.ExecuteReader();
+                if (reader.Read()) throw new InvalidOperationException("Account transaction migration left a broken foreign key.");
+            }
+            transaction.Commit();
+        }
+        finally
+        {
+            Execute("PRAGMA foreign_keys = ON");
+        }
     }
 
     private static void EnsureColumn(SqliteConnection connection, string table, string column, string definition)

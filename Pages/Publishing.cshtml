@@ -7,7 +7,7 @@
     var draft = Model.State.Draft;
 }
 <div class="mb-4"><div class="tf-kicker">PUBLIC JOURNAL</div><h2>Publish @Model.Journal!.Name</h2>
-<p class="text-secondary">Publish this journal’s entire history: realized statistics, daily writing, embedded images, and five-minute trade charts with entry and exit prices where bar data is available. Anyone can view the website. Local changes appear only after another preview and publication.</p></div>
+<p class="text-secondary">Publish this journal using the current filter: realized statistics, daily writing, embedded images, and five-minute trade charts with entry and exit prices where bar data is available. Anyone can view the website. Local changes appear only after another preview and publication.</p></div>
 @if (Model.Error is not null) { <div class="alert alert-danger" role="alert" data-notification-exclude>@Model.Error</div> }
 @if (Model.Message is not null) { <div class="alert alert-success" role="status" data-notification-exclude>@Model.Message</div> }
 <div class="row row-cards">
@@ -46,7 +46,8 @@
 @if (Model.State.RemoteStatus?.BoundJournalId is { } bound && bound != Model.JournalId) { <p class="text-danger">This website is bound to another journal.</p> }
 <div class="d-flex flex-wrap gap-2"><form method="post" asp-page-handler="Status"><button class="btn" type="submit">Refresh status</button></form>
 <form method="post" asp-page-handler="Preview"><button class="btn btn-primary" type="submit">Create preview</button></form></div>
-<p class="text-secondary small mt-3">Preview uses saved settings and includes all daily journal entries and completed-trade journal notes, including their inline images, setup labels, attached setup names and versions, roles, and criterion names and results. Criterion notes, setup association notes, review ratings, tags, plans, unrelated attachments, account identifiers, imports, and receipts are excluded.</p>
+<p class="small mt-3 mb-0">Preview filter: <strong>@Model.Filter.Summary</strong>@(Model.Filter.IsActive ? "" : " (entire history)")</p>
+<p class="text-secondary small mt-3">Preview uses saved settings and the journal filter. It includes the daily journal entries within the filter's dates and the completed trades that match it, with their journal notes, including their inline images, setup labels, attached setup names and versions, roles, and criterion names and results. Criterion notes, setup association notes, review ratings, tags, plans, unrelated attachments, account identifiers, imports, and receipts are excluded.</p>
 @if (Model.State.RemoteStatus is { } remote)
 {
 <hr /><form method="post" asp-page-handler="Unpublish"><input type="hidden" name="expectedRevision" value="@remote.Revision" />

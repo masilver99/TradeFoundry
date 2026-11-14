@@ -7,13 +7,17 @@ namespace TradeFoundry.Services;
 
 public sealed class PublicationExportService(TradeFoundryDb database, DailyJournalImageService images, Microsoft.Extensions.Options.IOptions<BenchmarkOptions>? benchmarkOptions = null)
 {
-    public PublicationSnapshot Build(Guid journalId, PublishingSettings settings)
+    /// <summary>Builds the outgoing snapshot; an active <paramref name="filter"/> limits trades, daily entries and statistics to its period and direction.</summary>
+    public PublicationSnapshot Build(Guid journalId, PublishingSettings settings, JournalFilterScope? filter = null)
     {
         var journal = database.GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
-        var trades = database.GetAllTrades(journalId);
-        var account = AccountLedgerService.Build(journal, database.GetAccountTransactions(journalId), trades, database.GetAccountBalanceEvents(journalId)).Summary;
+        var allTrades = database.GetAllTrades(journalId);
+        // The balance is the account's real current balance, so it always comes from the whole ledger.
+        var account = AccountLedgerService.Build(journal, database.GetAccountTransactions(journalId), allTrades, database.GetAccountBalanceEvents(journalId)).Summary;
+        var filtered = filter is { IsActive: true };
+        var trades = filtered ? filter!.Apply(allTrades) : allTrades;
         var sourceImages = new Dictionary<string, PublicationImage>();
-        var entries = database.GetPublicationJournalEntries(journalId).ToDictionary(entry => entry.Date,
+        var entries = database.GetPublicationJournalEntries(journalId).Where(entry => !filtered || filter!.IncludesDate(entry.Date)).ToDictionary(entry => entry.Date,
             entry => ConvertContent(entry.Text, id =>
             {
                 if (!Guid.TryParse(id, out var imageId)) throw new InvalidOperationException($"Invalid image reference in journal entry {entry.Date:yyyy-MM-dd}.");
@@ -65,7 +69,7 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
                             criterion.Criterion.CriterionType.ToString(), criterion.Criterion.Stage.ToString(), criterion.EvaluationState.ToString())).ToList())).ToList();
                 return string.IsNullOrWhiteSpace(label) && definitions.Count == 0 ? null : new PublicationTradeSetupInfo(label, definitions);
             });
-        var indicators = TearSheetMetrics.Build(trades, [], database.GetAccountBalanceEvents(journalId),
+        var indicators = TearSheetMetrics.Build(trades, [], filtered ? [] : database.GetAccountBalanceEvents(journalId),
             database.GetBenchmarkPoints(journalId, benchmarkOptions?.Value.DefaultSymbol ?? "^GSPC"), journal.StartingEquity, journal.TimeZone, journal.Currency);
         var metrics = indicators.Groups.SelectMany(group => group.Indicators).ToArray();
         return snapshot with { Dashboard = snapshot.Dashboard with
@@ -108,8 +112,8 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
             Equity = days.Where(d => d.Trades.Count > 0).Select(d => new PublicationEquityPoint(d.Date, cumulative += d.NetPnl)).ToList(),
             Dashboard = new()
             {
-                Balance = account.CurrentBalance,
-                BalanceNote = account.CurrentBalance is null ? "Opening balance is unavailable." : account.HasInferredBaseline ? "Opening balance inferred from imported balance evidence." : "Opening balance plus cash flows and realized trading results.",
+                Balance = account.DisplayBalance,
+                BalanceNote = account.DisplayBalance is null ? "Opening balance is unavailable." : account.IsBrokerAnchored ? "Latest broker-reported balance plus any later recorded activity." : account.HasInferredBaseline ? "Opening balance inferred from imported balance evidence." : "Opening balance plus cash flows and realized trading results.",
                 LifetimeNetPnl = completed.Sum(t => t.NetPnl), CurrentMonthNetPnl = days.Where(d => d.Date.Year == asOf.Year && d.Date.Month == asOf.Month).Sum(d => d.NetPnl),
                 CompletedTrades = completed.Length, WinRate = completed.Length == 0 ? null : (decimal)completed.Count(t => t.NetPnl > 0) / completed.Length * 100m,
                 ProfitFactor = losses == 0 ? null : wins / losses

@@ -523,7 +523,7 @@ public sealed class PublicationTests
         Assert.Contains("<strong>Public writing</strong>", html);
         Assert.DoesNotContain("PRIVATE", html);
         var imagePath = $"/images/{snapshot.SnapshotId:D}/{snapshot.Images[0].Id}";
-        Assert.Equal(Png(), await visitor.GetByteArrayAsync(imagePath));
+        Assert.Equal(snapshot.Images[0].Content, await visitor.GetByteArrayAsync(imagePath));
         Assert.Equal("image/png", (await visitor.GetAsync(imagePath)).Content.Headers.ContentType!.MediaType);
         Assert.Contains(".calendar", await visitor.GetStringAsync("/publication.css"));
         var malformed = snapshot with { SnapshotId = Guid.NewGuid(), Images = [] };
@@ -758,7 +758,9 @@ public sealed class PublicationTests
         return image.ToByteArray(ImageMagick.MagickFormat.Png);
     }
 
-    private static byte[] Png() => TestImageBytes();
+    // ImageMagick embeds creation timestamps, so encode once: separate encodings differ when they straddle a second.
+    private static readonly byte[] PngBytes = TestImageBytes();
+    private static byte[] Png() => PngBytes.ToArray();
     private static Journal Journal(string timeZone = "UTC") => new() { Id = Guid.NewGuid(), Name = "PRIVATE-JOURNAL", TimeZone = timeZone, Currency = "USD", StartingEquity = 1000, CreatedUtc = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero) };
     private static Trade Trade(Guid journalId, decimal pnl, DateTimeOffset exit) => new()
     {

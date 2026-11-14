@@ -7,7 +7,7 @@
     var draft = Model.State.Draft;
 }
 <div class="mb-4"><div class="tf-kicker">PUBLIC JOURNAL</div><h2>Publish @Model.Journal!.Name</h2>
-<p class="text-secondary">Publish this journal using the current filter: realized statistics, daily writing, embedded images, and five-minute trade charts with entry and exit prices where bar data is available. Anyone can view the website. Local changes appear only after another preview and publication.</p></div>
+<p class="text-secondary">Publish this journal using the current filter: realized statistics and breakdowns, daily writing, embedded images, exact trade times and prices, monthly opening balances, the imported benchmark series, and five-minute trade charts where bar data is available. Anyone can view the website. Local changes appear only after another preview and publication.</p></div>
 @if (Model.Error is not null) { <div class="alert alert-danger" role="alert" data-notification-exclude>@Model.Error</div> }
 @if (Model.Message is not null) { <div class="alert alert-success" role="status" data-notification-exclude>@Model.Message</div> }
 <div class="row row-cards">
@@ -37,6 +37,7 @@
 </div>
 <textarea class="form-control" asp-for="Introduction" rows="7" maxlength="64000" data-lexical-source></textarea>
 <small class="text-secondary">Appears below the title and timezone on your public journal. Save settings before creating a preview.</small></div>
+<section class="mb-3"><h4>Analytics</h4><div class="form-check"><input class="form-check-input" type="checkbox" asp-for="IncludeTearSheet"><label class="form-check-label" asp-for="IncludeTearSheet">Publish tear-sheet indicators</label></div><small class="text-secondary">Adds risk and stability, core performance, trade dynamics, calendar and R-multiple indicators to the Analysis section. Trade statistics, breakdowns, monthly returns and the benchmark comparison are always published.</small></section>
 <section class="mb-3"><h4>Google tag</h4><label class="form-label" asp-for="GoogleTagScript">Google tag script (optional)</label><textarea class="form-control font-monospace" asp-for="GoogleTagScript" rows="9" maxlength="16000" spellcheck="false"></textarea><small class="text-secondary">Paste the complete snippet, including script tags. Published directly after the opening head tag. Leave blank to remove it. Scripts do not run in local previews.</small></section>
 <button type="submit" class="btn btn-primary">Save settings</button><small class="text-secondary ms-2">Saving clears the current preview.</small>
 </form></div></div></section>

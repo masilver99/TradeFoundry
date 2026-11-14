@@ -11,6 +11,14 @@ Everything needed to build and host the public site is in this directory:
 
 TradeFoundry's publishing UI, exporter, and integration tests remain in the main application. The public site builds using this directory as its Docker context; it does not need the rest of the repository.
 
+## Analytics (schema version 5)
+
+Every publication shows trade statistics (expectancy, payoff, drawdown and recovery, streaks, green days, a result histogram and a rolling 20-trade win rate) and an Analysis section with breakdowns by setup, setup-rule adherence, symbol, direction and weekday, plus a monthly table. These are derived from the published trades, so they also appear for older snapshots.
+
+Schema version 5 adds the data some of these need: exact entry and exit times and prices per trade (exact trade timing and the entry-hour breakdown), the account balance at the start of each month (monthly percentage returns), the imported benchmark's daily closes over the trading period with its comparison statistics, and, when **Publish tear-sheet indicators** is selected in the publishing settings, the risk and stability, core performance, trade dynamics, calendar and R-multiple indicator groups. Order-level execution data stays private.
+
+Deploy the updated public reader before publishing a schema-version-5 preview; an older reader rejects it and keeps its current publication. Versions 1 to 4 remain readable.
+
 ## Trade setup information
 
 Schema version 4 adds the free-text Setup label and attached setup names, assigned versions, primary/secondary roles, and criterion names, types, stages, and recorded results. These appear inside each trade accordion and the complete publication preview. The assigned historical version is exported, rather than the latest definition. Criterion notes, association notes, rule metadata, ratings, tags, and planning fields remain private. Trades without setup information display "Setup not recorded"; older publications identify setup data as not included.
@@ -33,7 +41,7 @@ $env:Storage__DataDirectory = 'C:\temp\tradefoundry-public-data'
 dotnet run --project PublicJournal/App/TradeFoundry.PublicJournal.csproj --urls http://127.0.0.1:9080
 ```
 
-In TradeFoundry, open **Publishing** for the journal. Save the destination and the same secret token, create a preview, inspect it, and select **Publish this exact snapshot**. Publishing includes the entire journal history, all daily writing, completed-trade journal notes, and inline images referenced by those entries, including today's saved entries. Open trades, review ratings, tags, planning fields, imports, receipts, and unrelated attachments are excluded. No upload occurs until Publish is selected. Local edits require another preview and publication.
+In TradeFoundry, open **Publishing** for the journal. Save the destination and the same secret token, create a preview, inspect it, and select **Publish this exact snapshot**. Publishing includes the entire journal history, all daily writing, completed-trade journal notes, inline images referenced by those entries (including today's saved entries), exact trade execution times and prices, monthly opening balances and any imported benchmark series. Open trades, review ratings, tags, planning fields, imports, receipts, and unrelated attachments are excluded. No upload occurs until Publish is selected. Local edits require another preview and publication.
 
 The **Title** setting supplies the public page heading instead of the private journal name. **Introduction** uses the Daily Journal formatting editor and Markdown shortcuts; its formatted HTML appears below the title and timezone. Existing plain-text introductions remain editable. Save settings and create a new preview after editing either field. Update both TradeFoundry and the public reader before publishing rich introductions; older readers reject snapshots containing the new introduction content field.
 

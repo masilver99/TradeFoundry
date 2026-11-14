@@ -7,7 +7,7 @@ using System.Xml;
 
 namespace TradeFoundry.Publishing;
 
-public static class PublicationPresentation
+public static partial class PublicationPresentation
 {
     public const int PageSize = 10;
     public const int FeedSize = 30;
@@ -92,7 +92,7 @@ public static class PublicationPresentation
     private static string E(string? value) => WebUtility.HtmlEncode(value ?? "");
     private static string N(decimal number) => number.ToString("0.##", Inv);
 
-    private sealed class Reader(PublicationSnapshot snapshot, DateTimeOffset? publishedUtc, Func<string, string> imageUrl,
+    private sealed partial class Reader(PublicationSnapshot snapshot, DateTimeOffset? publishedUtc, Func<string, string> imageUrl,
         string pageUrl, string styleUrl, DateOnly? before, DateOnly? selected, bool preview, string? siteUrl)
     {
         private readonly StringBuilder html = new();
@@ -103,6 +103,10 @@ public static class PublicationPresentation
         private readonly PublicationMonth[] months = snapshot.Months.OrderByDescending(m => m.Month).ToArray();
         private readonly TimeZoneInfo zone = Zone(snapshot.TimeZone);
         private readonly decimal heatScale = HeatScale(snapshot.Days.Where(d => d.Trades.Count > 0));
+        // Completed trades in trading order; partial parts read the snapshot through this field.
+        private readonly PublicationSnapshot data = snapshot;
+        private readonly (DateOnly Date, PublicationTrade Trade)[] trades = snapshot.Days.Where(d => d.Trades.Count > 0).OrderBy(d => d.Date)
+            .SelectMany(d => d.Trades.Select(t => (d.Date, t))).ToArray();
         private PublicationDay? SelectedDay => selected is { } date ? lookup.GetValueOrDefault(date) : null;
 
         private string Money(decimal? value) => value.HasValue ? $"{snapshot.Currency} {value.Value.ToString("N2", Inv)}" : "Unavailable";
@@ -120,7 +124,9 @@ public static class PublicationPresentation
             html.Append("<section id=\"performance\" class=\"performance\" aria-labelledby=\"performance-title\"><div class=\"eyebrow\">PERFORMANCE</div><h2 id=\"performance-title\">Results over time</h2>");
             EquityCurve();
             TradeResults();
+            TradeStatistics();
             html.Append("</section>");
+            Analysis();
             Calendar();
             Entries();
             html.Append($"<footer>Published from TradeFoundry · Historical realized trading results{(preview ? "" : " · <a href=\"/feed.xml\">Atom feed</a>")}</footer></main>");
@@ -160,7 +166,7 @@ public static class PublicationPresentation
         {
             var lifetime = snapshot.Dashboard.LifetimeNetPnl;
             html.Append($"<nav class=\"site-nav\" aria-label=\"Journal sections\"><div class=\"site-nav-inner\"><a class=\"brand\" href=\"#overview\">{E(snapshot.Title)}</a><div class=\"nav-links\">");
-            foreach (var (id, label) in new[] { ("overview", "Overview"), ("performance", "Performance"), ("calendar", "Calendar"), ("entries", "Journal") })
+            foreach (var (id, label) in new[] { ("overview", "Overview"), ("performance", "Performance"), ("analysis", "Analysis"), ("calendar", "Calendar"), ("entries", "Journal") })
                 html.Append($"<a href=\"#{id}\" data-section=\"{id}\">{label}</a>");
             html.Append($"</div><div class=\"nav-status\"><strong class=\"{Tone(lifetime)}\">{E(Money(lifetime))}</strong><small>Lifetime net · as of {ShortDate(snapshot.AsOfDate)}</small></div></div></nav>");
         }
@@ -284,7 +290,7 @@ public static class PublicationPresentation
         private void TradeResults()
         {
             html.Append("<div class=\"panel curve trade-results\"><h3 id=\"results-title\">Trade P&amp;L</h3><p class=\"muted\">One bar per completed trade, after fees, ordered by trading date. Select a bar to open that day.</p>");
-            var results = active.SelectMany(d => d.Trades.Select(t => (d.Date, Trade: t))).ToArray();
+            var results = trades;
             if (results.Length == 0) { html.Append("<p class=\"empty\">No completed trades have been published.</p></div>"); return; }
             var scale = Math.Max(1m, results.Max(r => Math.Abs(r.Trade.NetPnl)));
             html.Append("<div class=\"pnl-bars\" aria-labelledby=\"results-title\">");
@@ -496,17 +502,28 @@ public static class PublicationPresentation
             html.Append("</article>");
         }
 
-        // Chart executions are anchored to the 5-minute bar holding each fill, so times are bar starts and the hold is approximate; prices are exact.
+        // Schema 5 trades carry exact executions; older snapshots fall back to the 5-minute bars holding each fill, so their times are approximate.
         private string Timing(PublicationTrade trade)
         {
-            if (trade.Chart is not { } chart || chart.Exit.Time < chart.Entry.Time) return "";
-            var entry = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(chart.Entry.Time), zone);
-            var exit = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(chart.Exit.Time), zone);
-            var minutes = (chart.Exit.Time - chart.Entry.Time) / 60;
-            var hold = minutes < 5 ? "under 5m" : minutes < 60 ? $"~{minutes}m" : minutes < 1440 ? $"~{minutes / 60}h {minutes % 60:00}m" : $"~{minutes / 1440}d {minutes % 1440 / 60}h";
-            var exitFormat = exit.Date == entry.Date ? "HH:mm" : "MMM d HH:mm";
+            DateTimeOffset entry, exit;
+            decimal entryPrice, exitPrice;
+            bool exact;
+            if (trade.EntryUtc is { } entryUtc && trade.ExitUtc is { } exitUtc && trade.EntryPrice is { } p1 && trade.ExitPrice is { } p2)
+                (entry, exit, entryPrice, exitPrice, exact) = (entryUtc, exitUtc, p1, p2, true);
+            else if (trade.Chart is { } chart && chart.Exit.Time >= chart.Entry.Time)
+                (entry, exit, entryPrice, exitPrice, exact) = (DateTimeOffset.FromUnixTimeSeconds(chart.Entry.Time), DateTimeOffset.FromUnixTimeSeconds(chart.Exit.Time), chart.Entry.Price, chart.Exit.Price, false);
+            else return "";
+            var minutes = (long)(exit - entry).TotalMinutes;
+            var hold = exact
+                ? minutes < 1 ? $"{(long)(exit - entry).TotalSeconds}s" : minutes < 60 ? $"{minutes}m" : minutes < 1440 ? $"{minutes / 60}h {minutes % 60:00}m" : $"{minutes / 1440}d {minutes % 1440 / 60}h"
+                : minutes < 5 ? "under 5m" : minutes < 60 ? $"~{minutes}m" : minutes < 1440 ? $"~{minutes / 60}h {minutes % 60:00}m" : $"~{minutes / 1440}d {minutes % 1440 / 60}h";
+            entry = TimeZoneInfo.ConvertTime(entry, zone);
+            exit = TimeZoneInfo.ConvertTime(exit, zone);
+            var timeFormat = exact ? "HH:mm:ss" : "HH:mm";
+            var exitFormat = exit.Date == entry.Date ? timeFormat : "MMM d " + timeFormat;
             static string Price(decimal value) => value.ToString("#,0.00######", Inv);
-            return $"<span class=\"trade-timing\" title=\"Times are the start of the 5-minute bar holding each execution ({E(snapshot.TimeZone)}); prices are exact.\">{entry.ToString("HH:mm", Inv)} @ {Price(chart.Entry.Price)} → {exit.ToString(exitFormat, Inv)} @ {Price(chart.Exit.Price)} · held {hold}</span>";
+            var title = exact ? $"Execution times in {snapshot.TimeZone}." : $"Times are the start of the 5-minute bar holding each execution ({snapshot.TimeZone}); prices are exact.";
+            return $"<span class=\"trade-timing\" title=\"{E(title)}\">{entry.ToString(timeFormat, Inv)} @ {Price(entryPrice)} → {exit.ToString(exitFormat, Inv)} @ {Price(exitPrice)} · held {hold}</span>";
         }
 
         private void ChartDialog()

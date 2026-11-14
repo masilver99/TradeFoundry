@@ -69,14 +69,79 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
                             criterion.Criterion.CriterionType.ToString(), criterion.Criterion.Stage.ToString(), criterion.EvaluationState.ToString())).ToList())).ToList();
                 return string.IsNullOrWhiteSpace(label) && definitions.Count == 0 ? null : new PublicationTradeSetupInfo(label, definitions);
             });
-        var indicators = TearSheetMetrics.Build(trades, [], filtered ? [] : database.GetAccountBalanceEvents(journalId),
-            database.GetBenchmarkPoints(journalId, benchmarkOptions?.Value.DefaultSymbol ?? "^GSPC"), journal.StartingEquity, journal.TimeZone, journal.Currency);
-        var metrics = indicators.Groups.SelectMany(group => group.Indicators).ToArray();
-        return snapshot with { Dashboard = snapshot.Dashboard with
+        var balanceEvents = filtered ? [] : database.GetAccountBalanceEvents(journalId);
+        var benchmarkSource = database.GetBenchmarkPoints(journalId, benchmarkOptions?.Value.DefaultSymbol ?? "^GSPC");
+        var indicators = TearSheetMetrics.Build(trades, [], balanceEvents, benchmarkSource, journal.StartingEquity, journal.TimeZone, journal.Currency);
+        var comparison = indicators.Benchmark;
+        var baseline = journal.StartingEquity ?? balanceEvents.Where(e => e.Balance.HasValue).OrderBy(e => e.EventUtc).ThenBy(e => e.RowNumber).Select(e => e.Balance).FirstOrDefault();
+        var withBalances = snapshot with
         {
-            Alpha = metrics.FirstOrDefault(metric => metric.Label == "Alpha")?.Value,
-            AnnualizedAlpha = metrics.FirstOrDefault(metric => metric.Label == "Alpha (ann.)")?.Value
-        }};
+            // The opening balance comes from the whole ledger, like the dashboard balance, so monthly returns are against the real account.
+            Months = OpeningBalances(journal, allTrades, account.OpeningBalance, snapshot.Months),
+            Dashboard = snapshot.Dashboard with
+            {
+                Alpha = comparison.AlphaPercent is { } alpha ? $"{alpha.ToString("0.00", Invariant)}%" : null,
+                AnnualizedAlpha = comparison.AnnualizedAlpha is { } annualized ? $"{(annualized * 100m).ToString("0.0", Invariant)}%" : null
+            },
+            Benchmark = Benchmark(comparison, benchmarkSource, baseline, snapshot),
+            TearSheet = settings.IncludeTearSheet ? TearSheet(indicators) : null
+        };
+        PublicationValidation.Validate(withBalances);
+        return withBalances;
+    }
+
+    private static readonly System.Globalization.CultureInfo Invariant = System.Globalization.CultureInfo.InvariantCulture;
+
+    private List<PublicationMonth> OpeningBalances(Journal journal, IReadOnlyList<Trade> trades, decimal? accountOpening, IEnumerable<PublicationMonth> months)
+    {
+        var zone = TimeZoneCatalog.Resolve(journal.TimeZone);
+        var transactions = database.GetAccountTransactions(journal.Id);
+        var balances = database.GetAccountBalanceEvents(journal.Id);
+        DateTimeOffset Start(DateOnly date) => new(TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified), zone));
+        return months.Select(month =>
+        {
+            var period = AccountLedgerService.Build(journal, transactions, trades, balances,
+                pageSize: 1, windowStartUtc: Start(month.Month), windowEndUtcExclusive: Start(month.Month.AddMonths(1))).Period;
+            // The ledger reports no balance before its first entry; when the ledger starts inside this month, it opens at the account's opening balance.
+            var opening = period is null ? null : period.DisplayOpeningBalance ?? (period.RowCount > 0 ? accountOpening : null);
+            return month with { OpeningBalance = opening };
+        }).ToList();
+    }
+
+    /// <summary>Benchmark closes over the published trading period, plus the comparison statistics.</summary>
+    public static PublicationBenchmark? Benchmark(TearSheetBenchmark comparison, IEnumerable<BenchmarkPoint> source, decimal? startingBalance, PublicationSnapshot snapshot)
+    {
+        if (comparison.Ticker is not { Length: > 0 and <= 32 } ticker || snapshot.Equity.Count == 0) return null;
+        var first = snapshot.Equity[0].Date.AddDays(-7);
+        var points = source.Where(p => p.Value > 0m && string.Equals(p.Symbol, ticker, StringComparison.OrdinalIgnoreCase))
+            .Select(p => (Date: DateOnly.FromDateTime(p.EventUtc.UtcDateTime.Date), p.Value, p.EventUtc))
+            .Where(p => p.Date >= first && p.Date <= snapshot.AsOfDate)
+            .GroupBy(p => p.Date).OrderBy(g => g.Key)
+            .Select(g => new PublicationBenchmarkPoint(g.Key, g.OrderBy(p => p.EventUtc).Last().Value)).ToList();
+        if (points.Count < 2) return null;
+        return new()
+        {
+            Symbol = ticker, StartingBalance = startingBalance is > 0m ? startingBalance : null, Points = points,
+            StrategyReturnPercent = comparison.StrategyReturnPercent, BenchmarkReturnPercent = comparison.BenchmarkReturnPercent,
+            AlphaPercent = comparison.AlphaPercent, AnnualizedAlphaPercent = comparison.AnnualizedAlpha * 100m,
+            Beta = comparison.Beta, Correlation = comparison.Correlation
+        };
+    }
+
+    private static readonly string[] PublishedGroups = ["indicators-performance", "indicators-trade-dynamics", "indicators-calendar", "indicators-r-multiple"];
+
+    /// <summary>Tear-sheet groups suitable for the public site; execution needs order data and the benchmark has its own section.</summary>
+    public static List<PublicationMetricGroup>? TearSheet(TearSheetIndicatorSet indicators)
+    {
+        static string Clip(string? value, int max) => value is null ? "" : value.Length <= max ? value : value[..max];
+        static PublicationMetricGroup Group(string title, string description, IEnumerable<TearSheetIndicator> source) => new(Clip(title, 120), Clip(description, 500),
+            source.Where(i => i.Tone != "muted" && i.Value != "—" && !string.IsNullOrWhiteSpace(i.Label)).Take(60)
+                .Select(i => new PublicationMetric(Clip(i.Label, 120), Clip(i.Value, 60), Clip(i.Note, 300), i.Tone is "positive" or "negative" or "warning" ? i.Tone : "neutral")).ToList());
+        var groups = new[] { Group("Risk & stability", "Drawdown, volatility and tail-risk measures from daily results.", indicators.RiskStability) }
+            .Concat(PublishedGroups.Select(id => indicators.Groups.FirstOrDefault(g => g.Id == id)).OfType<TearSheetIndicatorGroup>()
+                .Select(g => Group(g.Title, g.Description, g.Indicators)))
+            .Where(g => g.Metrics.Count > 0).ToList();
+        return groups.Count == 0 ? null : groups;
     }
 
     public static PublicationSnapshot BuildSnapshot(Journal journal, IEnumerable<Trade> trades, AccountSummary account,
@@ -88,8 +153,8 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
         var dates = trading.Keys.Concat(entries.Where(e => HasContent(e.Value)).Select(e => e.Key)).Distinct().OrderBy(d => d).ToArray();
         var days = dates.Select(date =>
         {
-            var rows = trading.TryGetValue(date, out var day) ? day.CompletedTrades.Select(t => new PublicationTrade(t.Symbol, t.Direction, t.Quantity, t.NetPnl)
-            { Chart = chartForTrade?.Invoke(t), JournalContent = journalForTrade?.Invoke(t) ?? [], Setup = setupForTrade?.Invoke(t) }).ToList() : [];
+            var rows = trading.TryGetValue(date, out var day) ? day.CompletedTrades.Select(t => WithExecution(new PublicationTrade(t.Symbol, t.Direction, t.Quantity, t.NetPnl)
+            { Chart = chartForTrade?.Invoke(t), JournalContent = journalForTrade?.Invoke(t) ?? [], Setup = setupForTrade?.Invoke(t) }, t)).ToList() : [];
             return new PublicationDay
             {
                 Date = date, NetPnl = rows.Sum(t => t.NetPnl), Trades = rows,
@@ -122,6 +187,11 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
         PublicationValidation.Validate(snapshot);
         return snapshot;
     }
+
+    private static PublicationTrade WithExecution(PublicationTrade published, Trade trade) =>
+        trade.ExitUtc is { } exit && trade.ExitPrice is { } exitPrice && trade.EntryUtc <= exit
+            ? published with { EntryUtc = trade.EntryUtc, ExitUtc = exit, EntryPrice = trade.EntryPrice, ExitPrice = exitPrice }
+            : published;
 
     private PublicationTradeChart? BuildTradeChart(Trade trade)
     {

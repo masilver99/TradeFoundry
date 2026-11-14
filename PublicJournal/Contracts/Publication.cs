@@ -6,7 +6,7 @@ namespace TradeFoundry.Publishing;
 // Deliberately independent of internal journal, account, import, and review models.
 public sealed record PublicationSnapshot
 {
-    public int SchemaVersion { get; init; } = 4;
+    public int SchemaVersion { get; init; } = 5;
     public Guid SnapshotId { get; init; } = Guid.NewGuid();
     public Guid JournalId { get; init; }
     public DateTimeOffset GeneratedUtc { get; init; }
@@ -22,7 +22,30 @@ public sealed record PublicationSnapshot
     public List<PublicationMonth> Months { get; init; } = [];
     public List<PublicationEquityPoint> Equity { get; init; } = [];
     public List<PublicationImage> Images { get; init; } = [];
+    /// <summary>Schema 5: benchmark series and comparison statistics, when a benchmark is imported.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PublicationBenchmark? Benchmark { get; init; }
+    /// <summary>Schema 5: optional tear-sheet indicators chosen in the publishing settings.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<PublicationMetricGroup>? TearSheet { get; init; }
 }
+
+public sealed record PublicationBenchmark
+{
+    public string Symbol { get; init; } = "";
+    /// <summary>Balance the strategy's percentage line is measured against.</summary>
+    public decimal? StartingBalance { get; init; }
+    public decimal? StrategyReturnPercent { get; init; }
+    public decimal? BenchmarkReturnPercent { get; init; }
+    public decimal? AlphaPercent { get; init; }
+    public decimal? AnnualizedAlphaPercent { get; init; }
+    public decimal? Beta { get; init; }
+    public decimal? Correlation { get; init; }
+    public List<PublicationBenchmarkPoint> Points { get; init; } = [];
+}
+public sealed record PublicationBenchmarkPoint(DateOnly Date, decimal Close);
+public sealed record PublicationMetricGroup(string Title, string Description, List<PublicationMetric> Metrics);
+public sealed record PublicationMetric(string Label, string Value, string Note, string Tone = "neutral");
 
 public sealed record PublicationDashboard
 {
@@ -50,6 +73,15 @@ public sealed record PublicationDay
 
 public sealed record PublicationTrade(string Symbol, string Direction, int Quantity, decimal NetPnl)
 {
+    // Schema 5: exact execution times and prices; null in older snapshots.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? EntryUtc { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? ExitUtc { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? EntryPrice { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? ExitPrice { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PublicationTradeSetupInfo? Setup { get; init; }
     public List<PublicationNode> JournalContent { get; init; } = [];
@@ -70,7 +102,12 @@ public sealed record PublicationTradeChart
 }
 public sealed record PublicationChartBar(long Time, decimal Open, decimal High, decimal Low, decimal Close, long Volume);
 public sealed record PublicationChartExecution(long Time, decimal Price);
-public sealed record PublicationMonth(DateOnly Month, decimal NetPnl, int TradeCount);
+public sealed record PublicationMonth(DateOnly Month, decimal NetPnl, int TradeCount)
+{
+    /// <summary>Schema 5: account balance just before the month, for monthly percentage returns.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? OpeningBalance { get; init; }
+}
 public sealed record PublicationEquityPoint(DateOnly Date, decimal CumulativePnl);
 public sealed record PublicationImage(string Id, string ContentType, byte[] Content);
 

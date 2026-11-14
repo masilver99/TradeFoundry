@@ -39,6 +39,20 @@ public sealed class TearSheetIndicatorSet
     public IReadOnlyList<TearSheetIndicatorGroup> Groups { get; init; } = Array.Empty<TearSheetIndicatorGroup>();
     public TearSheetScStatistics ScTradeStatistics { get; init; } = new();
     public RiskDisciplineMetrics RiskDiscipline { get; init; } = new();
+    /// <summary>Raw benchmark comparison values, so consumers need not parse display labels.</summary>
+    public TearSheetBenchmark Benchmark { get; init; } = new();
+}
+
+/// <summary>Benchmark comparison. Return and alpha percentages are points; <see cref="AnnualizedAlpha"/> is a fraction.</summary>
+public sealed record TearSheetBenchmark
+{
+    public string? Ticker { get; init; }
+    public decimal? StrategyReturnPercent { get; init; }
+    public decimal? BenchmarkReturnPercent { get; init; }
+    public decimal? AlphaPercent { get; init; }
+    public decimal? AnnualizedAlpha { get; init; }
+    public decimal? Beta { get; init; }
+    public decimal? Correlation { get; init; }
 }
 
 public sealed record RiskDisciplineThresholds
@@ -275,6 +289,11 @@ public static class TearSheetMetrics
             ScTradeStatistics = scTradeStatistics,
             RiskStability = riskStability,
             RiskDiscipline = riskDiscipline,
+            Benchmark = new()
+            {
+                Ticker = benchmark.Ticker, StrategyReturnPercent = benchmark.StrategyReturnPercent, BenchmarkReturnPercent = benchmark.BenchmarkReturnPercent,
+                AlphaPercent = benchmark.AlphaPercent, AnnualizedAlpha = benchmark.AnnualizedAlpha, Beta = benchmark.Beta, Correlation = benchmark.Correlation
+            },
             Key = new[]
             {
                 Money("Net P&L", stats.TotalNetPnl, "After fees", currency),

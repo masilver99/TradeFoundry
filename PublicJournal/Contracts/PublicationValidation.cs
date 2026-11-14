@@ -6,7 +6,7 @@ public static class PublicationValidation
 {
     public static void Validate(PublicationSnapshot snapshot)
     {
-        if (snapshot.SchemaVersion is not (1 or 2 or 3 or 4)) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
+        if (snapshot.SchemaVersion is not (1 or 2 or 3 or 4 or 5)) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
         if (snapshot.JournalId == Guid.Empty || snapshot.SnapshotId == Guid.Empty || snapshot.GeneratedUtc == default || snapshot.AsOfDate == default)
             throw new InvalidOperationException("Publication identity or date is missing.");
         if (string.IsNullOrWhiteSpace(snapshot.Title) || snapshot.Title.Length > 150 || snapshot.Introduction is null || snapshot.Introduction.Length > 5000
@@ -44,11 +44,18 @@ public static class PublicationValidation
                 PublicationContent.Validate(trade.JournalContent, imageIds);
                 if (trade.Setup is { } setup) ValidateSetup(setup, snapshot.SchemaVersion);
                 if (trade.Chart is { } chart) ValidateChart(chart, snapshot.SchemaVersion);
+                ValidateExecution(trade, snapshot.SchemaVersion);
             }
         }
         var months = snapshot.Days.GroupBy(d => new DateOnly(d.Date.Year, d.Date.Month, 1))
             .Select(g => new PublicationMonth(g.Key, g.Sum(d => d.NetPnl), g.Sum(d => d.Trades.Count))).OrderBy(m => m.Month).ToArray();
-        if (!months.SequenceEqual(snapshot.Months.OrderBy(m => m.Month))) throw new InvalidOperationException("Monthly totals do not match published days.");
+        // Opening balances are informational, so compare only the derived totals.
+        if (!months.SequenceEqual(snapshot.Months.OrderBy(m => m.Month).Select(m => m with { OpeningBalance = null })))
+            throw new InvalidOperationException("Monthly totals do not match published days.");
+        if (snapshot.SchemaVersion < 5 && snapshot.Months.Any(m => m.OpeningBalance.HasValue))
+            throw new InvalidOperationException("Monthly opening balances require publication schema version 5.");
+        if (snapshot.Benchmark is { } benchmark) ValidateBenchmark(benchmark, snapshot.SchemaVersion);
+        if (snapshot.TearSheet is { } tearSheet) ValidateTearSheet(tearSheet, snapshot.SchemaVersion);
         decimal cumulative = 0;
         var equity = snapshot.Days.Where(d => d.Trades.Count > 0).OrderBy(d => d.Date)
             .Select(d => new PublicationEquityPoint(d.Date, cumulative += d.NetPnl)).ToArray();
@@ -63,6 +70,42 @@ public static class PublicationValidation
             || dashboard.ProfitFactor != (loss == 0 ? (decimal?)null : profit / loss)
             || dashboard.BalanceNote is null || dashboard.BalanceNote.Length > 1000)
             throw new InvalidOperationException("Dashboard metrics do not match the published trading history.");
+    }
+
+    private static void ValidateExecution(PublicationTrade trade, int version)
+    {
+        if (trade.EntryUtc is null && trade.ExitUtc is null && trade.EntryPrice is null && trade.ExitPrice is null) return;
+        if (version < 5 || trade.EntryUtc is not { } entry || trade.ExitUtc is not { } exit || trade.EntryPrice is null || trade.ExitPrice is null
+            || entry > exit || entry.Year < 1990 || exit.Year > 9999)
+            throw new InvalidOperationException("Published trade executions need both times and prices, entry before exit, and schema version 5.");
+    }
+
+    private static void ValidateBenchmark(PublicationBenchmark benchmark, int version)
+    {
+        if (version < 5 || string.IsNullOrWhiteSpace(benchmark.Symbol) || benchmark.Symbol.Length > 32 || benchmark.Points is null || benchmark.Points.Count > 20_000)
+            throw new InvalidOperationException("Invalid published benchmark. Benchmarks require schema version 5.");
+        DateOnly previous = default;
+        foreach (var point in benchmark.Points)
+        {
+            if (point is null || point.Date <= previous || point.Close <= 0)
+                throw new InvalidOperationException("Published benchmark closes must be positive and in date order.");
+            previous = point.Date;
+        }
+    }
+
+    private static void ValidateTearSheet(List<PublicationMetricGroup> groups, int version)
+    {
+        if (version < 5 || groups.Count > 20) throw new InvalidOperationException("Invalid published tear sheet. Tear sheets require schema version 5.");
+        foreach (var group in groups)
+        {
+            if (group is null || string.IsNullOrWhiteSpace(group.Title) || group.Title.Length > 120 || group.Description is null || group.Description.Length > 500
+                || group.Metrics is null || group.Metrics.Count > 60)
+                throw new InvalidOperationException("Invalid published tear-sheet group.");
+            foreach (var metric in group.Metrics)
+                if (metric is null || string.IsNullOrWhiteSpace(metric.Label) || metric.Label.Length > 120 || metric.Value is null || metric.Value.Length > 60
+                    || metric.Note is null || metric.Note.Length > 300 || metric.Tone is not ("positive" or "negative" or "neutral" or "warning"))
+                    throw new InvalidOperationException("Invalid published tear-sheet indicator.");
+        }
     }
 
     private static void ValidateSetup(PublicationTradeSetupInfo info, int version)

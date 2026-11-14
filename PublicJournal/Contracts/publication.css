@@ -5,6 +5,7 @@
   --cell: #e7eef0; --note: #6f8fb3; --quiet-ink: #8b9a9e; --quiet-bg: #f8fafa;
 }
 @media (prefers-color-scheme: dark) {
+  .warning { color: #e3b341 }
   :root {
     color-scheme: dark;
     --ink: #e2ebed; --muted: #94a8ae; --line: #2a3a41; --green: #4cc293; --red: #f07d82;
@@ -95,6 +96,61 @@ h3 { font-size: 1.1rem; margin: 0 }
 .pnl-column.end .pnl-tooltip { left: auto; right: 0 }
 .pnl-column:hover .pnl-tooltip, .pnl-column:focus-visible .pnl-tooltip { display: block }
 .axis-labels { display: flex; justify-content: space-between; margin-top: -18px }
+
+/* Trade statistics */
+.trade-statistics { margin-top: 14px }
+.stat-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 28px; margin: 14px 0 6px }
+.stat-group h4 { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 4px }
+.stat-group dl, .tear-group dl { margin: 0 }
+.stat-group dl > div, .tear-group dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line) }
+.stat-group dt, .tear-group dt { font-size: .82rem }
+.stat-group dd, .tear-group dd { margin: 0; text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere }
+.stat-group dd small, .tear-group dd small { display: block; font-weight: 400; font-size: .68rem; color: var(--muted) }
+.histogram, .rolling, .benchmark-chart { width: 100%; height: auto; display: block }
+.histogram text, .rolling text, .benchmark-chart text { fill: var(--muted); font: 12px system-ui }
+.histogram rect.positive { fill: var(--green) }
+.histogram rect.negative { fill: var(--red) }
+.reference-line { stroke: var(--muted); stroke-dasharray: 5 4; vector-effect: non-scaling-stroke }
+.rolling-line { stroke: var(--focus); fill: none; stroke-width: 2.5; stroke-linejoin: round; vector-effect: non-scaling-stroke }
+.warning { color: #a86b00 }
+
+/* Analysis */
+.analysis { margin: 38px 0 }
+.breakdowns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px }
+.breakdown { padding: 20px 22px; min-width: 0 }
+.breakdown h3 { font-size: 1rem; margin: 0 0 2px }
+.breakdown > .muted { margin: 0 0 8px }
+.table-scroll { overflow-x: auto }
+.breakdown table { margin-top: 6px }
+.breakdown th:not(:first-child), .breakdown td { text-align: right }
+.breakdown tbody th { text-align: left; font-size: .85rem; color: var(--ink); font-weight: 600; overflow-wrap: anywhere }
+.row-bar { display: block; width: 100%; min-width: 60px; height: 4px; margin-top: 4px; background: var(--cell); border-radius: 2px }
+.row-bar rect.positive { fill: var(--green) }
+.row-bar rect.negative { fill: var(--red) }
+.row-bar rect.neutral { fill: none }
+.monthly-returns, .benchmark { margin-top: 14px }
+.returns-table th, .returns-table td { text-align: center; padding: 8px 4px; font-size: .78rem; white-space: nowrap }
+.returns-table tbody th { text-align: left; font-size: .8rem; color: var(--ink) }
+.returns-table td a { color: inherit; text-decoration: none; display: block }
+.returns-table td a:hover { text-decoration: underline }
+.returns-table td.positive { background: color-mix(in srgb, var(--green) 10%, var(--paper)) }
+.returns-table td.negative { background: color-mix(in srgb, var(--red) 10%, var(--paper)) }
+.returns-table td.year { font-weight: 700 }
+.benchmark-stats { margin: 12px 0 4px; border-radius: 10px }
+.benchmark-stats dd.positive { color: var(--green) }
+.benchmark-stats dd.negative { color: var(--red) }
+.line-strategy { stroke: var(--green); fill: none; stroke-width: 2.5; stroke-linejoin: round; vector-effect: non-scaling-stroke }
+.line-benchmark { stroke: var(--note); fill: none; stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums }
+.key { display: inline-block; width: 16px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px }
+.key.strategy { background: var(--green) }
+.key.benchmark { background: var(--note) }
+.tear-sheet { margin-top: 26px }
+.tear-sheet h3 { margin: 6px 0 2px }
+.tear-sheet-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 14px; margin-top: 12px }
+.tear-group { padding: 18px 20px }
+.tear-group h4 { margin: 0 0 2px; font-size: .95rem }
+.tear-group > .muted { margin: 0 0 8px }
 
 /* Calendar: yearly heatmap and month view */
 .calendar-section { margin: 38px 0 }
@@ -246,6 +302,7 @@ footer { padding: 40px 0; color: var(--muted); font-size: .75rem; letter-spacing
 
 @media (max-width: 900px) {
   .brand { display: none }
+  .stat-groups { grid-template-columns: repeat(2, minmax(0, 1fr)) }
 }
 @media (max-width: 680px) {
   main { padding: 22px 14px 0 }
@@ -254,6 +311,8 @@ footer { padding: 40px 0; color: var(--muted); font-size: .75rem; letter-spacing
   .nav-status small { display: none }
   header[id], section[id], .month, .day-entry { scroll-margin-top: 64px }
   .metrics { grid-template-columns: minmax(0, 1fr); gap: 9px }
+  .stat-groups, .breakdowns { grid-template-columns: minmax(0, 1fr) }
+  .breakdown { padding: 16px 12px }
   .metric { padding: 15px 14px; min-height: 0 }
   .metric strong { font-size: 1.3rem }
   .spark { width: 34%; bottom: 14px; right: 14px }

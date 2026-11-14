@@ -204,10 +204,20 @@ public sealed class PublicationTests
             EntryPrice = 5000.25m, ExitPrice = 5001.75m, Quantity = 1, GrossPnl = 7.5m, NetPnl = 7.5m, PointValue = 5m, TickSize = .25m
         });
         data.Database.CommitImport(data.Journal.Id, "PRIVATE-IMPORT", parsed, "flat_to_flat", "1m");
-        var snapshot = new PublicationExportService(data.Database, new(data.Database)).Build(data.Journal.Id, new(Title: "Public"));
+        data.Database.UpdateJournal(data.Journal.Id, "Private name", "live", "", "UTC", "USD", "flat_to_flat", 10_000m);
+        var snapshot = new PublicationExportService(data.Database, new(data.Database)).Build(data.Journal.Id, new(Title: "Public", IncludeTearSheet: true));
+        Assert.Equal(10_000m, Assert.Single(snapshot.Months).OpeningBalance);
+        Assert.Contains(snapshot.TearSheet!, group => group.Title == "Risk & stability");
+        Assert.All(snapshot.TearSheet!.SelectMany(group => group.Metrics), metric => Assert.NotEqual("—", metric.Value));
+        Assert.Null(new PublicationExportService(data.Database, new(data.Database)).Build(data.Journal.Id, new(Title: "Public")).TearSheet);
         var trade = Assert.Single(Assert.Single(snapshot.Days).Trades);
         var chart = Assert.IsType<PublicationTradeChart>(trade.Chart);
-        Assert.Equal(4, snapshot.SchemaVersion);
+        Assert.Equal(5, snapshot.SchemaVersion);
+        // Schema 5 carries the exact executions alongside the bar-anchored chart markers.
+        Assert.Equal(start.AddMinutes(201), trade.EntryUtc);
+        Assert.Equal(start.AddMinutes(222), trade.ExitUtc);
+        Assert.Equal(5000.25m, trade.EntryPrice);
+        Assert.Equal(5001.75m, trade.ExitPrice);
         Assert.Equal("5m", chart.Interval);
         Assert.Equal(50, chart.Bars.Count);
         Assert.Equal(5000.25m, chart.Entry.Price);
@@ -226,6 +236,11 @@ public sealed class PublicationTests
             Assert.Contains("data-public-chart=", html);
             Assert.Contains("trade-chart-dialog", html);
             Assert.Contains("/publication-assets/publication-charts.js", html);
+            Assert.Contains("@ 5,000.25 → ", html);
+            Assert.Contains("· held 21m</span>", html);
+            Assert.Contains("By entry hour", html);
+            Assert.Contains("Return by month", html);
+            Assert.Contains("Detailed indicators", html);
             Assert.DoesNotContain("PRIVATE-", html);
         }
     }
@@ -728,6 +743,129 @@ public sealed class PublicationTests
     }
 
     [Fact]
+    public void ReaderComputesTradeStatisticsAndBreakdownsFromPublishedTrades()
+    {
+        var journal = Journal();
+        var start = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+        decimal[] pnl = [100, 100, 100, -40, -40, -40, -40, 60, 0, 80, .. Enumerable.Repeat(10m, 16)];
+        var trades = pnl.Select((value, i) => i < 3 ? Trade(journal.Id, value, start.AddDays(i), "NQ", "Short") : Trade(journal.Id, value, start.AddDays(i))).ToArray();
+        var snapshot = PublicationExportService.BuildSnapshot(journal, trades, new(), new Dictionary<DateOnly, List<PublicationNode>>(), [], new(Title: "Stats"), new(2026, 6, 30, 12, 0, 0, TimeSpan.Zero));
+        var html = PublicationPresentation.Document(snapshot, null, _ => "", "/", "/publication.css");
+        string Stat(string label, string tone, string value) => $"<dt>{label}</dt><dd class=\"{tone}\">{value}";
+        // Total 440 over 26 trades; 21 wins averaging 600/21, four 40 losses.
+        Assert.Contains(Stat("Expectancy", "positive", "USD 16.92"), html);
+        Assert.Contains(Stat("Average win", "positive", "USD 28.57"), html);
+        Assert.Contains(Stat("Average loss", "negative", "USD -40.00"), html);
+        Assert.Contains(Stat("Payoff ratio", "neutral", "0.71"), html);
+        Assert.Contains(Stat("Largest win", "positive", "USD 100.00"), html);
+        // Peak 300 on Jun 3, trough 140 on Jun 7, back to 300 on Jun 12.
+        Assert.Contains(Stat("Max drawdown", "negative", "USD -160.00<small>Jun 3, 2026"), html);
+        Assert.Contains(Stat("Current drawdown", "positive", "USD 0.00<small>At a cumulative high"), html);
+        Assert.Contains(Stat("Recovery time", "neutral", "9 days"), html);
+        Assert.Contains(Stat("Longest drawdown", "neutral", "9 days"), html);
+        Assert.Contains(Stat("Longest losing streak", "neutral", "4 losses"), html);
+        Assert.Contains(Stat("Green days", "neutral", "80.8%"), html);
+        Assert.Contains(Stat("Best day", "positive", "USD 100.00<small>Jun 1, 2026"), html);
+        Assert.Contains(Stat("Worst day", "negative", "USD -40.00<small>Jun 4, 2026"), html);
+        // The breakeven trade ends the first run; 80 plus sixteen 10s is the longest.
+        Assert.Contains(Stat("Current streak", "positive", "17 wins"), html);
+        Assert.Contains(Stat("Longest winning streak", "neutral", "17 wins"), html);
+        Assert.Contains("class=\"histogram\"", html);
+        Assert.Contains("Rolling 20-trade win rate", html);
+        Assert.Contains("href=\"#analysis\" data-section=\"analysis\"", html);
+        Assert.Contains("<th scope=\"row\">NQ</th><td>3</td><td>100.0%</td><td class=\"positive\">USD 100.00</td>", html);
+        Assert.Contains("<th scope=\"row\">MES</th><td>23</td>", html);
+        Assert.Contains("<th scope=\"row\">Short</th><td>3</td>", html);
+        Assert.Contains("<th scope=\"row\">Monday</th>", html);
+        Assert.DoesNotContain("By entry hour", html);
+        Assert.DoesNotContain("By setup", html);
+        Assert.Contains("Net P&amp;L by month", html);
+        Assert.Contains("<a href=\"#month-2026-06\">440</a>", html);
+    }
+
+    [Fact]
+    public void ReaderRendersSchemaFiveSetupsMonthlyReturnsBenchmarkAndTearSheet()
+    {
+        var journal = Journal();
+        PublicationTradeSetupInfo Setup(string name, string state) => new("", [new(name, 1, "Primary", [new("Trend", "Required", "Setup", state), new("News", "Disqualifier", "Context", "NotMet")])]);
+        var setups = new Dictionary<decimal, PublicationTradeSetupInfo?> { [200] = Setup("Setup A", "Met"), [-100] = Setup("Setup A", "NotMet"), [300] = Setup("Setup B", "Unknown"), [100] = null };
+        Trade Exact(decimal pnl, DateTimeOffset exit) => Trade(journal.Id, pnl, exit, exitPrice: 5000m + pnl / 5);
+        var trades = new[] { Exact(200, new(2026, 3, 2, 22, 30, 0, TimeSpan.Zero)), Exact(-100, new(2026, 3, 3, 22, 30, 0, TimeSpan.Zero)),
+            Exact(300, new(2026, 4, 1, 22, 30, 0, TimeSpan.Zero)), Exact(100, new(2026, 4, 2, 22, 30, 0, TimeSpan.Zero)) };
+        var built = PublicationExportService.BuildSnapshot(journal, trades, new(), new Dictionary<DateOnly, List<PublicationNode>>(), [], new(Title: "Five"),
+            new(2026, 4, 10, 12, 0, 0, TimeSpan.Zero), setupForTrade: trade => setups[trade.NetPnl]);
+        Assert.All(built.Days.SelectMany(d => d.Trades), trade => Assert.Equal(trade.ExitUtc!.Value.AddHours(-8), trade.EntryUtc));
+        BenchmarkPoint Close(int month, int day, decimal value) => new() { Symbol = "SPY", EventUtc = new(2026, month, day, 21, 0, 0, TimeSpan.Zero), Value = value };
+        var benchmark = PublicationExportService.Benchmark(new() { Ticker = "SPY", StrategyReturnPercent = 5, BenchmarkReturnPercent = 10, AlphaPercent = -5, AnnualizedAlpha = -.2m, Beta = .5m, Correlation = .3m },
+            [Close(3, 1, 100), Close(3, 31, 105), Close(4, 2, 110), Close(4, 20, 200)], 10_000m, built);
+        Assert.Equal(3, benchmark!.Points.Count);
+        Assert.Null(PublicationExportService.Benchmark(new(), [Close(3, 1, 100)], 10_000m, built));
+        var snapshot = built with
+        {
+            Months = built.Months.Select(m => m with { OpeningBalance = m.Month.Month == 3 ? 10_000m : 10_100m }).ToList(),
+            Benchmark = benchmark,
+            TearSheet = [new("Risk & stability", "Daily risk.", [new("Sharpe", "1.23", "Annualized", "positive")])]
+        };
+        PublicationValidation.Validate(snapshot);
+        var restored = JsonSerializer.Deserialize<PublicationSnapshot>(JsonSerializer.Serialize(snapshot, PublicationJson.Options), PublicationJson.Options)!;
+        PublicationValidation.Validate(restored);
+        var html = PublicationPresentation.Document(restored, null, _ => "", "/", "/publication.css");
+        Assert.Contains("<th scope=\"row\">Setup A</th><td>2</td><td>50.0%</td>", html);
+        Assert.Contains("<th scope=\"row\">Setup B</th><td>1</td>", html);
+        Assert.True(html.IndexOf("<th scope=\"row\">Setup B</th>") < html.IndexOf("<th scope=\"row\">No setup recorded</th>"));
+        Assert.Contains("<th scope=\"row\">Rules followed</th><td>1</td><td>100.0%</td>", html);
+        Assert.Contains("<th scope=\"row\">Rules broken</th><td>1</td><td>0.0%</td>", html);
+        Assert.Contains("<th scope=\"row\">Not fully evaluated</th><td>1</td>", html);
+        Assert.Contains("<th scope=\"row\">14:00–14:59</th><td>4</td>", html);
+        Assert.Contains("14:30:00 @ 5,000.00 → 22:30:00 @ 5,040.00 · held 8h 00m", html);
+        // March 100 / 10,000; April 400 / 10,100; the year compounds both.
+        Assert.Contains("Return by month", html);
+        Assert.Contains("<a href=\"#month-2026-03\">+1.0%</a>", html);
+        Assert.Contains("<a href=\"#month-2026-04\">+4.0%</a>", html);
+        Assert.Contains("\">+5.0%</td></tr>", html);
+        Assert.Contains("Compared with SPY", html);
+        Assert.Contains("<dt>Alpha</dt><dd class=\"negative\">-5.00%", html);
+        Assert.Contains("<dt>Beta</dt><dd class=\"positive\">0.50", html);
+        Assert.Contains("class=\"line-benchmark\"", html);
+        Assert.Contains("Strategy 5.00%</span>", html);
+        Assert.Contains("SPY 10.00%</span>", html);
+        Assert.Contains("<dt>Sharpe</dt><dd class=\"positive\">1.23<small>Annualized</small>", html);
+    }
+
+    [Fact]
+    public void SchemaFiveFieldsAreValidatedAndOlderSnapshotsStillRender()
+    {
+        var snapshot = Snapshot();
+        var day = snapshot.Days[0];
+        var exact = day.Trades[0] with { EntryUtc = new(2026, 7, 1, 4, 0, 0, TimeSpan.Zero), ExitUtc = new(2026, 7, 1, 12, 0, 0, TimeSpan.Zero), EntryPrice = 1, ExitPrice = 2 };
+        PublicationValidation.Validate(snapshot with { Days = [day with { Trades = [exact] }] });
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { SchemaVersion = 4, Days = [day with { Trades = [exact] }] }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { Days = [day with { Trades = [exact with { EntryUtc = exact.ExitUtc!.Value.AddMinutes(1) }] }] }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { Days = [day with { Trades = [exact with { ExitPrice = null }] }] }));
+        var withBalance = snapshot.Months.Select(m => m with { OpeningBalance = 1000 }).ToList();
+        PublicationValidation.Validate(snapshot with { Months = withBalance });
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { SchemaVersion = 4, Months = withBalance }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { Months = [snapshot.Months[0] with { NetPnl = 1, OpeningBalance = 1000 }] }));
+        var benchmark = new PublicationBenchmark { Symbol = "SPY", Points = [new(new(2026, 6, 30), 100), new(new(2026, 7, 1), 101)] };
+        PublicationValidation.Validate(snapshot with { Benchmark = benchmark });
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { SchemaVersion = 4, Benchmark = benchmark }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { Benchmark = benchmark with { Points = [.. benchmark.Points.AsEnumerable().Reverse()] } }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { Benchmark = benchmark with { Points = [new(new(2026, 7, 1), 0)] } }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { TearSheet = [new("Risk", "", [new("Sharpe", "—", "", "muted")])] }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { SchemaVersion = 4, TearSheet = [new("Risk", "", [new("Sharpe", "1", "")])] }));
+        var legacy = snapshot with { SchemaVersion = 4 };
+        var json = JsonSerializer.Serialize(legacy, PublicationJson.Options);
+        Assert.DoesNotContain("openingBalance", json);
+        Assert.DoesNotContain("benchmark", json);
+        Assert.DoesNotContain("entryUtc", json);
+        var html = PublicationPresentation.Document(JsonSerializer.Deserialize<PublicationSnapshot>(json, PublicationJson.Options)!, null, _ => "", "/", "/publication.css");
+        Assert.Contains("Where the results come from", html);
+        Assert.Contains("Net P&amp;L by month", html);
+        Assert.DoesNotContain("Compared with", html);
+        Assert.DoesNotContain("Detailed indicators", html);
+    }
+
+    [Fact]
     public void FeedListsNewestDaysWithAbsoluteLinksAndEncodedContent()
     {
         var journal = Journal();
@@ -762,9 +900,10 @@ public sealed class PublicationTests
     private static readonly byte[] PngBytes = TestImageBytes();
     private static byte[] Png() => PngBytes.ToArray();
     private static Journal Journal(string timeZone = "UTC") => new() { Id = Guid.NewGuid(), Name = "PRIVATE-JOURNAL", TimeZone = timeZone, Currency = "USD", StartingEquity = 1000, CreatedUtc = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero) };
-    private static Trade Trade(Guid journalId, decimal pnl, DateTimeOffset exit) => new()
+    private static Trade Trade(Guid journalId, decimal pnl, DateTimeOffset exit, string symbol = "MES", string direction = "Long", decimal? exitPrice = null) => new()
     {
-        Id = Guid.NewGuid(), JournalId = journalId, Symbol = "MES", Direction = "Long", Quantity = 1, ClosedQuantity = 1,
+        Id = Guid.NewGuid(), JournalId = journalId, Symbol = symbol, Direction = direction, Quantity = 1, ClosedQuantity = 1,
+        EntryPrice = 5000m, ExitPrice = exitPrice,
         EntryUtc = exit.AddHours(-8), ExitUtc = exit, Status = "closed", NetPnl = pnl, GrossPnl = pnl + 5, Fees = 5,
         Account = "PRIVATE-ACCOUNT", Note = "PRIVATE-NOTE", SourceKey = "PRIVATE-SOURCE"
     };

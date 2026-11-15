@@ -3,6 +3,7 @@
 @using System.Globalization
 @using Microsoft.AspNetCore.Mvc.ViewFeatures
 @using TradeFoundry.Core
+@inject Microsoft.Extensions.Options.IOptions<AiOptions> AiReviewOptions
 @{
     ViewData["Title"] = "Trade Review";
     ViewData["PageKicker"] = "TRADEFOUNDRY / TRADE";
@@ -71,6 +72,10 @@ else
     <span>Rate day</span>
 }
 </button>
+@if (AiReviewOptions.Value.Enabled)
+{
+    <button type="button" class="btn btn-outline-secondary" data-ai-review-open data-panel-url="@($"/journal/{Model.JournalId:D}/ai-review?handler=Panel&date={dateText}")" title="Ask AI to review this trading day">AI review</button>
+}
 <button type="button" class="btn btn-outline-secondary tf-review-shortcuts-button" data-review-shortcuts title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button></header>
     @if (Model.FilterScope is { IsActive: true } filterScope && (Model.Day.OutsideFilterDates || Model.Day.HiddenTradeCount > 0))
     {
@@ -103,6 +108,10 @@ else
         <div class="alert alert-success" role="status">@Model.NoticeMessage</div>
     }
 
+@if (AiReviewOptions.Value.Enabled)
+{
+    <dialog id="ai-review-dialog" class="tf-ai-review-dialog" aria-label="AI review"><button type="button" class="btn" data-ai-review-close>Close</button><div data-ai-review-container></div></dialog>
+}
 <dialog id="review-journal-dialog" aria-labelledby="daily-journal-heading"><button type="button" class="btn" data-review-journal-close>Close</button><section class="card tf-card tf-daily-journal" data-daily-journal-entry data-entry-date="@dateText" aria-labelledby="daily-journal-heading">
         <div class="card-header tf-daily-journal-heading">
             <div class="tf-daily-journal-title">
@@ -238,3 +247,5 @@ else
         </div>
     }
 </section>
+
+@section Scripts {<script src="~/js/ai-review.js" asp-append-version="true"></script>}

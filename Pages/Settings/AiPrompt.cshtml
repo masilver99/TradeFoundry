@@ -1,0 +1,84 @@
+@page "/journal/{journalId:guid}/settings/ai/prompt"
+@model TradeFoundry.Pages.Settings.AiPromptModel
+@using TradeFoundry.Services.Ai
+@{
+    ViewData["Title"] = Model.IsNew ? "New review prompt" : Model.Name ?? "Review prompt";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / DATA / SETTINGS / AI REVIEW / PROMPT";
+    ViewData["ActiveNav"] = "settings";
+    ViewData["SettingsSection"] = "ai";
+}
+
+@await Html.PartialAsync("_SettingsNav", Model.JournalId)
+
+<p><a href="@Model.SettingsPath">← AI review settings</a></p>
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert" role="status">@Model.FlashMessage</div>
+}
+@foreach (var error in Model.Errors)
+{
+    <div class="alert tf-alert error" role="alert">@error</div>
+}
+
+<section class="row row-cards">
+    <div class="col-xl-7">
+        <div class="card tf-card">
+            <div class="card-header">
+                <div><div class="tf-kicker">REVIEW PROMPT</div><h3 class="tf-card-title">@(Model.IsNew ? "New prompt" : Model.IsBuiltIn ? Model.Name : "Edit prompt")</h3></div>
+                @if (Model.IsBuiltIn) { <span class="badge bg-secondary-lt">Built-in</span> }
+            </div>
+            <div class="card-body">
+                @if (Model.IsBuiltIn)
+                {
+                    <p class="text-secondary">Built-in prompts can't be edited. Duplicate this one to make your own version.</p>
+                    <pre class="tf-ai-review-raw">@Model.Body</pre>
+                    <form method="post" action="@($"{Model.SettingsPath}?handler=DuplicatePrompt")">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="promptId" value="@Model.PromptId" />
+                        <button class="btn btn-primary" type="submit">Duplicate and edit</button>
+                    </form>
+                }
+                else
+                {
+                    <form method="post" action="@(Model.IsNew ? Model.EditorPath : $"{Model.EditorPath}?id={Uri.EscapeDataString(Model.PromptId!)}")" class="row g-3">
+                        @Html.AntiForgeryToken()
+                        <div class="col-md-6"><label class="form-label w-100">Name<input class="form-control" name="Name" value="@Model.Name" maxlength="@AiPromptLibrary.MaxNameLength" required /></label></div>
+                        <div class="col-md-6"><label class="form-label w-100">Short description <span class="text-secondary">(optional)</span><input class="form-control" name="Description" value="@Model.Description" maxlength="@AiPromptLibrary.MaxDescriptionLength" /></label></div>
+                        <div class="col-12">
+                            <label class="form-label w-100">Instructions
+                                <textarea class="form-control font-monospace" name="Body" rows="16" maxlength="@AiPromptLibrary.MaxBodyLength" required>@Model.Body</textarea>
+                            </label>
+                            <div class="form-hint">Describe the reviewer you want and what to focus on, for example risk after losses, execution against a specific setup, or a stricter tone. The output always uses the standard review sections.</div>
+                        </div>
+                        @if (Model.UnknownPlaceholders.Count > 0)
+                        {
+                            <div class="col-12"><div class="alert tf-alert warning mb-0">Unknown placeholders are sent as written: @string.Join(", ", Model.UnknownPlaceholders.Select(p => $"{{{{{p}}}}}"))</div></div>
+                        }
+                        <div class="col-12"><button class="btn btn-primary" type="submit">Save prompt</button></div>
+                    </form>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-5">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">PLACEHOLDERS</div><h3 class="tf-card-title">Filled in when a review runs</h3></div></div>
+            <div class="card-body">
+                <dl class="tf-definition-list">
+                    @foreach (var (name, description) in AiPromptLibrary.Placeholders)
+                    {
+                        <dt><code>@("{{" + name + "}}")</code></dt><dd>@description</dd>
+                    }
+                </dl>
+            </div>
+        </div>
+        <div class="card tf-card mt-3">
+            <div class="card-header"><div><div class="tf-kicker">PREVIEW</div><h3 class="tf-card-title">Instructions as sent</h3></div></div>
+            <div class="card-body">
+                <p class="small text-secondary">With sample values. TradeFoundry adds the evidence rules and output format after your text; they can't be changed. The day's journal, trades and images follow as evidence.</p>
+                <pre class="tf-ai-review-raw">@Model.PreviewInstructions</pre>
+            </div>
+        </div>
+    </div>
+</section>

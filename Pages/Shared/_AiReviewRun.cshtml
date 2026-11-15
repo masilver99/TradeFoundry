@@ -1,0 +1,176 @@
+@model TradeFoundry.Pages.AiReviewRunViewModel
+@using TradeFoundry.Core
+@using TradeFoundry.Services.Ai
+@{
+    var run = Model.Run;
+    var output = Model.Output;
+    var manifest = Model.Manifest;
+    string GradeClass(string? grade) => grade switch
+    {
+        "A" or "B" => "bg-green-lt",
+        "C" => "bg-yellow-lt",
+        "D" or "F" => "bg-red-lt",
+        _ => "bg-secondary-lt",
+    };
+    string SeverityClass(string? severity) => severity switch { "high" => "bg-red-lt", "medium" => "bg-yellow-lt", _ => "bg-secondary-lt" };
+}
+
+<article class="tf-ai-review-run" data-ai-review-run="@run.Id">
+    <header class="tf-ai-review-run-header">
+        <div>
+            <strong>@run.PromptName</strong>
+            <span class="text-secondary small">· @Model.LocalCreated · @run.Model@(run.ReasoningEffort is { } effort ? $" ({effort})" : string.Empty)</span>
+            @if (run.InputTokens is { } input)
+            {
+                <span class="text-secondary small">· @input.ToString("N0") in / @((run.OutputTokens ?? 0).ToString("N0")) out tokens</span>
+            }
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            @if (output is not null)
+            {
+                <span class="badge @GradeClass(output.ProcessGrade)" title="Process grade">Process @DayReviewOutput.GradeLabel(output.ProcessGrade)</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-ai-review-copy>Copy</button>
+                <textarea hidden data-ai-review-markdown>@output.ToMarkdown(run.ReviewDate)</textarea>
+            }
+            else if (run.Status == AiReviewRunStatus.Failed)
+            {
+                <span class="badge bg-red-lt">Failed</span>
+            }
+            else if (run.Status == AiReviewRunStatus.Cancelled)
+            {
+                <span class="badge bg-secondary-lt">Cancelled</span>
+            }
+            else if (run.Status == AiReviewRunStatus.Running)
+            {
+                <span class="badge bg-yellow-lt">Running</span>
+            }
+            @if (run.IsFinished)
+            {
+                <button type="button" class="btn btn-sm btn-outline-danger" data-ai-review-delete title="Delete this review">Delete</button>
+            }
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(run.ExtraInstruction))
+    {
+        <p class="small text-secondary mb-2">Your focus: “@run.ExtraInstruction”</p>
+    }
+
+    @if (run.Status is AiReviewRunStatus.Failed or AiReviewRunStatus.Cancelled)
+    {
+        <div class="alert tf-alert @(run.Status == AiReviewRunStatus.Failed ? "error" : string.Empty) mb-0">
+            @(run.ErrorMessage ?? "The review did not finish.")
+            @if (run.ErrorCode == "subscription_sharing_usage_limit_exceeded")
+            {
+                <a class="btn btn-sm btn-primary ms-2" href="@ChatGptErrors.ManageUsageUrl" target="_blank" rel="noopener noreferrer">Manage usage</a>
+            }
+        </div>
+    }
+    else if (run.Status == AiReviewRunStatus.Completed && output is null)
+    {
+        <p class="small text-secondary">The response didn't match the expected review format, so it's shown as received.</p>
+        <pre class="tf-ai-review-raw">@run.OutputText</pre>
+    }
+    else if (output is not null)
+    {
+        <p class="tf-ai-review-summary">@output.Summary</p>
+
+        @if (output.NextSessionExperiment is { } experiment && !string.IsNullOrWhiteSpace(experiment.Experiment))
+        {
+            <section class="tf-ai-review-experiment">
+                <div class="tf-kicker">NEXT-SESSION EXPERIMENT</div>
+                <p class="mb-1"><strong>@experiment.Experiment</strong></p>
+                @if (!string.IsNullOrWhiteSpace(experiment.Rationale)) { <p class="small mb-1">Why: @experiment.Rationale</p> }
+                @if (!string.IsNullOrWhiteSpace(experiment.SuccessMeasure)) { <p class="small mb-0">Measure: @experiment.SuccessMeasure</p> }
+            </section>
+        }
+
+        <div class="row g-3">
+            @if (output.WentWell.Count > 0)
+            {
+                <section class="col-lg-6">
+                    <h4 class="tf-ai-review-section-title">What went well</h4>
+                    <ul class="tf-ai-review-list">
+                        @foreach (var item in output.WentWell)
+                        {
+                            <li>@item.Observation @await Html.PartialAsync("_AiReviewEvidence", (Model, item.Evidence))</li>
+                        }
+                    </ul>
+                </section>
+            }
+            @if (output.ProcessIssues.Count > 0)
+            {
+                <section class="col-lg-6">
+                    <h4 class="tf-ai-review-section-title">Process issues</h4>
+                    <ul class="tf-ai-review-list">
+                        @foreach (var item in output.ProcessIssues)
+                        {
+                            <li><span class="badge @SeverityClass(item.Severity)">@item.Severity</span> @item.Observation @await Html.PartialAsync("_AiReviewEvidence", (Model, item.Evidence))</li>
+                        }
+                    </ul>
+                </section>
+            }
+        </div>
+
+        @if (output.Trades.Count > 0)
+        {
+            <h4 class="tf-ai-review-section-title">Trades</h4>
+            <div class="tf-ai-review-trades">
+                @foreach (var trade in output.Trades)
+                {
+                    var known = Model.Trade(trade.ReviewKey);
+                    <div class="tf-ai-review-trade">
+                        <div class="d-flex justify-content-between gap-2">
+                            @if (known is not null)
+                            {
+                                <a href="@Model.TradeUrl(trade.ReviewKey)"><strong>Trade @known.Number</strong> <span class="text-secondary">· @known.Label</span></a>
+                            }
+                            else
+                            {
+                                <strong>@trade.ReviewKey</strong>
+                            }
+                            <span class="badge @GradeClass(trade.ProcessGrade)">@DayReviewOutput.GradeLabel(trade.ProcessGrade)</span>
+                        </div>
+                        <p class="mb-1">@trade.Assessment</p>
+                        @if (!string.IsNullOrWhiteSpace(trade.ChartObservations))
+                        {
+                            <p class="small text-secondary mb-0">Chart: @trade.ChartObservations</p>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(output.RiskManagement))
+        {
+            <h4 class="tf-ai-review-section-title">Risk management</h4>
+            <p>@output.RiskManagement</p>
+        }
+
+        @if (output.MissingEvidence.Count > 0)
+        {
+            <h4 class="tf-ai-review-section-title">Missing evidence</h4>
+            <ul class="tf-ai-review-list small">
+                @foreach (var item in output.MissingEvidence) { <li>@item</li> }
+            </ul>
+        }
+    }
+
+    <details class="tf-ai-review-sent small">
+        <summary>What was sent</summary>
+        @if (manifest is not null)
+        {
+            <p class="mb-1">
+                @manifest.CompletedTrades completed and @manifest.OpenTrades open trades ·
+                @(manifest.JournalCharacters > 0 ? $"{manifest.JournalCharacters:N0}-character journal entry" : "no journal entry") ·
+                @manifest.IncludedImageCount image@(manifest.IncludedImageCount == 1 ? string.Empty : "s")
+                @if (manifest.Images.Count > manifest.IncludedImageCount) { <span>(@(manifest.Images.Count - manifest.IncludedImageCount) not sent)</span> }
+            </p>
+        }
+        <p class="text-secondary mb-1">Evidence fingerprint <code>@run.BundleHash[..Math.Min(12, run.BundleHash.Length)]</code></p>
+        <details>
+            <summary>Instructions</summary>
+            <pre class="tf-ai-review-raw">@run.PromptSnapshot</pre>
+        </details>
+    </details>
+</article>

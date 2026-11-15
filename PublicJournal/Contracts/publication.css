@@ -300,6 +300,20 @@ footer { padding: 40px 0; color: var(--muted); font-size: .75rem; letter-spacing
 .chart-dialog-toolbar { font-size: .82rem; font-variant-numeric: tabular-nums; margin-top: 12px }
 .trade-chart-dialog > .muted { margin: 10px 0 0 }
 
+/* Journal image viewer */
+.journal-content img.zoomable { cursor: zoom-in }
+.journal-content img.zoomable:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px }
+.image-viewer { width: calc(100vw - 32px); height: calc(100dvh - 32px); max-width: none; max-height: none; padding: 12px; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); background: var(--paper); overflow: hidden }
+.image-viewer[open] { display: flex; flex-direction: column; gap: 10px }
+.image-viewer::backdrop { background: #0d1725d9 }
+.image-viewer-toolbar { display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0 }
+.image-viewer-toolbar [data-zoom-level] { display: inline-block; min-width: 3.5em; font-variant-numeric: tabular-nums }
+.image-viewer-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; user-select: none }
+.image-viewer-stage img { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center; cursor: zoom-in; border-radius: 6px }
+.image-viewer-stage.zoomed img { cursor: grab }
+.image-viewer-stage.zoomed img:active { cursor: grabbing }
+.image-viewer-caption { margin: 0; flex-shrink: 0; font-size: .82rem; text-align: center }
+
 @media (max-width: 900px) {
   .brand { display: none }
   .stat-groups { grid-template-columns: repeat(2, minmax(0, 1fr)) }
@@ -332,6 +346,7 @@ footer { padding: 40px 0; color: var(--muted); font-size: .75rem; letter-spacing
   .day-heading { gap: 8px }
   header { margin-bottom: 20px }
   .trade-chart-dialog { padding: 14px; width: calc(100vw - 16px); max-height: calc(100dvh - 16px) }
+  .image-viewer { padding: 8px; width: calc(100vw - 16px); height: calc(100dvh - 16px) }
   .chart-dialog-heading h2 { font-size: 1rem }
   .chart-dialog-heading { gap: 8px }
   .chart-dialog-toolbar { flex-wrap: wrap; gap: 4px }

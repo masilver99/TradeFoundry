@@ -546,7 +546,11 @@ public sealed class PublicationTests
         Assert.Contains("class TradeExecutionDrawing", await visitor.GetStringAsync("/publication-assets/trade-execution-drawing.js"));
         Assert.Contains("5.2.0", await visitor.GetStringAsync("/publication-assets/lightweight-charts.standalone.production.js"));
         Assert.Equal(HttpStatusCode.NotFound, (await visitor.GetAsync("/publication-assets/private.js")).StatusCode);
-        Assert.Contains("data-equity-points", await visitor.GetStringAsync("/publication-assets/publication-reader.js"));
+        var reader = await visitor.GetStringAsync("/publication-assets/publication-reader.js");
+        Assert.Contains("data-equity-points", reader);
+        Assert.Contains(".journal-content img", reader);
+        Assert.Contains("image-viewer", reader);
+        Assert.Contains(".image-viewer-stage", await visitor.GetStringAsync("/publication.css"));
         Assert.Contains("<svg", await visitor.GetStringAsync("/favicon.svg"));
         using (var feedRequest = new HttpRequestMessage(HttpMethod.Get, "/feed.xml"))
         {

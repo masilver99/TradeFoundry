@@ -176,6 +176,15 @@
                                     </select>
                                 </label>
                             </div>
+                            <div class="col-12">
+                                <label class="form-label">Screenshot detail
+                                    <select class="form-select" name="ImageDetail">
+                                        <option value="" selected="@(status.ImageDetail is null ? "selected" : null)">Auto (recommended)</option>
+                                        <option value="high" selected="@(status.ImageDetail == "high" ? "selected" : null)">High: inspect small chart labels closely</option>
+                                        <option value="low" selected="@(status.ImageDetail == "low" ? "selected" : null)">Low: far fewer tokens, may miss small labels</option>
+                                    </select>
+                                </label>
+                            </div>
                             <div class="col-12"><button class="btn btn-outline-primary" type="submit">Save</button></div>
                         </form>
                     }
@@ -183,6 +192,40 @@
             </div>
         </div>
     }
+</section>
+
+<section class="card tf-card mt-3" id="prompts">
+    <div class="card-header">
+        <div><div class="tf-kicker">REVIEW PROMPTS</div><h3 class="tf-card-title">Prompts</h3></div>
+        <a class="btn btn-sm btn-outline-primary" href="@Model.PromptEditorPath()">New prompt</a>
+    </div>
+    <div class="card-body">
+        <p class="text-secondary small">Choose a prompt each time you run a review. TradeFoundry always adds its evidence rules after your prompt, so a custom prompt can change the focus and tone but not how journal content is treated. Each review keeps a copy of the exact instructions it used.</p>
+        @foreach (var prompt in Model.Prompts)
+        {
+            var isDefault = prompt.Id == Model.DefaultPromptId;
+            <div class="tf-ai-prompt-row border-top py-2">
+                <div>
+                    <a href="@Model.PromptEditorPath(prompt.Id)"><strong>@prompt.Name</strong></a>
+                    @if (prompt.BuiltIn) { <span class="badge bg-secondary-lt ms-1">Built-in</span> }
+                    @if (isDefault) { <span class="badge bg-green-lt ms-1">Default</span> }
+                    @if (!string.IsNullOrWhiteSpace(prompt.Description)) { <div class="small text-secondary">@prompt.Description</div> }
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    @if (!isDefault)
+                    {
+                        <form method="post" action="@($"{Model.BasePath}?handler=SetDefaultPrompt")">@Html.AntiForgeryToken()<input type="hidden" name="promptId" value="@prompt.Id" /><button class="btn btn-sm btn-outline-secondary" type="submit">Make default</button></form>
+                    }
+                    <form method="post" action="@($"{Model.BasePath}?handler=DuplicatePrompt")">@Html.AntiForgeryToken()<input type="hidden" name="promptId" value="@prompt.Id" /><button class="btn btn-sm btn-outline-secondary" type="submit">Duplicate</button></form>
+                    @if (!prompt.BuiltIn)
+                    {
+                        <a class="btn btn-sm btn-outline-secondary" href="@Model.PromptEditorPath(prompt.Id)">Edit</a>
+                        <form method="post" action="@($"{Model.BasePath}?handler=ArchivePrompt")" onsubmit="return confirm('Remove this prompt? Past reviews keep their copy of its instructions.');">@Html.AntiForgeryToken()<input type="hidden" name="promptId" value="@prompt.Id" /><button class="btn btn-sm btn-outline-danger" type="submit">Remove</button></form>
+                    }
+                </div>
+            </div>
+        }
+    </div>
 </section>
 
 @section Scripts {<script src="~/js/ai-settings.js" asp-append-version="true"></script>}

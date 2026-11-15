@@ -17,9 +17,11 @@ public class AiSettingsModel : PageModel
     private readonly ChatGptSignInCoordinator _signIn;
     private readonly AiOptions _options;
     private readonly ILogger<AiSettingsModel> _logger;
+    private readonly AiPromptLibrary _prompts;
 
-    public AiSettingsModel(TradeFoundryDb database, IAiReviewProvider provider, ChatGptSignInCoordinator signIn, IOptions<AiOptions> options, ILogger<AiSettingsModel> logger)
+    public AiSettingsModel(TradeFoundryDb database, IAiReviewProvider provider, ChatGptSignInCoordinator signIn, IOptions<AiOptions> options, ILogger<AiSettingsModel> logger, AiPromptLibrary prompts)
     {
+        _prompts = prompts;
         _database = database;
         _provider = provider;
         _signIn = signIn;
@@ -30,6 +32,7 @@ public class AiSettingsModel : PageModel
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
     [BindProperty] public string? ModelSlug { get; set; }
     [BindProperty] public string? ReasoningEffort { get; set; }
+    [BindProperty] public string? ImageDetail { get; set; }
 
     public Journal? Journal { get; private set; }
     public bool Enabled => _options.Enabled;
@@ -46,6 +49,9 @@ public class AiSettingsModel : PageModel
     public bool FlashIsUsageLimit { get; private set; }
     public string ManageUsageUrl => ChatGptErrors.ManageUsageUrl;
     public string BasePath => $"/journal/{JournalId:D}/settings/ai";
+    public IReadOnlyList<AiReviewPrompt> Prompts { get; private set; } = Array.Empty<AiReviewPrompt>();
+    public string DefaultPromptId { get; private set; } = AiReviewPrompts.DefaultDayReview.Id;
+    public string PromptEditorPath(string? id = null) => $"{BasePath}/prompt" + (id is null ? string.Empty : $"?id={Uri.EscapeDataString(id)}");
 
     public AiModel? SelectedModel =>
         Models.FirstOrDefault(m => m.Slug == Status.Model) ?? Models.FirstOrDefault(m => m.SupportsImages) ?? Models.FirstOrDefault();
@@ -59,6 +65,8 @@ public class AiSettingsModel : PageModel
         FlashIsUsageLimit = TempData["FlashUsageLimit"] as bool? ?? false;
 
         if (!Enabled) return Page();
+        Prompts = _prompts.List();
+        DefaultPromptId = _prompts.GetDefault().Id;
 
         SignInProgress = _signIn.Current;
         if (SignInProgress.State == ChatGptSignInState.Succeeded)
@@ -136,8 +144,43 @@ public class AiSettingsModel : PageModel
         var effort = string.IsNullOrWhiteSpace(ReasoningEffort) ? null : ReasoningEffort;
         if (effort is not null && !model.ReasoningLevels.Contains(effort))
             return Flash($"{model.DisplayName} does not support the {effort} reasoning level.", "error");
-        _provider.SavePreferences(model.Slug, effort);
+        if (!AiImageDetail.IsValid(ImageDetail)) return Flash("Choose a screenshot detail level from the list.", "error");
+        _provider.SavePreferences(model.Slug, effort, ImageDetail);
         return Flash($"AI review will use {model.DisplayName}{(effort is null ? string.Empty : $" with {effort} reasoning")}.", "success");
+    }
+
+    public IActionResult OnPostSetDefaultPrompt(string promptId)
+    {
+        if (!Enabled || _database.GetJournal(JournalId) is null) return NotFound();
+        try
+        {
+            _prompts.SetDefault(promptId);
+            return Flash($"\u201c{_prompts.GetDefault().Name}\u201d is now the default review prompt.", "success");
+        }
+        catch (InvalidOperationException ex) { return Flash(ex.Message, "error"); }
+    }
+
+    public IActionResult OnPostDuplicatePrompt(string promptId)
+    {
+        if (!Enabled || _database.GetJournal(JournalId) is null) return NotFound();
+        try
+        {
+            var copy = _prompts.Duplicate(promptId);
+            return Redirect(PromptEditorPath(copy.Id));
+        }
+        catch (InvalidOperationException ex) { return Flash(ex.Message, "error"); }
+    }
+
+    public IActionResult OnPostArchivePrompt(string promptId)
+    {
+        if (!Enabled || _database.GetJournal(JournalId) is null) return NotFound();
+        try
+        {
+            var name = _prompts.Find(promptId)?.Name ?? "The prompt";
+            _prompts.Archive(promptId);
+            return Flash($"\u201c{name}\u201d was removed. Past reviews that used it keep their copy of its instructions.", "success");
+        }
+        catch (InvalidOperationException ex) { return Flash(ex.Message, "error"); }
     }
 
     public async Task<IActionResult> OnPostTestAsync(CancellationToken cancellationToken)

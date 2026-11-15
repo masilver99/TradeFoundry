@@ -43,6 +43,7 @@ public sealed class ChatGptPlanProvider(
             AccountName = connection.DisplayName,
             Model = connection.Model,
             ReasoningEffort = connection.ReasoningEffort,
+            ImageDetail = connection.ImageDetail,
             Problem = connection.CredentialsUnreadable
                 ? "The saved ChatGPT credentials could not be decrypted on this machine. Connect again."
                 : connection.Connected && !connection.Sharing
@@ -51,7 +52,8 @@ public sealed class ChatGptPlanProvider(
         };
     }
 
-    public void SavePreferences(string? model, string? reasoningEffort) => store.SavePreferences(model, reasoningEffort);
+    public void SavePreferences(string? model, string? reasoningEffort, string? imageDetail) =>
+        store.SavePreferences(model, reasoningEffort, AiImageDetail.Normalize(imageDetail));
 
     public async Task<IReadOnlyList<AiModel>> ListModelsAsync(CancellationToken cancellationToken)
     {

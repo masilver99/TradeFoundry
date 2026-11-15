@@ -83,6 +83,10 @@ builder.Services.AddHttpClient("ChatGpt", client => client.Timeout = TimeSpan.Fr
 builder.Services.AddSingleton(services => new ChatGptOAuth(() => services.GetRequiredService<IHttpClientFactory>().CreateClient("ChatGpt")));
 builder.Services.AddSingleton<ChatGptConnectionStore>();
 builder.Services.AddSingleton<ChatGptSignInCoordinator>();
+builder.Services.AddSingleton<IDayReviewImageResolver, DayReviewImageResolver>();
+builder.Services.AddSingleton<DayReviewBundleBuilder>();
+builder.Services.AddSingleton<AiPromptLibrary>();
+builder.Services.AddSingleton<AiReviewService>();
 builder.Services.AddSingleton<IAiReviewProvider>(services =>
     string.Equals(services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiOptions>>().Value.Provider, AiOptions.FakeProvider, StringComparison.OrdinalIgnoreCase)
         ? new FakeAiReviewProvider()

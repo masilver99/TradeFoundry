@@ -16,6 +16,7 @@ public sealed class AiConnectionRecord
     public string ProtectedCredentials { get; init; } = string.Empty;
     public string? Model { get; init; }
     public string? ReasoningEffort { get; init; }
+    public string? ImageDetail { get; init; }
     public DateTimeOffset? UpdatedUtc { get; init; }
 }
 
@@ -39,13 +40,14 @@ public sealed partial class TradeFoundryDb
                 updated_utc TEXT NULL)
             """;
         command.ExecuteNonQuery();
+        EnsureColumn(connection, "ai_connections", "image_detail", "TEXT NULL");
     }
 
     public AiConnectionRecord? GetAiConnection(string provider)
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT provider, host_id, client_id, subject, email, display_name, scopes, protected_credentials, model, reasoning_effort, updated_utc FROM ai_connections WHERE provider = $provider";
+        command.CommandText = "SELECT provider, host_id, client_id, subject, email, display_name, scopes, protected_credentials, model, reasoning_effort, updated_utc, image_detail FROM ai_connections WHERE provider = $provider";
         command.Parameters.AddWithValue("$provider", provider);
         using var reader = command.ExecuteReader();
         if (!reader.Read()) return null;
@@ -63,6 +65,7 @@ public sealed partial class TradeFoundryDb
             Model = Nullable(8),
             ReasoningEffort = Nullable(9),
             UpdatedUtc = Nullable(10) is { } updated ? DateTimeOffset.Parse(updated, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) : null,
+            ImageDetail = Nullable(11),
         };
     }
 
@@ -71,10 +74,10 @@ public sealed partial class TradeFoundryDb
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO ai_connections (provider, host_id, client_id, subject, email, display_name, scopes, protected_credentials, model, reasoning_effort, updated_utc)
-            VALUES ($provider, $host, $client, $subject, $email, $name, $scopes, $credentials, $model, $effort, $updated)
+            INSERT INTO ai_connections (provider, host_id, client_id, subject, email, display_name, scopes, protected_credentials, model, reasoning_effort, image_detail, updated_utc)
+            VALUES ($provider, $host, $client, $subject, $email, $name, $scopes, $credentials, $model, $effort, $detail, $updated)
             ON CONFLICT(provider) DO UPDATE SET host_id=$host, client_id=$client, subject=$subject, email=$email, display_name=$name,
-                scopes=$scopes, protected_credentials=$credentials, model=$model, reasoning_effort=$effort, updated_utc=$updated
+                scopes=$scopes, protected_credentials=$credentials, model=$model, reasoning_effort=$effort, image_detail=$detail, updated_utc=$updated
             """;
         command.Parameters.AddWithValue("$provider", record.Provider);
         command.Parameters.AddWithValue("$host", record.HostId);
@@ -86,6 +89,7 @@ public sealed partial class TradeFoundryDb
         command.Parameters.AddWithValue("$credentials", record.ProtectedCredentials);
         command.Parameters.AddWithValue("$model", (object?)record.Model ?? DBNull.Value);
         command.Parameters.AddWithValue("$effort", (object?)record.ReasoningEffort ?? DBNull.Value);
+        command.Parameters.AddWithValue("$detail", (object?)record.ImageDetail ?? DBNull.Value);
         command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         command.ExecuteNonQuery();
     }

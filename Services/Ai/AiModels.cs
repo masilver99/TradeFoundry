@@ -10,7 +10,7 @@ public interface IAiReviewProvider
     AiConnectionStatus GetStatus();
     Task<IReadOnlyList<AiModel>> ListModelsAsync(CancellationToken cancellationToken);
     Task<AiResult> StreamAsync(AiRequest request, Action<string>? onDelta, CancellationToken cancellationToken);
-    void SavePreferences(string? model, string? reasoningEffort);
+    void SavePreferences(string? model, string? reasoningEffort, string? imageDetail);
     Task DisconnectAsync(CancellationToken cancellationToken);
 }
 
@@ -23,6 +23,8 @@ public sealed record AiConnectionStatus
     public string? AccountName { get; init; }
     public string? Model { get; init; }
     public string? ReasoningEffort { get; init; }
+    /// <summary><c>auto</c> (null), <c>high</c>, or <c>low</c>: how closely the model inspects screenshots.</summary>
+    public string? ImageDetail { get; init; }
     public string? Problem { get; init; }
 }
 
@@ -45,6 +47,18 @@ public enum AiRole
 public abstract record AiContent;
 
 public sealed record AiTextContent(string Text) : AiContent;
+
+public static class AiImageDetail
+{
+    public const string Auto = "auto";
+    public const string High = "high";
+    public const string Low = "low";
+
+    public static bool IsValid(string? value) => value is null or "" or Auto or High or Low;
+
+    /// <summary>Null means the provider default (auto).</summary>
+    public static string? Normalize(string? value) => value is High or Low ? value : null;
+}
 
 public sealed record AiImageContent(byte[] Data, string ContentType, string? Detail = null) : AiContent;
 

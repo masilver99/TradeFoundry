@@ -203,7 +203,7 @@ public sealed class AiProviderTests
             store.SaveClientId("app_1");
             store.SaveSignIn("app_1", "user-1", "trader@example.test", "Trader", ["openid", ChatGptConnection.DirectScope],
                 new ChatGptCredentials { AccessToken = "access-secret", RefreshToken = "refresh-secret", ExpiresAt = DateTimeOffset.UtcNow.AddHours(1) });
-            store.SavePreferences("gpt-a", "medium");
+            store.SavePreferences("gpt-a", "medium", "low");
 
             var raw = database.GetAiConnection(AiOptions.ChatGptProvider)!;
             Assert.DoesNotContain("access-secret", raw.ProtectedCredentials);

@@ -17,4 +17,7 @@ public sealed class AiOptions
     public int SignInTimeoutMinutes { get; set; } = 5;
 
     public int RequestTimeoutMinutes { get; set; } = 4;
+
+    /// <summary>Most images sent with one review; the trader's own screenshots take priority over generated charts.</summary>
+    public int MaxImagesPerReview { get; set; } = 12;
 }

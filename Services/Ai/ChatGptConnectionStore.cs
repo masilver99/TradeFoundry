@@ -27,6 +27,7 @@ public sealed class ChatGptConnection
     public ChatGptCredentials? Credentials { get; init; }
     public string? Model { get; init; }
     public string? ReasoningEffort { get; init; }
+    public string? ImageDetail { get; init; }
     /// <summary>Credentials existed but could not be decrypted (for example, Data Protection keys were lost).</summary>
     public bool CredentialsUnreadable { get; init; }
 
@@ -68,6 +69,7 @@ public sealed class ChatGptConnectionStore(TradeFoundryDb database, IDataProtect
                 Credentials = credentials,
                 Model = record.Model,
                 ReasoningEffort = record.ReasoningEffort,
+                ImageDetail = record.ImageDetail,
                 CredentialsUnreadable = unreadable,
             };
         }
@@ -83,8 +85,8 @@ public sealed class ChatGptConnectionStore(TradeFoundryDb database, IDataProtect
     public void SaveCredentials(IReadOnlyList<string> scopes, ChatGptCredentials credentials) =>
         Update(record => Copy(record, scopes: string.Join(' ', scopes), protectedCredentials: Protect(credentials)));
 
-    public void SavePreferences(string? model, string? reasoningEffort) =>
-        Update(record => Copy(record, model: Normalize(model), reasoningEffort: Normalize(reasoningEffort), replacePreferences: true));
+    public void SavePreferences(string? model, string? reasoningEffort, string? imageDetail) =>
+        Update(record => Copy(record, model: Normalize(model), reasoningEffort: Normalize(reasoningEffort), imageDetail: Normalize(imageDetail), replacePreferences: true));
 
     /// <summary>Removes credentials and identity; keeps the host ID, client registration, and preferences.</summary>
     public void ClearConnection() =>
@@ -119,6 +121,7 @@ public sealed class ChatGptConnectionStore(TradeFoundryDb database, IDataProtect
         string? protectedCredentials = null,
         string? model = null,
         string? reasoningEffort = null,
+        string? imageDetail = null,
         bool replaceIdentity = false,
         bool replacePreferences = false) => new()
     {
@@ -132,5 +135,6 @@ public sealed class ChatGptConnectionStore(TradeFoundryDb database, IDataProtect
         ProtectedCredentials = protectedCredentials ?? record.ProtectedCredentials,
         Model = replacePreferences ? model : record.Model,
         ReasoningEffort = replacePreferences ? reasoningEffort : record.ReasoningEffort,
+        ImageDetail = replacePreferences ? imageDetail : record.ImageDetail,
     };
 }

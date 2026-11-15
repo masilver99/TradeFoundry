@@ -1,0 +1,188 @@
+@page "/journal/{journalId:guid}/settings/ai"
+@model TradeFoundry.Pages.Settings.AiSettingsModel
+@using TradeFoundry.Services.Ai
+@{
+    ViewData["Title"] = "AI review settings";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / DATA / SETTINGS / AI REVIEW";
+    ViewData["ActiveNav"] = "settings";
+    ViewData["SettingsSection"] = "ai";
+    var status = Model.Status;
+    var signInPending = Model.SignInProgress.State == ChatGptSignInState.Pending;
+    var selected = Model.SelectedModel;
+}
+
+@await Html.PartialAsync("_SettingsNav", Model.JournalId)
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind is "error" or "warning" ? Model.FlashKind : string.Empty)" role="status">
+        @Model.FlashMessage
+        @if (Model.FlashIsUsageLimit)
+        {
+            <a class="btn btn-sm btn-primary ms-2" href="@Model.ManageUsageUrl" target="_blank" rel="noopener noreferrer">Manage usage</a>
+        }
+    </div>
+}
+
+<div class="tf-settings-intro">
+    <div>
+        <div class="tf-kicker">AI REVIEW</div>
+        <h3 class="tf-settings-heading">AI review connection</h3>
+        <p class="text-secondary mb-0">Connect your ChatGPT Plus or Pro plan so you can ask for an AI review of a trading day. Nothing is sent until you start a review, and each review uses your plan's usage.</p>
+    </div>
+</div>
+
+@if (!Model.Enabled)
+{
+    <div class="alert tf-alert">AI review is turned off. Set <code>Ai:Enabled</code> to <code>true</code> and restart TradeFoundry to connect a provider.</div>
+    return;
+}
+
+<section class="row row-cards">
+    <div class="col-xl-6">
+        <div class="card tf-card">
+            <div class="card-header">
+                <div><div class="tf-kicker">PROVIDER</div><h3 class="tf-card-title">@Model.ProviderName</h3></div>
+                @if (status.CanRun)
+                {
+                    <span class="badge bg-green-lt">Connected</span>
+                }
+                else if (signInPending)
+                {
+                    <span class="badge bg-yellow-lt">Waiting for sign-in</span>
+                }
+                else
+                {
+                    <span class="badge bg-secondary-lt">Not connected</span>
+                }
+            </div>
+            <div class="card-body">
+                @if (Model.IsFakeProvider)
+                {
+                    <div class="alert tf-alert warning mb-3">The offline test provider is active (<code>Ai:Provider=fake</code>). Responses are generated locally and never reach ChatGPT.</div>
+                }
+                else if (signInPending)
+                {
+                    <div data-ai-signin-pending data-status-url="@($"{Model.BasePath}?handler=SignInStatus")">
+                        <p>Finish signing in to ChatGPT in your browser. This page updates when you're done.</p>
+                        <p class="small text-secondary">If no browser window opened, <a href="@Model.SignInProgress.AuthorizationUrl" target="_blank" rel="noopener noreferrer">open ChatGPT sign-in</a>.</p>
+                        <form method="post" action="@($"{Model.BasePath}?handler=CancelSignIn")">
+                            @Html.AntiForgeryToken()
+                            <button class="btn btn-outline-secondary" type="submit">Cancel sign-in</button>
+                        </form>
+                    </div>
+                }
+                else if (status.Connected)
+                {
+                    <dl class="tf-definition-list">
+                        <dt>Account</dt><dd>@(status.AccountName ?? "ChatGPT account")@if (!string.IsNullOrWhiteSpace(status.AccountEmail)) {<span class="text-secondary"> · @status.AccountEmail</span>}</dd>
+                        <dt>Usage</dt><dd>@(status.CanRun ? "Using ChatGPT plan" : "Plan usage not granted")</dd>
+                    </dl>
+                    @if (!string.IsNullOrWhiteSpace(status.Problem))
+                    {
+                        <div class="alert tf-alert warning">@status.Problem</div>
+                        <form method="post" action="@($"{Model.BasePath}?handler=Connect")" class="mb-3">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="reconsent" value="true" />
+                            <button class="btn btn-primary" type="submit" disabled="@(Model.SignInUnavailableReason is not null ? "disabled" : null)">Connect again</button>
+                        </form>
+                    }
+                    <div class="d-flex flex-wrap gap-2">
+                        <a class="btn btn-outline-primary" href="@Model.ManageUsageUrl" target="_blank" rel="noopener noreferrer">Manage usage</a>
+                        @if (status.CanRun)
+                        {
+                            <form method="post" action="@($"{Model.BasePath}?handler=Test")">
+                                @Html.AntiForgeryToken()
+                                <button class="btn btn-outline-secondary" type="submit">Test connection</button>
+                            </form>
+                        }
+                        <form method="post" action="@($"{Model.BasePath}?handler=Disconnect")" onsubmit="return confirm('Disconnect ChatGPT? TradeFoundry will delete its saved credentials and revoke access.');">
+                            @Html.AntiForgeryToken()
+                            <button class="btn btn-outline-danger" type="submit">Disconnect</button>
+                        </form>
+                    </div>
+                }
+                else
+                {
+                    @if (!string.IsNullOrWhiteSpace(status.Problem))
+                    {
+                        <div class="alert tf-alert warning">@status.Problem</div>
+                    }
+                    <p>Sign in with your ChatGPT account and allow TradeFoundry to use your plan. TradeFoundry doesn't see your ChatGPT conversations, and you can set a usage limit or disconnect at any time in ChatGPT settings.</p>
+                    <p class="small text-secondary">Requires ChatGPT Plus or Pro. Sign-in opens in your system browser and returns to this computer.</p>
+                    @if (Model.SignInUnavailableReason is { } reason)
+                    {
+                        <div class="alert tf-alert mb-3">@reason</div>
+                    }
+                    <form method="post" action="@($"{Model.BasePath}?handler=Connect")">
+                        @Html.AntiForgeryToken()
+                        <button class="btn btn-primary" type="submit" disabled="@(Model.SignInUnavailableReason is not null ? "disabled" : null)">Connect ChatGPT</button>
+                    </form>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (status.CanRun)
+    {
+        <div class="col-xl-6">
+            <div class="card tf-card">
+                <div class="card-header"><div><div class="tf-kicker">REVIEW MODEL</div><h3 class="tf-card-title">Model and reasoning</h3></div></div>
+                <div class="card-body">
+                    @if (Model.ModelError is { } modelError)
+                    {
+                        <div class="alert tf-alert error">
+                            @modelError
+                            @if (Model.ModelErrorIsUsageLimit)
+                            {
+                                <a class="btn btn-sm btn-primary ms-2" href="@Model.ManageUsageUrl" target="_blank" rel="noopener noreferrer">Manage usage</a>
+                            }
+                        </div>
+                    }
+                    else if (Model.Models.Count == 0)
+                    {
+                        <p class="text-secondary mb-0">No models are available for this connection.</p>
+                    }
+                    else
+                    {
+                        <p class="text-secondary small">Reviews include chart screenshots, so choose a model that accepts images. Higher reasoning levels take longer and use more of your plan.</p>
+                        <form method="post" action="@($"{Model.BasePath}?handler=SavePreferences")" class="row g-3" data-ai-preferences>
+                            @Html.AntiForgeryToken()
+                            <div class="col-12">
+                                <label class="form-label">Model
+                                    <select class="form-select" name="ModelSlug" data-ai-model>
+                                        @foreach (var option in Model.Models)
+                                        {
+                                            <option value="@option.Slug" selected="@(option.Slug == selected?.Slug ? "selected" : null)"
+                                                    data-levels="@string.Join(' ', option.ReasoningLevels)" data-default-level="@option.DefaultReasoningLevel">
+                                                @option.DisplayName@(option.SupportsImages ? string.Empty : " (text only)")
+                                            </option>
+                                        }
+                                    </select>
+                                </label>
+                                @if (selected?.Description is { } description)
+                                {
+                                    <div class="form-hint">@description</div>
+                                }
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Reasoning
+                                    <select class="form-select" name="ReasoningEffort" data-ai-effort data-current="@status.ReasoningEffort">
+                                        <option value="">Model default@(selected?.DefaultReasoningLevel is { } level ? $" ({level})" : string.Empty)</option>
+                                        @foreach (var level in selected?.ReasoningLevels ?? Array.Empty<string>())
+                                        {
+                                            <option value="@level" selected="@(level == status.ReasoningEffort ? "selected" : null)">@level</option>
+                                        }
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="col-12"><button class="btn btn-outline-primary" type="submit">Save</button></div>
+                        </form>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</section>
+
+@section Scripts {<script src="~/js/ai-settings.js" asp-append-version="true"></script>}

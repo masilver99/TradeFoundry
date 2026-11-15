@@ -4,6 +4,7 @@ using TradeFoundry.Core;
 using TradeFoundry.Data;
 using TradeFoundry.Mcp;
 using TradeFoundry.Services;
+using TradeFoundry.Services.Ai;
 
 var desktopMode = DesktopRuntime.IsDesktopMode(args);
 var embeddedMode = DesktopRuntime.IsEmbeddedMode(args);
@@ -56,6 +57,7 @@ if (!string.IsNullOrWhiteSpace(dataProtectionKeysDirectory))
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
 builder.Services.Configure<BenchmarkOptions>(builder.Configuration.GetSection("Benchmark"));
 builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
+builder.Services.Configure<AiOptions>(builder.Configuration.GetSection("Ai"));
 builder.Services.AddSingleton<TradeFoundryDb>();
 builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<ImportFolderMonitor>();
@@ -76,6 +78,20 @@ builder.Services.AddSingleton<PublicationWorkflow>();
 builder.Services.AddHttpClient("Publication", client => client.Timeout = TimeSpan.FromMinutes(3))
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<ExpenseService>();
+builder.Services.AddHttpClient("ChatGpt", client => client.Timeout = TimeSpan.FromMinutes(2))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton(services => new ChatGptOAuth(() => services.GetRequiredService<IHttpClientFactory>().CreateClient("ChatGpt")));
+builder.Services.AddSingleton<ChatGptConnectionStore>();
+builder.Services.AddSingleton<ChatGptSignInCoordinator>();
+builder.Services.AddSingleton<IAiReviewProvider>(services =>
+    string.Equals(services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiOptions>>().Value.Provider, AiOptions.FakeProvider, StringComparison.OrdinalIgnoreCase)
+        ? new FakeAiReviewProvider()
+        : new ChatGptPlanProvider(
+            services.GetRequiredService<ChatGptConnectionStore>(),
+            services.GetRequiredService<ChatGptOAuth>(),
+            () => services.GetRequiredService<IHttpClientFactory>().CreateClient("ChatGpt"),
+            services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiOptions>>(),
+            services.GetRequiredService<ILogger<ChatGptPlanProvider>>()));
 builder.Services.AddHostedService<McpHostedService>();
 builder.Services.AddHostedService<ImportFolderMonitor>(services => services.GetRequiredService<ImportFolderMonitor>());
 builder.Services.AddHttpClient<YahooFinanceBenchmarkProvider>(client =>

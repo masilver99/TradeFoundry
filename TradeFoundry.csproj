@@ -11,7 +11,9 @@
     <ProjectReference Include="PublicJournal\Contracts\TradeFoundry.Publishing.Contracts.csproj" />
     <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="15.1.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.16.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
+    <InternalsVisibleTo Include="TradeFoundry.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +24,10 @@
     <Compile Remove="obj\**" />
     <Compile Remove=".codex-build\**" />
     <Compile Remove=".playwright-cli\**" />
+    <Compile Remove="spikes\**" />
+    <EmbeddedResource Remove="spikes\**" />
+    <Content Remove="spikes\**" />
+    <None Remove="spikes\**" />
     <Compile Remove="DesktopShell\**" />
     <EmbeddedResource Remove="DesktopShell\**" />
     <Content Remove="DesktopShell\**" />

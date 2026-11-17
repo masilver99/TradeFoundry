@@ -1,0 +1,18 @@
+@model (TradeFoundry.Pages.AiReviewRunViewModel Run, IReadOnlyList<string> Evidence)
+@if (Model.Evidence is { Count: > 0 })
+{
+    <span class="tf-ai-review-evidence">
+        @foreach (var reference in Model.Evidence)
+        {
+            var trade = Model.Run.Trade(reference.Trim());
+            if (trade is not null)
+            {
+                <a class="tf-ai-review-chip" href="@Model.Run.TradeUrl(trade.ReviewKey)" title="@trade.ReviewKey">Trade @trade.Number</a>
+            }
+            else
+            {
+                <span class="tf-ai-review-chip">@reference</span>
+            }
+        }
+    </span>
+}

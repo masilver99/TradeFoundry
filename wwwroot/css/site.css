@@ -1652,3 +1652,28 @@ body:has(.tf-review-shell) .page-body > .container-xl { padding-top:12px; }
 @media (max-width: 480px) {
   .tf-day-rating-option small { display: none; }
 }
+
+/* AI review */
+.tf-ai-review-dialog { width: min(980px, 96vw); max-height: 92vh; overflow: auto; padding: 16px 20px; border: 1px solid var(--tf-line); border-radius: 8px; background: var(--tf-surface); color: var(--tf-ink); }
+.tf-ai-review-dialog::backdrop { background: rgba(1, 4, 9, .72); backdrop-filter: blur(3px); }
+.tf-ai-review-dialog [data-ai-review-close] { display: block; margin-left: auto; margin-bottom: 8px; }
+.tf-ai-review-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.tf-ai-review-model { min-height: 38px; display: flex; align-items: center; }
+.tf-ai-review-bundle { border: 1px solid var(--tf-line); border-radius: 6px; padding: 10px 12px; }
+.tf-ai-review-bundle summary { cursor: pointer; }
+.tf-ai-review-images { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.tf-ai-review-run { border-top: 1px solid var(--tf-line); padding: 16px 0; }
+.tf-ai-review-run-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.tf-ai-review-summary { font-size: 1.02rem; }
+.tf-ai-review-experiment { border-left: 3px solid var(--tf-gold); background: rgba(var(--tf-gold-rgb), .08); padding: 10px 12px; border-radius: 4px; margin-bottom: 14px; }
+.tf-ai-review-section-title { font-size: .95rem; margin: 12px 0 6px; }
+.tf-ai-review-list { padding-left: 1.1rem; margin-bottom: 0; }
+.tf-ai-review-list li { margin-bottom: 6px; }
+.tf-ai-review-trades { display: grid; gap: 8px; }
+.tf-ai-review-trade { border: 1px solid var(--tf-line); border-radius: 6px; padding: 8px 10px; }
+.tf-ai-review-evidence { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; }
+.tf-ai-review-chip { font-size: .75rem; border: 1px solid var(--tf-line); border-radius: 999px; padding: 0 7px; color: var(--tf-muted, #8b949e); text-decoration: none; }
+a.tf-ai-review-chip:hover { color: var(--tf-ink); }
+.tf-ai-review-sent { margin-top: 10px; }
+.tf-ai-review-sent summary { cursor: pointer; color: var(--tf-muted, #8b949e); }
+.tf-ai-review-raw { white-space: pre-wrap; max-height: 320px; overflow: auto; font-size: .8rem; background: rgba(0, 0, 0, .2); padding: 8px; border-radius: 4px; }

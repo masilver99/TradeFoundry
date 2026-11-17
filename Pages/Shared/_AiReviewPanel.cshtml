@@ -1,0 +1,136 @@
+@model TradeFoundry.Pages.AiReviewPanelViewModel
+@using System.Globalization
+@using TradeFoundry.Pages
+@{
+    var preview = Model.Preview;
+    var settingsUrl = $"/journal/{Model.JournalId:D}/settings/ai";
+}
+
+<div class="tf-ai-review" data-ai-review-panel data-base-path="@Model.BasePath" data-date="@Model.DateText" data-active-run="@preview?.ActiveRunId">
+    <div hidden>@Html.AntiForgeryToken()</div>
+    <div class="tf-ai-review-heading">
+        <div>
+            <div class="tf-kicker">AI REVIEW</div>
+            <h3 class="tf-card-title mb-0">@Model.Date.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture)</h3>
+        </div>
+    </div>
+
+    @if (!Model.Enabled || preview is null)
+    {
+        <div class="alert tf-alert mt-3">AI review is turned off. Set <code>Ai:Enabled</code> to <code>true</code> and restart TradeFoundry.</div>
+    }
+    else if (!preview.Connection.CanRun)
+    {
+        <div class="alert tf-alert mt-3">
+            @(preview.Problem ?? "Connect your ChatGPT plan to run AI reviews.")
+            <a class="btn btn-sm btn-primary ms-2" href="@settingsUrl">Open AI review settings</a>
+        </div>
+    }
+    else
+    {
+        var manifest = preview.Manifest;
+        var images = manifest.Images;
+        <form method="post" action="@($"{Model.BasePath}?handler=Start&date={Model.DateText}")" class="tf-ai-review-form" data-ai-review-form>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Prompt
+                        <select class="form-select" name="promptId" data-ai-prompt>
+                            @foreach (var prompt in preview.Prompts)
+                            {
+                                <option value="@prompt.Id" data-description="@prompt.Description" selected="@(prompt.Id == preview.DefaultPromptId ? "selected" : null)">@prompt.Name@(prompt.BuiltIn ? string.Empty : " (yours)")</option>
+                            }
+                        </select>
+                    </label>
+                    <div class="form-hint" data-ai-prompt-description>@(preview.Prompts.FirstOrDefault(p => p.Id == preview.DefaultPromptId)?.Description)</div>
+                    <a class="small" href="@($"{settingsUrl}#prompts")">Manage prompts</a>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-label">Model</div>
+                    <div class="tf-ai-review-model">
+                        @if (preview.Model is { } selectedModel)
+                        {
+                            <span>@selectedModel.DisplayName@(preview.ReasoningEffort is { } effort ? $" · {effort} reasoning" : string.Empty) · @(manifest.ImageDetail ?? "auto") screenshot detail</span>
+                        }
+                        else
+                        {
+                            <span class="text-danger">@(preview.Problem ?? "No model available")</span>
+                        }
+                        <a class="small ms-2" href="@settingsUrl">Change</a>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <label class="form-label w-100">Anything to focus on? <span class="text-secondary">(optional)</span>
+                        <textarea class="form-control" name="extraInstruction" rows="2" maxlength="@TradeFoundry.Services.Ai.AiReviewService.MaxExtraInstructionLength" placeholder="For example: I think I moved my stop too early on the afternoon trades."></textarea>
+                    </label>
+                </div>
+            </div>
+
+            <details class="tf-ai-review-bundle mt-3" open="@(images.Count > 0 ? "open" : null)">
+                <summary>
+                    What will be sent:
+                    @manifest.CompletedTrades completed and @manifest.OpenTrades open trade@(manifest.CompletedTrades + manifest.OpenTrades == 1 ? string.Empty : "s"),
+                    @(manifest.JournalCharacters > 0 ? $"a {manifest.JournalCharacters:N0}-character journal entry" : "no journal entry"),
+                    <span data-ai-image-count>@manifest.IncludedImageCount</span> of @images.Count image@(images.Count == 1 ? string.Empty : "s")
+                    · roughly <span data-ai-token-estimate data-base-tokens="@(manifest.EstimatedInputTokens - images.Where(i => i.Included).Sum(i => i.EstimatedTokens))">@manifest.EstimatedInputTokens.ToString("N0")</span> input tokens
+                </summary>
+                <p class="small text-secondary mt-2 mb-2">Your daily journal, day rating, each trade's executions and your trade notes are always sent. Choose which images to include: your screenshots, and candle charts TradeFoundry draws from imported bars with your entries and exits marked (on by default for trades without a screenshot). Up to @preview.MaxImages images are sent; the token estimate is rough. Everything goes to OpenAI and counts against your ChatGPT plan.</p>
+                @if (images.Count > 0)
+                {
+                    <ul class="tf-ai-review-images">
+                        @foreach (var image in images)
+                        {
+                            var unavailable = image.ExcludedReason == "file missing";
+                            <li>
+                                <input type="hidden" name="offeredImages" value="@image.Id" />
+                                <label class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="includedImages" value="@image.Id" data-ai-image-toggle data-tokens="@image.EstimatedTokens"
+                                           checked="@(image.Included ? "checked" : null)" disabled="@(unavailable ? "disabled" : null)" />
+                                    <span class="form-check-label">
+                                        @(image.Kind switch { "daily" => "Daily journal screenshot", "chart" => $"Trade {image.TradeNumber} chart", _ => $"Trade {image.TradeNumber} screenshot" })
+                                        @if (image.Kind == "chart")
+                                        {
+                                            <span class="text-secondary">· @image.Interval bars, drawn by TradeFoundry</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(image.Caption))
+                                        {
+                                            <span class="text-secondary">· @image.Caption</span>
+                                        }
+                                        <span class="text-secondary small">· ≈@image.EstimatedTokens.ToString("N0") tokens@(image.ExcludedReason is { } reason && reason is not ("excluded" or "off by default") ? $" · {reason}" : string.Empty)</span>
+                                    </span>
+                                </label>
+                            </li>
+                        }
+                    </ul>
+                }
+            </details>
+
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                <button class="btn btn-primary" type="submit" data-ai-review-start disabled="@(preview.Model is null || !manifest.HasContent ? "disabled" : null)">Run AI review</button>
+                @if (!manifest.HasContent)
+                {
+                    <span class="text-secondary small">There is nothing to review on this day yet.</span>
+                }
+                <span class="small text-secondary">Using ChatGPT plan</span>
+            </div>
+            <div class="alert tf-alert error mt-3" data-ai-review-error hidden></div>
+        </form>
+
+        <div class="tf-ai-review-progress mt-3" data-ai-review-progress hidden>
+            <div class="d-flex align-items-center gap-3">
+                <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+                <span data-ai-review-progress-text aria-live="polite">Starting review…</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-ai-review-cancel>Cancel</button>
+            </div>
+        </div>
+    }
+
+    <div class="tf-ai-review-runs mt-4" data-ai-review-runs>
+        @if (preview is not null)
+        {
+            foreach (var run in preview.Runs)
+            {
+                @await Html.PartialAsync("_AiReviewRun", new AiReviewRunViewModel(Model.JournalId, Model.Journal, run))
+            }
+        }
+    </div>
+</div>

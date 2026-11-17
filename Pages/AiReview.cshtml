@@ -1,0 +1,16 @@
+@page "/journal/{journalId:guid}/ai-review"
+@model TradeFoundry.Pages.AiReviewModel
+@{
+    ViewData["Title"] = "AI review";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / TRADE / AI REVIEW";
+    ViewData["ActiveNav"] = "review";
+}
+
+<p><a href="@($"/journal/{Model.JournalId:D}/review?date={Model.Panel.DateText}")">← Back to trade review</a></p>
+<div class="card tf-card tf-ai-review-page">
+    <div class="card-body" data-ai-review-container>
+        @await Html.PartialAsync("_AiReviewPanel", Model.Panel)
+    </div>
+</div>
+
+@section Scripts {<script src="~/js/ai-review.js" asp-append-version="true"></script>}

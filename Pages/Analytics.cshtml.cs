@@ -284,26 +284,66 @@ public class AnalyticsModel : PageModel
         // Journal notes belong to the day, like ratings, so notes-only days show whatever the filter.
         var noteDates = _database.GetDailyJournalEntryDates(JournalId, yearDates.Where(date => !daily.ContainsKey(date)));
 
-        // Shade by magnitude against the 90th-percentile day so a single outlier does not wash out the rest.
-        var magnitudes = daily.Values.Where(day => day.NetPnl != 0m).Select(day => Math.Abs(day.NetPnl)).Order().ToArray();
-        var scale = magnitudes.Length == 0 ? 1m : magnitudes[(int)Math.Ceiling(magnitudes.Length * 0.9m) - 1];
+        // The journal's first year starts at the week of its first trade instead of an empty January.
+        var firstTrade = daily.Keys.Min();
+        var yearStarts = years.ToDictionary(year => year, year => year == firstTrade.Year ? firstTrade : new DateOnly(year, 1, 1));
+        // Columns are Sunday-to-Saturday weeks, clipped to the shown part of the year.
+        var weekRanges = years.ToDictionary(year => year, year =>
+        {
+            var ranges = new List<(DateOnly Start, DateOnly End)>();
+            var yearEnd = new DateOnly(year, 12, 31);
+            var start = yearStarts[year].AddDays(-(int)yearStarts[year].DayOfWeek);
+            if (start.Year < year) start = new DateOnly(year, 1, 1);
+            while (start <= yearEnd)
+            {
+                var end = start.AddDays(6 - (int)start.DayOfWeek);
+                if (end > yearEnd) end = yearEnd;
+                ranges.Add((start, end));
+                start = end.AddDays(1);
+            }
+            return ranges;
+        });
+        var weekTotals = weekRanges.ToDictionary(item => item.Key, item => item.Value.Select(range =>
+        {
+            var inWeek = daily.Where(day => day.Key >= range.Start && day.Key <= range.End).Select(day => day.Value).ToArray();
+            return (range.Start, range.End, NetPnl: inWeek.Sum(day => day.NetPnl), TradeCount: inWeek.Sum(day => day.TradeCount));
+        }).ToArray());
+
+        var dayScale = HeatScale(daily.Values.Select(day => day.NetPnl));
+        var weekScale = HeatScale(weekTotals.Values.SelectMany(weeks => weeks).Where(week => week.TradeCount > 0).Select(week => week.NetPnl));
 
         PnlHeatmapYears = years.Select(year =>
         {
             var days = new Dictionary<DateOnly, PnlHeatmapDay>();
             foreach (var (date, day) in daily.Where(item => item.Key.Year == year))
-            {
-                var tone = day.NetPnl > 0m ? "positive" : day.NetPnl < 0m ? "negative" : "neutral";
-                var level = day.NetPnl == 0m ? 0 : Math.Clamp((int)Math.Ceiling(Math.Abs(day.NetPnl) / scale * 4), 1, 4);
-                days[date] = new PnlHeatmapDay(date, day.NetPnl, day.TradeCount, level == 0 ? tone : $"{tone} l{level}");
-            }
-            foreach (var date in noteDates.Where(date => date.Year == year)) days[date] = new PnlHeatmapDay(date, 0m, 0, "note");
-            return new PnlHeatmapYear(year, daily.Where(item => item.Key.Year == year).Sum(item => item.Value.NetPnl), daily.Where(item => item.Key.Year == year).Sum(item => item.Value.TradeCount), days);
+                days[date] = new PnlHeatmapDay(date, day.NetPnl, day.TradeCount, HeatClass(day.NetPnl, dayScale));
+            foreach (var date in noteDates.Where(date => date.Year == year && date >= yearStarts[year])) days[date] = new PnlHeatmapDay(date, 0m, 0, "note");
+            var weeks = weekTotals[year]
+                .Select(week => new PnlHeatmapWeek(week.Start, week.End, week.NetPnl, week.TradeCount, week.TradeCount == 0 ? string.Empty : HeatClass(week.NetPnl, weekScale)))
+                .ToArray();
+            return new PnlHeatmapYear(year, weeks.Sum(week => week.NetPnl), weeks.Sum(week => week.TradeCount), days, weeks);
         }).ToArray();
+    }
+
+    // Shade by magnitude against the 90th-percentile value so a single outlier does not wash out the rest.
+    private static decimal HeatScale(IEnumerable<decimal> values)
+    {
+        var magnitudes = values.Where(value => value != 0m).Select(Math.Abs).Order().ToArray();
+        return magnitudes.Length == 0 ? 1m : magnitudes[(int)Math.Ceiling(magnitudes.Length * 0.9m) - 1];
+    }
+
+    private static string HeatClass(decimal netPnl, decimal scale)
+    {
+        if (netPnl == 0m) return "neutral";
+        var level = Math.Clamp((int)Math.Ceiling(Math.Abs(netPnl) / scale * 4), 1, 4);
+        return $"{(netPnl > 0m ? "positive" : "negative")} l{level}";
     }
 
     public sealed record PnlHeatmapDay(DateOnly Date, decimal NetPnl, int TradeCount, string CssClass);
 
-    public sealed record PnlHeatmapYear(int Year, decimal NetPnl, int TradeCount, IReadOnlyDictionary<DateOnly, PnlHeatmapDay> Days);
+    public sealed record PnlHeatmapWeek(DateOnly Start, DateOnly End, decimal NetPnl, int TradeCount, string CssClass);
+
+    /// <summary>One year of the heat map; each entry in <see cref="Weeks"/> is one grid column.</summary>
+    public sealed record PnlHeatmapYear(int Year, decimal NetPnl, int TradeCount, IReadOnlyDictionary<DateOnly, PnlHeatmapDay> Days, IReadOnlyList<PnlHeatmapWeek> Weeks);
 
 }

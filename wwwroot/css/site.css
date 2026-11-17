@@ -912,7 +912,9 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-pnl-heatmap text { fill: var(--tf-muted); font: 10px 'Segoe UI', system-ui, sans-serif; }
 .tf-hm { fill: var(--tf-hm-cell); }
 .tf-pnl-heatmap a:focus-visible { outline: none; }
-.tf-pnl-heatmap a:hover .tf-hm, .tf-pnl-heatmap a:focus-visible .tf-hm { stroke: var(--tf-ink); stroke-width: 1.5; }
+.tf-pnl-heatmap a:hover .tf-hm, .tf-pnl-heatmap a:focus-visible .tf-hm, .tf-hm-week[tabindex]:hover, .tf-hm-week:focus-visible { stroke: var(--tf-ink); stroke-width: 1.5; }
+.tf-hm-week:focus-visible { outline: none; }
+.tf-pnl-heatmap-week-rule { stroke: var(--tf-line); stroke-width: 1; }
 .tf-hm.positive.l1 { fill: color-mix(in srgb, var(--tf-green) 35%, var(--tf-hm-cell)); }
 .tf-hm.positive.l2 { fill: color-mix(in srgb, var(--tf-green) 55%, var(--tf-hm-cell)); }
 .tf-hm.positive.l3 { fill: color-mix(in srgb, var(--tf-green) 78%, var(--tf-hm-cell)); }

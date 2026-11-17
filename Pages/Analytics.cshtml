@@ -7,7 +7,7 @@
     ViewData["Title"] = "Analytics";
     ViewData["PageKicker"] = "TRADEFOUNDRY / ANALYZE";
     ViewData["ActiveNav"] = "analysis";
-    ViewData["UsesPlotly"] = Model.Trades.Count > 0 || Model.OrderEvents.Count > 0 || Model.AccountBalances.Count > 0 || Model.BenchmarkPoints.Count > 0;
+    ViewData["UsesPlotly"] = Model.Trades.Count > 0 || Model.OrderExecution.TotalOrders > 0 || Model.AccountBalances.Count > 0 || Model.BenchmarkPoints.Count > 0;
 
     string FormatPeriodCurrency(decimal? value) => value.HasValue ? value.Value.ToString("C2") : "—";
     decimal? PeriodReturn(decimal netPnl) => Model.Overview?.StartingEquity is > 0m ? netPnl / Model.Overview.StartingEquity.Value : null;
@@ -216,6 +216,67 @@
     </section>
 
     <div class="tf-history-calendar">
+        <article class="card tf-card tf-library-chart tf-library-chart-wide tf-pnl-heatmap-card">
+            <div class="card-header"><div><h3 class="tf-card-title">Daily net P&amp;L heat map</h3></div><span>completed trades · shaded against the 90th-percentile day</span></div>
+            <div class="card-body">
+                @if (Model.PnlHeatmapYears.Count == 0)
+                {
+                    <div class="chart-empty">No completed-trade P&amp;L data is available yet.</div>
+                }
+                else
+                {
+                    const int pitch = 15, cell = 12, left = 30, top = 20;
+                    <div class="tf-pnl-heatmap-legend" aria-hidden="true">
+                        <span>Loss</span>
+                        @for (var level = 4; level >= 1; level--) { <i class="tf-pnl-heatmap-swatch negative l@(level)"></i> }
+                        <i class="tf-pnl-heatmap-swatch"></i>
+                        @for (var level = 1; level <= 4; level++) { <i class="tf-pnl-heatmap-swatch positive l@(level)"></i> }
+                        <span>Gain</span>
+                        <i class="tf-pnl-heatmap-swatch note"></i><span>Notes only</span>
+                    </div>
+                    @foreach (var heatYear in Model.PnlHeatmapYears)
+                    {
+                        var january = new DateOnly(heatYear.Year, 1, 1);
+                        var weekOffset = (int)january.DayOfWeek;
+                        Func<DateOnly, int> week = date => (date.DayOfYear - 1 + weekOffset) / 7;
+                        var width = left + (week(new DateOnly(heatYear.Year, 12, 31)) + 1) * pitch;
+                        var height = top + 7 * pitch;
+                        var yearTone = heatYear.NetPnl > 0m ? "positive" : heatYear.NetPnl < 0m ? "negative" : string.Empty;
+                        <section class="tf-pnl-heatmap-year" aria-labelledby="history-pnl-heatmap-@heatYear.Year">
+                            <h4 id="history-pnl-heatmap-@heatYear.Year">@heatYear.Year <span class="@yearTone">@Model.PnlCalendarCurrency @heatYear.NetPnl.ToString("N2", CultureInfo.CurrentCulture)</span><small>@heatYear.TradeCount.ToString("N0", CultureInfo.CurrentCulture) @(heatYear.TradeCount == 1 ? "trade" : "trades")</small></h4>
+                            <div class="tf-pnl-heatmap-scroll">
+                                <svg class="tf-pnl-heatmap" width="@width" height="@height" viewBox="0 0 @width @height" role="group" aria-label="@heatYear.Year daily net P&amp;L">
+                                    @for (var monthNumber = 1; monthNumber <= 12; monthNumber++)
+                                    {
+                                        var monthStart = new DateOnly(heatYear.Year, monthNumber, 1);
+                                        <!text x="@(left + week(monthStart) * pitch)" y="12">@monthStart.ToString("MMM", CultureInfo.InvariantCulture)</!text>
+                                    }
+                                    @foreach (var (row, name) in new[] { (1, "Mon"), (3, "Wed"), (5, "Fri") })
+                                    {
+                                        <!text x="0" y="@(top + row * pitch + 10)">@name</!text>
+                                    }
+                                    @for (var date = january; date.Year == heatYear.Year; date = date.AddDays(1))
+                                    {
+                                        var x = left + week(date) * pitch;
+                                        var y = top + (int)date.DayOfWeek * pitch;
+                                        if (!heatYear.Days.TryGetValue(date, out var heatDay))
+                                        {
+                                            <rect class="tf-hm" x="@x" y="@y" width="@cell" height="@cell" rx="2" />
+                                            continue;
+                                        }
+                                        var dayLabel = $"{date.ToString("ddd, MMM d", CultureInfo.InvariantCulture)}: " + (heatDay.TradeCount > 0
+                                            ? $"{Model.PnlCalendarCurrency} {heatDay.NetPnl.ToString("N2", CultureInfo.CurrentCulture)}, {heatDay.TradeCount} {(heatDay.TradeCount == 1 ? "trade" : "trades")}"
+                                            : "journal notes");
+                                        <a href="@($"/journal/{Model.JournalId:D}/review?date={date:yyyy-MM-dd}")" aria-label="@dayLabel"><rect class="tf-hm @heatDay.CssClass" x="@x" y="@y" width="@cell" height="@cell" rx="2"><title>@dayLabel</title></rect></a>
+                                    }
+                                </svg>
+                            </div>
+                        </section>
+                    }
+                }
+            </div>
+        </article>
+
         <article class="card tf-card tf-library-chart tf-library-chart-wide">
             <div class="card-header"><div><h3 class="tf-card-title">Monthly net P&amp;L by day</h3></div><span>completed trades</span></div>
             <div class="card-body">

@@ -181,6 +181,22 @@ public sealed class OrderEvent
     public string Instrument { get; init; } = string.Empty;
 }
 
+/// <summary>The few order-event fields that order-lifecycle statistics read, so they can be loaded without the rest.</summary>
+public sealed record OrderLifecycleEvent(
+    string Account,
+    string Symbol,
+    string InternalOrderId,
+    string SourceKey,
+    DateTimeOffset EventUtc,
+    int RowNumber,
+    string OrderStatus,
+    string OrderActionSource)
+{
+    public static OrderLifecycleEvent From(OrderEvent orderEvent) => new(
+        orderEvent.Account, orderEvent.Symbol, orderEvent.InternalOrderId, orderEvent.SourceKey,
+        orderEvent.EventUtc, orderEvent.RowNumber, orderEvent.OrderStatus, orderEvent.OrderActionSource);
+}
+
 public sealed class AccountBalanceEvent
 {
     public Guid Id { get; init; }

@@ -46,7 +46,13 @@
 <dt>Last observed website status</dt><dd>@(Model.State.RemoteStatus is { } status ? $"Revision {status.Revision} · {(status.SnapshotId.HasValue ? "Published" : "Unpublished")}" : "Not checked")</dd></dl>
 @if (Model.State.RemoteStatus?.BoundJournalId is { } bound && bound != Model.JournalId) { <p class="text-danger">This website is bound to another journal.</p> }
 <div class="d-flex flex-wrap gap-2"><form method="post" asp-page-handler="Status"><button class="btn" type="submit">Refresh status</button></form>
-<form method="post" asp-page-handler="Preview"><button class="btn btn-primary" type="submit">Create preview</button></form></div>
+<form method="post" asp-page-handler="Preview"><button class="btn btn-primary" type="submit">Create preview</button></form>
+@if (draft is not null)
+{
+<a class="btn" href="#publication-preview">Jump to preview</a>
+<form method="post" asp-page-handler="Publish"><input type="hidden" name="snapshotId" value="@draft.Snapshot.SnapshotId" /><button class="btn btn-success" type="submit">Publish this exact snapshot</button></form>
+}
+</div>
 <p class="small mt-3 mb-0">Preview filter: <strong>@Model.Filter.Summary</strong>@(Model.Filter.IsActive ? "" : " (entire history)")</p>
 <p class="text-secondary small mt-3">Preview uses saved settings and the journal filter. It includes the daily journal entries within the filter's dates and the completed trades that match it, with their journal notes, including their inline images, setup labels, attached setup names and versions, roles, and criterion names and results. Criterion notes, setup association notes, review ratings, tags, plans, unrelated attachments, account identifiers, imports, and receipts are excluded.</p>
 @if (Model.State.RemoteStatus is { } remote)
@@ -59,7 +65,7 @@
 </div>
 @if (draft is not null)
 {
-<section class="card mt-4"><div class="card-body"><h3>Review the outgoing snapshot</h3>
+<section id="publication-preview" class="card mt-4"><div class="card-body"><h3>Review the outgoing snapshot</h3>
 <p>Prepared @draft.Snapshot.GeneratedUtc.ToString("yyyy-MM-dd HH:mm 'UTC'") · @draft.Snapshot.Days.Count days · @draft.Snapshot.Dashboard.CompletedTrades trades · @draft.Snapshot.Days.SelectMany(day => day.Trades).Count(trade => trade.JournalContent.Count > 0) trade journal entries · @draft.Snapshot.Images.Count images</p>
 @if (draft.Snapshot.Days.Count > 0) { <p class="text-secondary">Coverage: @draft.Snapshot.Days.Min(d => d.Date).ToString("yyyy-MM-dd") to @draft.Snapshot.Days.Max(d => d.Date).ToString("yyyy-MM-dd").</p> }
 <p class="text-secondary">The preview below contains the complete publication. Later local edits will not change this snapshot.</p>

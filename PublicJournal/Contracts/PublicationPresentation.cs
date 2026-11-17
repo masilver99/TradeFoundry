@@ -158,7 +158,7 @@ public static partial class PublicationPresentation
                 return Truncate((day.Trades.Count > 0 ? $"{TradeCount(day.Trades.Count)}, net {Money(day.NetPnl)} after fees. " : "") + PlainText(day.Content));
             var intro = snapshot.IntroductionContent.Count > 0 ? PlainText(snapshot.IntroductionContent) : snapshot.Introduction.Trim();
             return Truncate(string.IsNullOrWhiteSpace(intro)
-                ? $"Public trading journal: {snapshot.Dashboard.CompletedTrades:N0} completed trades and {Money(snapshot.Dashboard.LifetimeNetPnl)} lifetime net trading profit after fees."
+                ? $"Public trading journal: {snapshot.Dashboard.CompletedTrades:N0} completed trades and {Money(snapshot.Dashboard.LifetimeNetPnl)} net trading profit after fees."
                 : intro);
         }
 
@@ -168,7 +168,7 @@ public static partial class PublicationPresentation
             html.Append($"<nav class=\"site-nav\" aria-label=\"Journal sections\"><div class=\"site-nav-inner\"><a class=\"brand\" href=\"#overview\">{E(snapshot.Title)}</a><div class=\"nav-links\">");
             foreach (var (id, label) in new[] { ("overview", "Overview"), ("performance", "Performance"), ("analysis", "Analysis"), ("calendar", "Calendar"), ("entries", "Journal") })
                 html.Append($"<a href=\"#{id}\" data-section=\"{id}\">{label}</a>");
-            html.Append($"</div><div class=\"nav-status\"><strong class=\"{Tone(lifetime)}\">{E(Money(lifetime))}</strong><small>Lifetime net · as of {ShortDate(snapshot.AsOfDate)}</small></div></div></nav>");
+            html.Append($"</div><div class=\"nav-status\"><strong class=\"{Tone(lifetime)}\">{E(Money(lifetime))}</strong><small>Net · as of {ShortDate(snapshot.AsOfDate)}</small></div></div></nav>");
         }
 
         private void Header()
@@ -192,7 +192,7 @@ public static partial class PublicationPresentation
 
             html.Append("<section class=\"metrics\" aria-label=\"Key results\">");
             Hero("Account balance", Money(dashboard.Balance), "neutral", dashboard.BalanceNote, "");
-            Hero("Lifetime net trading profit", Money(dashboard.LifetimeNetPnl), Tone(dashboard.LifetimeNetPnl), "After trading fees",
+            Hero("Net trading profit", Money(dashboard.LifetimeNetPnl), Tone(dashboard.LifetimeNetPnl), "After trading fees",
                 Spark(lifetimeSeries, Tone(dashboard.LifetimeNetPnl)));
             Hero($"{asOf.ToString("MMMM yyyy", Inv)} net profit", Money(dashboard.CurrentMonthNetPnl), Tone(dashboard.CurrentMonthNetPnl),
                 $"{TradeCount(monthDays.Sum(d => d.Trades.Count))} · as of {Iso(asOf)}", Spark(monthSeries, Tone(dashboard.CurrentMonthNetPnl)));

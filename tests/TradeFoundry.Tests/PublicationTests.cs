@@ -391,6 +391,19 @@ public sealed class PublicationTests
         Assert.Throws<InvalidOperationException>(() => PublicationExportService.ConvertContent("""{"root":{"children":[{"type":"unsupported"}]}}""", _ => ""));
     }
 
+    [Theory]
+    [InlineData("mailto:someone@example.com")]
+    [InlineData("mailto:someone@example.com?subject=Trading%20journal")]
+    [InlineData("mailto:someone@example.com?subject=Trading journal")]
+    public void IntroductionMailtoLinksValidateAndRender(string url)
+    {
+        // Matches the JSON Lexical 0.51 emits after $toggleLink inside a paragraph.
+        var state = """{"root":{"children":[{"children":[{"children":[{"detail":0,"format":0,"mode":"normal","style":"","text":"Email me","type":"text","version":1}],"direction":null,"format":"","indent":0,"type":"link","version":1,"rel":"noreferrer","target":null,"title":null,"url":""" + JsonSerializer.Serialize(url) + """}],"direction":null,"format":"","indent":0,"textFormat":0,"textStyle":"","type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}""";
+        var nodes = PublicationExportService.ConvertContent(state, _ => throw new InvalidOperationException("Introduction images are not supported."));
+        PublicationContent.Validate(nodes, new HashSet<string>());
+        Assert.Contains("href=\"mailto:someone@example.com", PublicationContent.Render(nodes, id => id));
+    }
+
     [Fact]
     public void AnnotatedImagesPublishTheRenderedCopyWithoutAnnotationData()
     {

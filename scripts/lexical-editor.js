@@ -731,8 +731,12 @@ function runToolbarAction(editor, action, status) {
 }
 
 function normalizeLink(value) {
-  const trimmed = String(value || "").trim();
-  if (!trimmed) return null;
+  let trimmed = String(value || "").trim();
+  if (!trimmed || /^https?:\/\/$/i.test(trimmed)) return null;
+  // The prompt is prefilled with "https://", so typing after it yields "https://mailto:..." or "https://name@example.com".
+  trimmed = trimmed.replace(/^https?:\/\/(?=mailto:)/i, "");
+  const email = /^(?:https?:\/\/)?(?:mailto:)?\s*([^\s/@:?#]+@[^\s/@:?#]+\.[^\s/@:?#]+)(\?\S*)?$/i.exec(trimmed);
+  if (email) return "mailto:" + email[1] + (email[2] || "");
   const candidate = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : "https://" + trimmed;
   return /^(https?:\/\/|mailto:|\/|#)/i.test(candidate) ? candidate : null;
 }

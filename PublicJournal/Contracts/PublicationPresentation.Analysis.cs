@@ -120,30 +120,36 @@ public static partial class PublicationPresentation
             var high = pnl.Max();
             var spread = Math.Max(high, 0) - Math.Min(low, 0);
             if (spread == 0) return;
-            // Bin edges fall on multiples of a round width, so zero is always an edge and no bin mixes gains with losses.
-            var width = NiceWidth(spread / Math.Clamp((int)Math.Ceiling(Math.Sqrt(pnl.Length)), 6, 24));
+            // Bin edges fall on multiples of a $5 width, so zero is always an edge and no bin mixes gains with losses.
+            // Extremely wide P&L ranges fall back to a coarser round width (still a multiple of $5) to keep bars visible.
+            var width = spread / HistogramBinWidth <= MaxHistogramBins ? HistogramBinWidth : NiceWidth(spread / MaxHistogramBins);
             var first = (long)Math.Floor(low / width);
             var bins = (int)((long)Math.Floor(high / width) - first + 1);
-            if (bins is < 1 or > 80) return;
+            if (bins is < 1 or > MaxHistogramBins + 2) return;
             var counts = new int[bins];
             foreach (var value in pnl) counts[(long)Math.Floor(value / width) - first]++;
             var tallest = counts.Max();
             var pitch = 920m / bins;
             html.Append($"<h4 class=\"subhead\">Distribution of trade results</h4><p class=\"muted\">Trades per {E(Money(width))} band of net P&amp;L.</p><svg class=\"histogram\" viewBox=\"0 0 1000 240\" role=\"img\" aria-label=\"Histogram of {pnl.Length:N0} trade results\">");
             html.Append($"<line class=\"gridline\" x1=\"60\" x2=\"980\" y1=\"20\" y2=\"20\"/><text x=\"52\" y=\"24\" text-anchor=\"end\">{tallest}</text><text x=\"52\" y=\"204\" text-anchor=\"end\">0</text><line class=\"zero-line\" x1=\"60\" x2=\"980\" y1=\"200\" y2=\"200\"/>");
-            var labelEvery = Math.Max(1, (int)Math.Ceiling(bins / 8m));
+            // Axis labels sit on round dollar values (a multiple of the bin width) so narrow bins still read cleanly.
+            var labelStep = Math.Max(width, Math.Ceiling(NiceWidth(bins * width / 8m) / width) * width);
+            var gap = Math.Min(2m, pitch * .15m);
             for (var index = 0; index < bins; index++)
             {
                 var edge = (first + index) * width;
                 var x = 60 + index * pitch;
                 var height = counts[index] * 180m / tallest;
                 if (counts[index] > 0)
-                    html.Append($"<rect class=\"{(edge >= 0 ? "positive" : "negative")}\" x=\"{N(x + 1)}\" y=\"{N(200 - height)}\" width=\"{N(Math.Max(1, pitch - 2))}\" height=\"{N(height)}\"><title>{E(Money(edge))} to {E(Money(edge + width))}: {Count(counts[index], "trade")}</title></rect>");
-                if (index % labelEvery == 0) html.Append($"<text x=\"{N(x)}\" y=\"222\" text-anchor=\"middle\">{E(edge.ToString("N0", Inv))}</text>");
+                    html.Append($"<rect class=\"{(edge >= 0 ? "positive" : "negative")}\" x=\"{N(x + gap / 2)}\" y=\"{N(200 - height)}\" width=\"{N(Math.Max(.5m, pitch - gap))}\" height=\"{N(height)}\"><title>{E(Money(edge))} to {E(Money(edge + width))}: {Count(counts[index], "trade")}</title></rect>");
+                if (edge % labelStep == 0) html.Append($"<text x=\"{N(x)}\" y=\"222\" text-anchor=\"middle\">{E(edge.ToString("N0", Inv))}</text>");
             }
             if (first < 0) html.Append($"<line class=\"reference-line\" x1=\"{N(60 - first * pitch)}\" x2=\"{N(60 - first * pitch)}\" y1=\"14\" y2=\"200\"/>");
             html.Append("</svg>");
         }
+
+        private const decimal HistogramBinWidth = 5m;
+        private const int MaxHistogramBins = 400;
 
         private static decimal NiceWidth(decimal raw)
         {

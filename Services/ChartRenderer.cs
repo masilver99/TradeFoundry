@@ -822,7 +822,53 @@ public static partial class ChartRenderer
         layout["bargap"] = .08;
         SetAxis(layout, "xaxis", "net P&L");
         SetAxis(layout, "yaxis", "trade count");
-        return Plotly(label, new object[] { HistogramTrace(values, label, color) }, layout);
+        // Fixed $5 bins whose edges fall on multiples of the width, so zero is always an edge.
+        var width = DollarBinWidth(Math.Max(values.Max(), 0m) - Math.Min(values.Min(), 0m));
+        var start = decimal.Floor(values.Min() / width) * width;
+        var end = (decimal.Floor(values.Max() / width) + 1m) * width;
+        if (layout["xaxis"] is Dictionary<string, object?> xAxis)
+        {
+            xAxis["tick0"] = 0m;
+            xAxis["dtick"] = DollarTickStep(end - start, width);
+        }
+        return Plotly(label, new object[]
+        {
+            new
+            {
+                type = "histogram",
+                x = values.ToArray(),
+                name = label,
+                xbins = new { start, end, size = width },
+                autobinx = false,
+                marker = new { color },
+                opacity = .76,
+                hovertemplate = "%{x}<br>%{y} trades<extra></extra>"
+            }
+        }, layout);
+    }
+
+    private const decimal DollarBinSize = 5m;
+    private const int MaxDollarBins = 400;
+
+    // $5 bins, unless the range is so wide that would exceed MaxDollarBins; then a coarser round width (a multiple of $5).
+    private static decimal DollarBinWidth(decimal spread)
+    {
+        if (spread / DollarBinSize <= MaxDollarBins) return DollarBinSize;
+        var raw = spread / MaxDollarBins;
+        var magnitude = (decimal)Math.Pow(10d, Math.Floor(Math.Log10((double)raw)));
+        var fraction = raw / magnitude;
+        return (fraction <= 1m ? 1m : fraction <= 2m ? 2m : fraction <= 2.5m ? 2.5m : fraction <= 5m ? 5m : 10m) * magnitude;
+    }
+
+    // Round axis tick spacing (about 8 ticks) that is a multiple of the bin width.
+    private static decimal DollarTickStep(decimal span, decimal width)
+    {
+        var raw = span / 8m;
+        if (raw <= width) return width;
+        var magnitude = (decimal)Math.Pow(10d, Math.Floor(Math.Log10((double)raw)));
+        var fraction = raw / magnitude;
+        var nice = (fraction <= 1m ? 1m : fraction <= 2m ? 2m : fraction <= 2.5m ? 2.5m : fraction <= 5m ? 5m : 10m) * magnitude;
+        return decimal.Ceiling(nice / width) * width;
     }
 
     private static object HistogramTrace(IReadOnlyList<decimal> values, string name, string color) => new

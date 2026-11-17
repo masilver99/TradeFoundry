@@ -95,7 +95,7 @@ public static partial class ChartRenderer
         if (trades.Length == 0) return Empty("Trade P&L ranges appear after the first completed trade.");
 
         var values = trades.Select(x => x.GrossPnl).ToArray();
-        var step = DollarRangeStep(values.Select(Math.Abs).DefaultIfEmpty(0m).Max());
+        var step = DollarBinWidth(2m * values.Select(Math.Abs).DefaultIfEmpty(0m).Max());
         var largestBin = values
             .Where(x => x != 0m)
             .Select(x => DollarRangeIndex(Math.Abs(x), step))
@@ -128,7 +128,7 @@ public static partial class ChartRenderer
         {
             xAxis["tickprefix"] = "$";
             xAxis["tickformat"] = ",.0f";
-            xAxis["dtick"] = step;
+            xAxis["dtick"] = DollarTickStep(2m * rangeLimit, step);
             xAxis["tick0"] = 0m;
         }
         SetAxis(layout, "yaxis", "trade count");
@@ -878,17 +878,6 @@ public static partial class ChartRenderer
         yref = "paper",
         line = new { color, dash, width = 1.2 }
     };
-
-    private static decimal DollarRangeStep(decimal maximumMagnitude)
-    {
-        if (maximumMagnitude <= 0m) return 1m;
-
-        var targetStep = maximumMagnitude / 20m;
-        var magnitude = (decimal)Math.Pow(10d, Math.Floor(Math.Log10((double)targetStep)));
-        var normalized = targetStep / magnitude;
-        var niceMultiplier = normalized <= 1m ? 1m : normalized <= 2m ? 2m : normalized <= 5m ? 5m : 10m;
-        return Math.Max(1m, niceMultiplier * magnitude);
-    }
 
     private static int DollarRangeIndex(decimal magnitude, decimal step) => Math.Max(0, (int)decimal.Ceiling(magnitude / step) - 1);
 

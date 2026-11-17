@@ -238,13 +238,23 @@ public static class TearSheetMetrics
         string? timeZoneId,
         string currency,
         RiskDisciplineThresholds? riskDisciplineThresholds = null)
+        => Build(source, OrderExecutionCounts.From(orderSource), balanceSource, benchmarkSource, startingEquity, timeZoneId, currency, riskDisciplineThresholds);
+
+    public static TearSheetIndicatorSet Build(
+        IEnumerable<Trade> source,
+        OrderExecutionCounts orderCounts,
+        IEnumerable<AccountBalanceEvent> balanceSource,
+        IEnumerable<BenchmarkPoint> benchmarkSource,
+        decimal? startingEquity,
+        string? timeZoneId,
+        string currency,
+        RiskDisciplineThresholds? riskDisciplineThresholds = null)
     {
         var trades = source
             .Where(trade => trade.ExitUtc.HasValue)
             .OrderBy(trade => trade.ExitUtc)
             .ThenBy(trade => trade.Sequence)
             .ToArray();
-        var orders = orderSource.ToArray();
         var balances = balanceSource.Where(balance => balance.Balance.HasValue).ToArray();
         var benchmarks = benchmarkSource.ToArray();
         var timeZone = TimeZoneCatalog.Resolve(timeZoneId);
@@ -256,7 +266,7 @@ public static class TearSheetMetrics
             .FirstOrDefault(balance => balance.HasValue);
         var equity = BuildEquity(daily, balances, baseline, timeZone);
         var stats = BuildTradeStats(trades, daily, equity, baseline, timeZone);
-        var execution = BuildExecutionStats(orders, trades);
+        var execution = BuildExecutionStats(orderCounts, trades);
         var benchmark = BuildBenchmarkStats(equity, benchmarks, baseline);
         var scTradeStatistics = BuildScTradeStatistics(trades, timeZone, currency);
         var riskDiscipline = BuildRiskDiscipline(trades, riskDisciplineThresholds);
@@ -1119,20 +1129,15 @@ public static class TearSheetMetrics
         };
     }
 
-    private static ExecutionStats BuildExecutionStats(IReadOnlyList<OrderEvent> events, IReadOnlyList<Trade> trades)
+    private static ExecutionStats BuildExecutionStats(OrderExecutionCounts counts, IReadOnlyList<Trade> trades)
     {
-        var lifecycles = events
-            .GroupBy(eventItem => $"{eventItem.Account}\u001f{eventItem.Symbol}\u001f{(string.IsNullOrWhiteSpace(eventItem.InternalOrderId) ? eventItem.SourceKey : eventItem.InternalOrderId)}", StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.OrderBy(eventItem => eventItem.EventUtc).ThenBy(eventItem => eventItem.RowNumber).ToArray())
-            .ToArray();
-        var total = lifecycles.Length;
+        var total = counts.TotalOrders;
         if (total == 0) return new ExecutionStats();
 
-        var modificationCounts = lifecycles.Select(lifecycle => lifecycle.Count(eventItem => eventItem.OrderStatus.Contains("modify", StringComparison.OrdinalIgnoreCase))).ToArray();
-        var filled = lifecycles.Count(lifecycle => lifecycle.Any(eventItem => eventItem.OrderStatus.Equals("Filled", StringComparison.OrdinalIgnoreCase)));
-        var canceled = lifecycles.Count(lifecycle => lifecycle[^1].OrderStatus.Equals("Canceled", StringComparison.OrdinalIgnoreCase));
-        var modified = modificationCounts.Count(count => count > 0);
-        var partial = lifecycles.Count(lifecycle => lifecycle.Any(eventItem => eventItem.OrderStatus.Contains("partial", StringComparison.OrdinalIgnoreCase) || eventItem.OrderActionSource.Contains("partial", StringComparison.OrdinalIgnoreCase)));
+        var filled = counts.Filled;
+        var canceled = counts.Canceled;
+        var modified = counts.Modified;
+        var partial = counts.PartiallyFilled;
         var entryChase = trades.Where(trade => trade.EntryChasePoints.HasValue).Select(trade => trade.EntryChasePoints!.Value).ToArray();
         var exitChase = trades.Where(trade => trade.ExitChasePoints.HasValue).Select(trade => trade.ExitChasePoints!.Value).ToArray();
         return new ExecutionStats
@@ -1142,7 +1147,7 @@ public static class TearSheetMetrics
             CancelRate = RatioValue(canceled, total),
             ModifyRate = RatioValue(modified, total),
             PartialFillRate = RatioValue(partial, total),
-            AvgModificationsPerOrder = (decimal)modificationCounts.Sum() / total,
+            AvgModificationsPerOrder = (decimal)counts.TotalModifications / total,
             AvgEntryChase = entryChase.Length == 0 ? null : entryChase.Average(),
             AvgExitChase = exitChase.Length == 0 ? null : exitChase.Average(),
             MaxEntryChase = entryChase.Length == 0 ? null : entryChase.Max(),

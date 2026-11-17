@@ -899,6 +899,39 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 
 .tf-history-section > .tf-period-summary-section { margin-top: 0; }
 .tf-history-calendar { margin-top: 16px; }
+.tf-pnl-heatmap-card { --tf-hm-cell: #21262d; --tf-hm-note: #6f8fb3; }
+.tf-pnl-heatmap-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 14px; color: var(--tf-muted); font-size: var(--tf-fs-xs); }
+.tf-pnl-heatmap-legend span { margin: 0 6px; }
+.tf-pnl-heatmap-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; background: var(--tf-hm-cell); }
+.tf-pnl-heatmap-swatch.note { margin-left: 10px; }
+.tf-pnl-heatmap-year + .tf-pnl-heatmap-year { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--tf-line); }
+.tf-pnl-heatmap-year h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0 0 8px; color: var(--tf-ink); font-size: var(--tf-fs-md); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tf-pnl-heatmap-year h4 small { color: var(--tf-muted); font-size: var(--tf-fs-xs); font-weight: 400; }
+.tf-pnl-heatmap-scroll { overflow-x: auto; padding-bottom: 4px; }
+.tf-pnl-heatmap { display: block; }
+.tf-pnl-heatmap text { fill: var(--tf-muted); font: 10px 'Segoe UI', system-ui, sans-serif; }
+.tf-hm { fill: var(--tf-hm-cell); }
+.tf-pnl-heatmap a:focus-visible { outline: none; }
+.tf-pnl-heatmap a:hover .tf-hm, .tf-pnl-heatmap a:focus-visible .tf-hm { stroke: var(--tf-ink); stroke-width: 1.5; }
+.tf-hm.positive.l1 { fill: color-mix(in srgb, var(--tf-green) 35%, var(--tf-hm-cell)); }
+.tf-hm.positive.l2 { fill: color-mix(in srgb, var(--tf-green) 55%, var(--tf-hm-cell)); }
+.tf-hm.positive.l3 { fill: color-mix(in srgb, var(--tf-green) 78%, var(--tf-hm-cell)); }
+.tf-hm.positive.l4 { fill: var(--tf-green); }
+.tf-hm.negative.l1 { fill: color-mix(in srgb, var(--tf-red) 35%, var(--tf-hm-cell)); }
+.tf-hm.negative.l2 { fill: color-mix(in srgb, var(--tf-red) 55%, var(--tf-hm-cell)); }
+.tf-hm.negative.l3 { fill: color-mix(in srgb, var(--tf-red) 78%, var(--tf-hm-cell)); }
+.tf-hm.negative.l4 { fill: var(--tf-red); }
+.tf-hm.neutral { fill: color-mix(in srgb, var(--tf-muted) 45%, var(--tf-hm-cell)); }
+.tf-hm.note { fill: color-mix(in srgb, var(--tf-hm-note) 55%, var(--tf-hm-cell)); }
+.tf-pnl-heatmap-swatch.positive.l1 { background: color-mix(in srgb, var(--tf-green) 35%, var(--tf-hm-cell)); }
+.tf-pnl-heatmap-swatch.positive.l2 { background: color-mix(in srgb, var(--tf-green) 55%, var(--tf-hm-cell)); }
+.tf-pnl-heatmap-swatch.positive.l3 { background: color-mix(in srgb, var(--tf-green) 78%, var(--tf-hm-cell)); }
+.tf-pnl-heatmap-swatch.positive.l4 { background: var(--tf-green); }
+.tf-pnl-heatmap-swatch.negative.l1 { background: color-mix(in srgb, var(--tf-red) 35%, var(--tf-hm-cell)); }
+.tf-pnl-heatmap-swatch.negative.l2 { background: color-mix(in srgb, var(--tf-red) 55%, var(--tf-hm-cell)); }
+.tf-pnl-heatmap-swatch.negative.l3 { background: color-mix(in srgb, var(--tf-red) 78%, var(--tf-hm-cell)); }
+.tf-pnl-heatmap-swatch.negative.l4 { background: var(--tf-red); }
+.tf-pnl-heatmap-swatch.note { background: color-mix(in srgb, var(--tf-hm-note) 55%, var(--tf-hm-cell)); }
 .tf-period-summary-day-link { color: var(--tf-blue); text-decoration: none; }
 .tf-period-summary-day-link:hover, .tf-period-summary-day-link:focus-visible { text-decoration: underline; }
 .tf-pnl-day[href] { color: inherit; text-decoration: none; transition: border-color .15s ease, background-color .15s ease; }

@@ -29,9 +29,9 @@ public sealed class JournalAnalysisService
                 dates.FirstOrDefault() == default ? null : dates[0].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 dates.FirstOrDefault() == default ? null : dates[^1].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 trades.Count,
-                _database.GetOrderEvents(journal.Id).Count > 0,
+                _database.HasOrderEvents(journal.Id),
                 trades.Select(x => x.Symbol).Distinct(StringComparer.OrdinalIgnoreCase).Any(symbol => _database.HasBarSeries(journal.Id, symbol)),
-                _database.GetBenchmarkPoints(journal.Id).Count > 0,
+                _database.HasBenchmarkPoints(journal.Id),
                 $"/journal/{journal.Id:D}/overview");
         }).ToArray();
         return new McpJournalListResponse { Journals = items, DataGaps = items.Length == 0 ? ["This token has no accessible active journals."] : Array.Empty<string>() };
@@ -360,6 +360,9 @@ public sealed class JournalAnalysisService
             durations.Length == 0 ? null : durations.Average());
     }
 
+    /// <summary>The whole-journal data gaps, for callers that already hold every trade.</summary>
+    public IReadOnlyList<string> GetDataGaps(Guid journalId, IReadOnlyList<Trade> allTrades) => BuildDataGaps(journalId, allTrades);
+
     private IReadOnlyList<string> BuildDataGaps(Guid journalId, IReadOnlyList<Trade> trades)
     {
         var gaps = new List<string>();
@@ -367,8 +370,8 @@ public sealed class JournalAnalysisService
         if (trades.Count < 20) gaps.Add("The requested scope contains fewer than 20 trades; cohort conclusions may be unstable.");
         if (!trades.Any(x => x.InitialRiskCurrency is > 0m)) gaps.Add("No positive initial-risk evidence is available; R-multiple conclusions are not supported.");
         if (!trades.Any(x => x.MaePoints.HasValue || x.MfePoints.HasValue)) gaps.Add("No excursion evidence is available; entry/exit efficiency conclusions are limited.");
-        if (_database.GetOrderEvents(journalId).Count == 0) gaps.Add("No order lifecycle events are stored; execution-quality conclusions are limited.");
-        if (_database.GetBenchmarkPoints(journalId).Count == 0) gaps.Add("No cached benchmark points are stored; benchmark comparisons are unavailable.");
+        if (!_database.HasOrderEvents(journalId)) gaps.Add("No order lifecycle events are stored; execution-quality conclusions are limited.");
+        if (!_database.HasBenchmarkPoints(journalId)) gaps.Add("No cached benchmark points are stored; benchmark comparisons are unavailable.");
         if (!trades.Select(x => x.Symbol).Distinct(StringComparer.OrdinalIgnoreCase).Any(x => _database.HasBarSeries(journalId, x))) gaps.Add("No stored OHLC series matches the selected trades.");
         if (_database.GetImportWarningBatchCount(journalId) > 0) gaps.Add("One or more import batches recorded warnings; review import diagnostics before relying on completeness.");
         return gaps;

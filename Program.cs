@@ -66,6 +66,7 @@ builder.Services.AddSingleton<MarketProbabilityService>(services => new MarketPr
 builder.Services.AddSingleton<TradingSetupService>();
 builder.Services.AddSingleton<McpTokenService>();
 builder.Services.AddSingleton<JournalAnalysisService>();
+builder.Services.AddSingleton<OrderExecutionSummaryService>();
 builder.Services.AddSingleton<TradeReviewService>(services => new TradeReviewService(
     services.GetRequiredService<TradeFoundryDb>(),
     services.GetRequiredService<TradingSetupService>()));

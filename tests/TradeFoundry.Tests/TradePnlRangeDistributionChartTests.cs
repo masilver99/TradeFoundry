@@ -27,11 +27,11 @@ public sealed class TradePnlRangeDistributionChartTests
 
         Assert.Equal(3, data.GetArrayLength());
         Assert.Equal("Losses", data[0].GetProperty("name").GetString());
-        Assert.Equal(new[] { -.5m, -1.5m, -2.5m, -3.5m, -4.5m, -5.5m, -6.5m, -7.5m, -8.5m }, data[0].GetProperty("x").EnumerateArray().Select(x => x.GetDecimal()).ToArray());
-        Assert.Equal(new[] { 1, 0, 1, 0, 0, 0, 0, 0, 1 }, data[0].GetProperty("y").EnumerateArray().Select(x => x.GetInt32()).ToArray());
+        Assert.Equal(new[] { -2.5m, -7.5m }, data[0].GetProperty("x").EnumerateArray().Select(x => x.GetDecimal()).ToArray());
+        Assert.Equal(new[] { 2, 1 }, data[0].GetProperty("y").EnumerateArray().Select(x => x.GetInt32()).ToArray());
         Assert.Equal("Wins", data[1].GetProperty("name").GetString());
-        Assert.Equal(new[] { .5m, 1.5m, 2.5m, 3.5m, 4.5m, 5.5m, 6.5m, 7.5m, 8.5m }, data[1].GetProperty("x").EnumerateArray().Select(x => x.GetDecimal()).ToArray());
-        Assert.Equal(new[] { 0, 1, 0, 0, 0, 1, 0, 0, 0 }, data[1].GetProperty("y").EnumerateArray().Select(x => x.GetInt32()).ToArray());
+        Assert.Equal(new[] { 2.5m, 7.5m }, data[1].GetProperty("x").EnumerateArray().Select(x => x.GetDecimal()).ToArray());
+        Assert.Equal(new[] { 1, 1 }, data[1].GetProperty("y").EnumerateArray().Select(x => x.GetInt32()).ToArray());
         Assert.Equal("Breakeven", data[2].GetProperty("name").GetString());
         Assert.Equal(new[] { 0 }, data[2].GetProperty("x").EnumerateArray().Select(x => x.GetInt32()).ToArray());
         Assert.Equal(new[] { 1 }, data[2].GetProperty("y").EnumerateArray().Select(x => x.GetInt32()).ToArray());
@@ -39,8 +39,8 @@ public sealed class TradePnlRangeDistributionChartTests
         var xAxis = root.GetProperty("layout").GetProperty("xaxis");
         Assert.Equal("gross P&L ($)", xAxis.GetProperty("title").GetProperty("text").GetString());
         Assert.Equal("$", xAxis.GetProperty("tickprefix").GetString());
-        Assert.Equal(1m, xAxis.GetProperty("dtick").GetDecimal());
-        Assert.Equal(new[] { -9m, 9m }, xAxis.GetProperty("range").EnumerateArray().Select(x => x.GetDecimal()).ToArray());
+        Assert.Equal(5m, xAxis.GetProperty("dtick").GetDecimal());
+        Assert.Equal(new[] { -10m, 10m }, xAxis.GetProperty("range").EnumerateArray().Select(x => x.GetDecimal()).ToArray());
         var zero = root.GetProperty("layout").GetProperty("shapes")[0];
         Assert.Equal(0, zero.GetProperty("x0").GetInt32());
         Assert.Equal(0, zero.GetProperty("x1").GetInt32());

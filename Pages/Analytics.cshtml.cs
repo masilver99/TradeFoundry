@@ -17,12 +17,14 @@ public class AnalyticsModel : PageModel
     private readonly TradeFoundryDb _database;
     private readonly BenchmarkRefreshService _benchmarkRefresh;
     private readonly JournalAnalysisService _analysis;
+    private readonly OrderExecutionSummaryService _orderExecution;
 
-    public AnalyticsModel(TradeFoundryDb database, BenchmarkRefreshService benchmarkRefresh, JournalAnalysisService analysis)
+    public AnalyticsModel(TradeFoundryDb database, BenchmarkRefreshService benchmarkRefresh, JournalAnalysisService analysis, OrderExecutionSummaryService orderExecution)
     {
         _database = database;
         _benchmarkRefresh = benchmarkRefresh;
         _analysis = analysis;
+        _orderExecution = orderExecution;
     }
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
@@ -34,12 +36,13 @@ public class AnalyticsModel : PageModel
     public TearSheetPeriodSummary PeriodSummary { get; private set; } = new();
     public TearSheetPeriodBreakdown PeriodBreakdown { get; private set; } = new();
     public IReadOnlyList<Trade> Trades { get; private set; } = Array.Empty<Trade>();
-    public IReadOnlyList<OrderEvent> OrderEvents { get; private set; } = Array.Empty<OrderEvent>();
+    public OrderExecutionCounts OrderExecution { get; private set; } = OrderExecutionCounts.None;
     public IReadOnlyList<AccountBalanceEvent> AccountBalances { get; private set; } = Array.Empty<AccountBalanceEvent>();
     public IReadOnlyList<BenchmarkPoint> BenchmarkPoints { get; private set; } = Array.Empty<BenchmarkPoint>();
     public BenchmarkSeriesStatus? BenchmarkStatus { get; private set; }
     public IReadOnlyList<PnlCalendarMonth> PnlCalendarMonths { get; private set; } = Array.Empty<PnlCalendarMonth>();
     public IReadOnlyList<MaeCalendarMonth> MaeCalendarMonths { get; private set; } = Array.Empty<MaeCalendarMonth>();
+    public IReadOnlyList<PnlHeatmapYear> PnlHeatmapYears { get; private set; } = Array.Empty<PnlHeatmapYear>();
     public MaeTargetSettings MaeTargets { get; private set; } = new();
     public string BenchmarkSymbol => _benchmarkRefresh.DefaultSymbol;
     public string? BenchmarkRefreshMessage { get; private set; }
@@ -97,7 +100,6 @@ public class AnalyticsModel : PageModel
     public string EdgePersistenceBlocksChart => ChartRenderer.TearSheetEdgePersistenceBlocks(EdgePersistence);
     public string RMultipleChart => ChartRenderer.RMultipleDistribution(Trades);
     public string ExitTypeChart => ChartRenderer.ExitTypeAnalysis(Trades);
-    public string OrderExecutionChart => ChartRenderer.OrderExecution(OrderEvents);
 
     public sealed record PnlCalendarDay(string Date, int Day, decimal NetPnl, int TradeCount, decimal Points, decimal? MaeCurrency, decimal? ProfitPercent, int? Rating = null, string? RatingDescription = null);
 
@@ -142,17 +144,17 @@ public class AnalyticsModel : PageModel
             BenchmarkRefreshMessageKind = "warning";
         }
 
-        OrderEvents = Filter.ApplyToOrders(_database.GetOrderEvents(JournalId), Trades);
+        OrderExecution = _orderExecution.Get(JournalId, Filter, Trades);
         // Actual balance observations belong to the whole account, so a filtered view measures its trades from the starting balance.
         AccountBalances = Filter.IsActive ? Array.Empty<AccountBalanceEvent>() : _database.GetAccountBalanceEvents(JournalId);
         LoadBenchmarkPoints();
         BenchmarkStatus = _database.GetBenchmarkSeriesStatus(JournalId, BenchmarkSymbol);
-        Indicators = TearSheetMetrics.Build(Trades, OrderEvents, AccountBalances, BenchmarkPoints, Overview?.StartingEquity, Journal.TimeZone, Journal.Currency);
+        Indicators = TearSheetMetrics.Build(Trades, OrderExecution,AccountBalances, BenchmarkPoints, Overview?.StartingEquity, Journal.TimeZone, Journal.Currency);
         EdgePersistence = EdgePersistenceCalculator.Build(Trades, Journal.TimeZone);
         var periodData = TearSheetPeriods.Build(Trades, Journal.TimeZone);
         PeriodSummary = periodData.Summary;
         PeriodBreakdown = periodData.Breakdown;
-        DataAvailabilityWarnings = _analysis.GetOverview(JournalId, null).DataGaps;
+        DataAvailabilityWarnings = _analysis.GetDataGaps(JournalId, allTrades);
         BuildPnlCalendar();
         MaeTargets = _database.GetMaeTargetSettings(JournalId);
         MaeCalendarMonths = MaeCalendarBuilder.Build(Trades, Journal.TimeZone, MaeTargets, _database.GetTradeReviewAnnotations(JournalId));
@@ -271,6 +273,37 @@ public class AnalyticsModel : PageModel
             })
             .ToArray();
 
+        BuildPnlHeatmap(daily.ToDictionary(item => item.Key, item => (item.Value.NetPnl, item.Value.TradeCount)));
     }
+
+    private void BuildPnlHeatmap(IReadOnlyDictionary<DateOnly, (decimal NetPnl, int TradeCount)> daily)
+    {
+        if (daily.Count == 0) { PnlHeatmapYears = Array.Empty<PnlHeatmapYear>(); return; }
+        var years = daily.Keys.Select(date => date.Year).Distinct().OrderDescending().ToArray();
+        var yearDates = years.SelectMany(year => Enumerable.Range(0, DateTime.IsLeapYear(year) ? 366 : 365).Select(offset => new DateOnly(year, 1, 1).AddDays(offset)));
+        // Journal notes belong to the day, like ratings, so notes-only days show whatever the filter.
+        var noteDates = _database.GetDailyJournalEntryDates(JournalId, yearDates.Where(date => !daily.ContainsKey(date)));
+
+        // Shade by magnitude against the 90th-percentile day so a single outlier does not wash out the rest.
+        var magnitudes = daily.Values.Where(day => day.NetPnl != 0m).Select(day => Math.Abs(day.NetPnl)).Order().ToArray();
+        var scale = magnitudes.Length == 0 ? 1m : magnitudes[(int)Math.Ceiling(magnitudes.Length * 0.9m) - 1];
+
+        PnlHeatmapYears = years.Select(year =>
+        {
+            var days = new Dictionary<DateOnly, PnlHeatmapDay>();
+            foreach (var (date, day) in daily.Where(item => item.Key.Year == year))
+            {
+                var tone = day.NetPnl > 0m ? "positive" : day.NetPnl < 0m ? "negative" : "neutral";
+                var level = day.NetPnl == 0m ? 0 : Math.Clamp((int)Math.Ceiling(Math.Abs(day.NetPnl) / scale * 4), 1, 4);
+                days[date] = new PnlHeatmapDay(date, day.NetPnl, day.TradeCount, level == 0 ? tone : $"{tone} l{level}");
+            }
+            foreach (var date in noteDates.Where(date => date.Year == year)) days[date] = new PnlHeatmapDay(date, 0m, 0, "note");
+            return new PnlHeatmapYear(year, daily.Where(item => item.Key.Year == year).Sum(item => item.Value.NetPnl), daily.Where(item => item.Key.Year == year).Sum(item => item.Value.TradeCount), days);
+        }).ToArray();
+    }
+
+    public sealed record PnlHeatmapDay(DateOnly Date, decimal NetPnl, int TradeCount, string CssClass);
+
+    public sealed record PnlHeatmapYear(int Year, decimal NetPnl, int TradeCount, IReadOnlyDictionary<DateOnly, PnlHeatmapDay> Days);
 
 }

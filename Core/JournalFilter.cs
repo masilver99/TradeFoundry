@@ -181,14 +181,25 @@ public sealed class JournalFilterScope
 
     /// <summary>Order events that happened while one of the included trades was open (with a minute either side for working orders).</summary>
     public IReadOnlyList<OrderEvent> ApplyToOrders(IEnumerable<OrderEvent> orders, IReadOnlyList<Trade> includedTrades)
+        => ApplyToOrders(orders, includedTrades, order => order.Symbol, order => order.EventUtc);
+
+    public IReadOnlyList<OrderLifecycleEvent> ApplyToOrders(IEnumerable<OrderLifecycleEvent> orders, IReadOnlyList<Trade> includedTrades)
+        => ApplyToOrders(orders, includedTrades, order => order.Symbol, order => order.EventUtc);
+
+    private IReadOnlyList<T> ApplyToOrders<T>(IEnumerable<T> orders, IReadOnlyList<Trade> includedTrades, Func<T, string> symbolOf, Func<T, DateTimeOffset> eventUtcOf)
     {
-        if (!IsActive) return orders as IReadOnlyList<OrderEvent> ?? orders.ToArray();
+        if (!IsActive) return orders as IReadOnlyList<T> ?? orders.ToArray();
         var windows = includedTrades
             .Select(trade => (Symbol: trade.Symbol, Start: trade.EntryUtc.AddMinutes(-1), End: (trade.ExitUtc ?? DateTimeOffset.MaxValue.AddDays(-1)).AddMinutes(1)))
             .ToArray();
-        return orders.Where(order => windows.Any(window =>
-            order.EventUtc >= window.Start && order.EventUtc <= window.End
-            && (string.IsNullOrEmpty(order.Symbol) || string.Equals(order.Symbol, window.Symbol, StringComparison.OrdinalIgnoreCase)))).ToArray();
+        return orders.Where(order =>
+        {
+            var eventUtc = eventUtcOf(order);
+            var symbol = symbolOf(order);
+            return windows.Any(window =>
+                eventUtc >= window.Start && eventUtc <= window.End
+                && (string.IsNullOrEmpty(symbol) || string.Equals(symbol, window.Symbol, StringComparison.OrdinalIgnoreCase)));
+        }).ToArray();
     }
 
     public string PeriodLabel

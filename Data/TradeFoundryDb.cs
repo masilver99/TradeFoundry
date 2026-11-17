@@ -38,6 +38,7 @@ public sealed partial class TradeFoundryDb
     private const string MarketFeatureColumns = "feature_version, source_interval, symbol, trade_date, open, high, low, close, rth_range_points, atr20, normalized_range, open_to_close_points, directional_efficiency, path_efficiency, close_location, vwap_crossings, percent_session_above_vwap, percent_session_below_vwap, percent_higher_highs, percent_higher_lows, percent_lower_highs, percent_lower_lows, maximum_favorable_directional_excursion, maximum_countertrend_excursion, overnight_high, overnight_low, overnight_range, overnight_direction, gap_from_prior_rth_close, gap_direction, volatility_measure_points, direction, rth_bar_count, overnight_bar_count, updated_utc";
     private readonly string _connectionString;
     private readonly string _databasePath;
+    private long _orderEventsVersion;
 
     public string DatabasePath => _databasePath;
     public long DatabaseSizeBytes => File.Exists(_databasePath) ? new FileInfo(_databasePath).Length : 0L;
@@ -1808,6 +1809,49 @@ public sealed partial class TradeFoundryDb
         return events;
     }
 
+    /// <summary>Changes whenever an import adds or removes order events, so caches built from them know to rebuild.</summary>
+    public long OrderEventsVersion => Interlocked.Read(ref _orderEventsVersion);
+
+    private void OrderEventsChanged() => Interlocked.Increment(ref _orderEventsVersion);
+
+    /// <summary>Only the fields order-lifecycle statistics read, which loads far faster than full order events.</summary>
+    public IReadOnlyList<OrderLifecycleEvent> GetOrderLifecycleEvents(Guid journalId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT account, symbol, internal_order_id, source_key, event_utc, row_number, order_status, order_action_source FROM order_events WHERE journal_id = $journal";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        var events = new List<OrderLifecycleEvent>();
+        while (reader.Read())
+        {
+            events.Add(new OrderLifecycleEvent(
+                reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
+                ParseDate(reader.GetString(4)), reader.GetInt32(5), reader.GetString(6), reader.GetString(7)));
+        }
+        return events;
+    }
+
+    /// <summary>Whether any order events are stored, without loading them.</summary>
+    public bool HasOrderEvents(Guid journalId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM order_events WHERE journal_id = $journal)";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
+    }
+
+    /// <summary>Whether any benchmark points are stored, without loading them.</summary>
+    public bool HasBenchmarkPoints(Guid journalId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM benchmark_points WHERE journal_id = $journal)";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
+    }
+
     public IReadOnlyList<AccountBalanceEvent> GetAccountBalanceEvents(Guid journalId)
     {
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
@@ -2889,6 +2933,7 @@ public sealed partial class TradeFoundryDb
             transaction.Commit();
         }
 
+        if (insertedOrderEvents > 0) OrderEventsChanged();
         if (insertedFills > 0 || insertedOrderEvents > 0)
             RebuildFlatTrades(journalId, groupingPolicy);
         MarkMarketFeatureDirty(ToMarketFeatureDirtyRanges(dirtyBySymbol));
@@ -3144,6 +3189,7 @@ public sealed partial class TradeFoundryDb
             }
             transaction.Commit();
         }
+        OrderEventsChanged();
         if (sourceType != TradeFoundryConstants.TradingViewStrategy)
             RebuildFlatTrades(journalId.Value, GetJournal(journalId.Value)?.GroupingPolicy ?? "flat_to_flat");
     }

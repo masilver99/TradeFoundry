@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 252 64" role="img" aria-label="TradeFoundry Journal &amp; Analytics">
+  <rect y="4" width="56" height="56" rx="12.25" fill="#d29922"/>
+  <polyline points="10.5,42.5 21.9,31.1 30.6,37.25 45.5,19.75" fill="none" stroke="#0d1117" stroke-width="5.25" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="69" y="33" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="29" font-weight="600" letter-spacing="-0.3"><tspan fill="#c9d1d9">Trade</tspan><tspan fill="#d29922">Foundry</tspan></text>
+  <text x="70" y="53" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="600" letter-spacing="2.9" fill="#8b949e">JOURNAL &amp; ANALYTICS</text>
+</svg>

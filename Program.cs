@@ -9,16 +9,17 @@ using TradeFoundry.Services.Ai;
 var desktopMode = DesktopRuntime.IsDesktopMode(args);
 var embeddedMode = DesktopRuntime.IsEmbeddedMode(args);
 var applicationArgs = DesktopRuntime.RemoveLaunchSwitches(args);
+var desktopUrl = DesktopRuntime.Url;
 Mutex? desktopMutex = null;
 
 if (desktopMode)
 {
-    desktopMutex = new Mutex(initiallyOwned: true, DesktopRuntime.MutexName, out var createdNew);
+    desktopMutex = new Mutex(initiallyOwned: true, DesktopRuntime.InstanceName(DesktopRuntime.MutexName, desktopUrl), out var createdNew);
     if (!createdNew)
     {
         if (!embeddedMode)
         {
-            DesktopRuntime.TryOpenBrowser(DesktopRuntime.DefaultUrl);
+            DesktopRuntime.TryOpenBrowser(desktopUrl);
         }
 
         desktopMutex.Dispose();
@@ -43,7 +44,7 @@ if (desktopMode)
     builder.Configuration.AddJsonFile(DesktopRuntime.UserConfigurationPath, optional: true, reloadOnChange: false);
     builder.Configuration.AddEnvironmentVariables();
     builder.Configuration.AddCommandLine(applicationArgs);
-    builder.WebHost.UseUrls(DesktopRuntime.DefaultUrl);
+    builder.WebHost.UseUrls(desktopUrl);
 }
 
 var dataProtectionKeysDirectory = builder.Configuration["DataProtection:KeysDirectory"];
@@ -143,7 +144,14 @@ app.MapGet("/publication-assets/{name}", (string name) => TradeFoundry.Publishin
 
 if (desktopMode && !embeddedMode)
 {
-    app.Lifetime.ApplicationStarted.Register(() => DesktopRuntime.TryOpenBrowser(DesktopRuntime.DefaultUrl));
+    app.Lifetime.ApplicationStarted.Register(() => DesktopRuntime.TryOpenBrowser(desktopUrl));
+}
+
+if (embeddedMode)
+{
+    // The tray helper owns this process: stop gracefully when it asks, or when it goes away.
+    _ = DesktopRuntime.WaitForShutdownSignalAsync(Console.In)
+        .ContinueWith(_ => app.Lifetime.StopApplication(), TaskScheduler.Default);
 }
 
 try

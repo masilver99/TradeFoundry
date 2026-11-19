@@ -20,7 +20,10 @@ public class WebpStorageTests
             new JournalImageSettings { Lossless = lossless, Quality = 73, Method = 2 }.Save(root, journal);
             Assert.Equal(73, JournalImageSettings.Load(root, journal).Quality);
             Assert.Equal(lossless, JournalImageSettings.Load(root, journal).Lossless);
-            Assert.True(JournalImageSettings.Load(root, Guid.NewGuid()).Lossless);
+            var defaults = JournalImageSettings.Load(root, Guid.NewGuid());
+            Assert.False(defaults.Lossless);
+            Assert.Equal(WebpPreset.Drawing, defaults.Preset);
+            Assert.True(defaults.SharpYuv);
             using var original = new MagickImage(MagickColors.Red, 16, 12);
             using var input = new MemoryStream(original.ToByteArray(format));
             var store = new JournalImageFileStore(Path.Combine(root, "images"));
@@ -61,6 +64,54 @@ public class WebpStorageTests
         finally { Directory.Delete(root, true); }
     }
 
+    [Theory]
+    [InlineData(WebpPreset.Default, false)]
+    [InlineData(WebpPreset.Picture, false)]
+    [InlineData(WebpPreset.Photo, false)]
+    [InlineData(WebpPreset.Drawing, false)]
+    [InlineData(WebpPreset.Icon, false)]
+    [InlineData(WebpPreset.Text, true)]
+    [InlineData(WebpPreset.Drawing, true)]
+    public async Task EncodesWithEachPresetAndPersistsIt(WebpPreset preset, bool lossless)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"tf-webp-{Guid.NewGuid():N}");
+        var journal = Guid.NewGuid();
+        Directory.CreateDirectory(root);
+        try
+        {
+            new JournalImageSettings { Preset = preset, Lossless = lossless, SharpYuv = false }.Save(root, journal);
+            var loaded = JournalImageSettings.Load(root, journal);
+            Assert.Equal(preset, loaded.Preset);
+            Assert.False(loaded.SharpYuv);
+            Assert.Contains($"\"{preset}\"", File.ReadAllText(Path.Combine(root, "image-settings", $"{journal:D}.json")));
+
+            using var original = new MagickImage(MagickColors.SteelBlue, 64, 48);
+            using var input = new MemoryStream(original.ToByteArray(MagickFormat.Png));
+            var store = new JournalImageFileStore(Path.Combine(root, "images"));
+            var result = await store.SaveAsync(journal, input, "image/png", input.Length);
+            using var decoded = new MagickImage(store.GetPath(journal, result.StorageKey)!);
+            Assert.Equal(64u, decoded.Width);
+            Assert.Equal(48u, decoded.Height);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void LegacySettingsWithoutPresetLoadWithDrawingDefault()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"tf-webp-{Guid.NewGuid():N}");
+        var journal = Guid.NewGuid();
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "image-settings"));
+            File.WriteAllText(Path.Combine(root, "image-settings", $"{journal:D}.json"), "{\"Lossless\":true,\"Quality\":85,\"Method\":4}");
+            var loaded = JournalImageSettings.Load(root, journal);
+            Assert.True(loaded.Lossless);
+            Assert.Equal(WebpPreset.Drawing, loaded.Preset);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [Fact]
     public void RejectsInvalidSettings()
     {
@@ -68,5 +119,7 @@ public class WebpStorageTests
             new JournalImageSettings { Quality = 101 }.Save(Path.GetTempPath(), Guid.NewGuid()));
         Assert.Throws<System.ComponentModel.DataAnnotations.ValidationException>(() =>
             new JournalImageSettings { Method = -1 }.Save(Path.GetTempPath(), Guid.NewGuid()));
+        Assert.Throws<System.ComponentModel.DataAnnotations.ValidationException>(() =>
+            new JournalImageSettings { Preset = (WebpPreset)42 }.Save(Path.GetTempPath(), Guid.NewGuid()));
     }
 }

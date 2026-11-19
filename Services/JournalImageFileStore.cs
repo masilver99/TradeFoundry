@@ -69,9 +69,7 @@ public sealed class JournalImageFileStore
                 if (frames.Count != 1)
                     throw new InvalidOperationException("Animated images are not supported.");
                 var image = frames[0];
-                image.Quality = (uint)settings.Quality;
-                image.Settings.SetDefine(MagickFormat.WebP, "lossless", settings.Lossless ? "true" : "false");
-                image.Settings.SetDefine(MagickFormat.WebP, "method", settings.Method.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                settings.ApplyTo(image);
                 image.Write(webpPath, MagickFormat.WebP);
                 cancellationToken.ThrowIfCancellationRequested();
                 var length = new FileInfo(webpPath).Length;

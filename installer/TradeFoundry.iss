@@ -28,7 +28,8 @@ Uninstallable=yes
 CloseApplications=yes
 CloseApplicationsFilter=TradeFoundry*.exe
 RestartApplications=no
-AppMutex=TradeFoundry.Desktop
+; The tray helper and the server it starts each hold one of these mutexes.
+AppMutex=TradeFoundry.Desktop,TradeFoundry.DesktopShell
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -36,12 +37,28 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
+[InstallDelete]
+; Remove top-level binaries from the previous version (including the retired WPF/WebView2
+; shell) before installing the new ones. Journal data never lives directly in {app}.
+Type: files; Name: "{app}\*.dll"
+Type: files; Name: "{app}\TradeFoundry*.exe"
+Type: files; Name: "{app}\createdump.exe"
+Type: files; Name: "{app}\*.json"
+Type: filesandordirs; Name: "{app}\runtimes"
+
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\TradeFoundry"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Flags: runminimized
-Name: "{autodesktop}\TradeFoundry"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon; Flags: runminimized
+Name: "{group}\TradeFoundry"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{autodesktop}\TradeFoundry"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+
+[Registry]
+; The tray menu's "Start at sign-in" option writes this value; remove it on uninstall.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "TradeFoundry"; Flags: uninsdeletevalue
+
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "Start TradeFoundry"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var

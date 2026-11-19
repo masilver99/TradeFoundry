@@ -46,9 +46,11 @@ Open `http://127.0.0.1:5080`. On first run, create the local owner account, crea
 
 ## Windows desktop package
 
-The installed Windows build is a self-contained `win-x64` package with a native WPF/WebView2 shell. It keeps the existing Razor UI but displays it in a single TradeFoundry window without browser tabs or an address bar. The local server remains loopback-only at `http://127.0.0.1:5080`. The installed build uses a per-user configuration file at `%LOCALAPPDATA%\TradeFoundry\appsettings.user.json`; the installer writes the selected journal data directory there. Database files and review attachments remain outside the application install directory.
+The installed Windows build is a self-contained `win-x64` package with a small tray helper (`TradeFoundry.Desktop.exe`, built with Avalonia in `DesktopShell/`). Launching TradeFoundry starts the local server and opens the journal in the default browser. The tray icon's menu opens the journal, shows the server status, starts or stops the server, toggles **Start at sign-in**, opens the data folder, and quits. Clicking the Start menu shortcut again just reopens the journal. The local server remains loopback-only at `http://127.0.0.1:5080`. The installed build uses a per-user configuration file at `%LOCALAPPDATA%\TradeFoundry\appsettings.user.json`; the installer writes the selected journal data directory there. Database files and review attachments remain outside the application install directory.
 
-The Microsoft Edge WebView2 Runtime must be available on the Windows machine. Windows 10 and 11 systems normally already have it through Microsoft Edge; the shell shows a clear startup error if it is missing.
+The tray starts the server as `TradeFoundry.exe --desktop --embedded` and keeps its standard input open. The server shuts down gracefully when the tray stops it, and also when the tray exits or crashes, so it is never left running on its own. If the server fails to start (for example, because port 5080 is in use), the tray shows the error and recent server output.
+
+For development, set `TradeFoundryServerPath` to a built `TradeFoundry.exe` and `TradeFoundryDesktopUrl` to another loopback URL such as `http://127.0.0.1:5090`. A non-default port gets its own single-instance names, so it does not collide with an installed copy. The `TradeFoundry: Desktop` VS Code launch configuration does this.
 
 To create the publish payload:
 

@@ -1,19 +1,28 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Cross-platform tray helper. It starts and stops the TradeFoundry server (installed next to
+    it) and opens the journal in the user's default browser. The assembly name stays
+    TradeFoundry.Desktop so existing installer shortcuts and upgrade paths keep working.
+  -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>TradeFoundry.Desktop</RootNamespace>
     <AssemblyName>TradeFoundry.Desktop</AssemblyName>
-    <UseWPF>true</UseWPF>
     <UseAppHost>true</UseAppHost>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>..\wwwroot\favicon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
+    <PackageReference Include="Avalonia" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
     <Compile Include="..\Core\DesktopRuntime.cs" Link="Core\DesktopRuntime.cs" />
+    <EmbeddedResource Include="..\wwwroot\favicon.ico" Link="Assets\TradeFoundry.ico" LogicalName="TradeFoundry.ico" />
   </ItemGroup>
 
 </Project>

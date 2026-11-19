@@ -173,7 +173,7 @@ public static partial class PublicationPresentation
 
         private void Header()
         {
-            html.Append($"<header id=\"overview\"><div class=\"eyebrow\">PUBLIC TRADING JOURNAL{(preview ? " · PUBLICATION PREVIEW" : "")}</div><h1>{E(snapshot.Title)}</h1><div class=\"metadata\"><span>{E(snapshot.Currency)} · {E(snapshot.TimeZone)}</span><span>{(preview ? "Snapshot prepared" : "Last published")} {(publishedUtc ?? snapshot.GeneratedUtc).ToString("MMM d, yyyy 'at' HH:mm 'UTC'", Inv)}</span></div>");
+            html.Append($"<header id=\"overview\"><div class=\"eyebrow\">PUBLIC TRADING JOURNAL{(preview ? " · PUBLICATION PREVIEW" : "")}</div><h1>{E(snapshot.Title)}</h1><div class=\"metadata\"><span>{(preview ? "Snapshot prepared" : "Last published")} {TimeZoneInfo.ConvertTime(publishedUtc ?? snapshot.GeneratedUtc, Eastern).ToString("MMM d, yyyy 'at' h:mm tt 'ET'", Inv)}</span></div>");
             if (snapshot.IntroductionContent.Count > 0)
                 html.Append($"<div class=\"introduction journal-content\">{PublicationContent.Render(snapshot.IntroductionContent, imageUrl)}</div>");
             else if (!string.IsNullOrWhiteSpace(snapshot.Introduction))
@@ -534,6 +534,8 @@ public static partial class PublicationPresentation
                 html.Append($"<script defer src=\"/publication-assets/{script}\"></script>");
         }
     }
+
+    private static readonly TimeZoneInfo Eastern = Zone("America/New_York");
 
     private static TimeZoneInfo Zone(string id)
     {

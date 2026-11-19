@@ -4,7 +4,10 @@ param(
     [string]$Configuration = 'Release',
     [string]$OutputRoot,
     [string]$InnoSetupPath,
-    [switch]$CompileInstaller
+    [switch]$CompileInstaller,
+    # Release version, for example 1.2.0 or 1.2.0-rc.1. Local builds default to 0.0.0-dev.
+    [ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$')]
+    [string]$Version = '0.0.0-dev'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +46,7 @@ $publishArguments = @(
     '-c',
     $Configuration,
     '-p:PublishProfile=WindowsDesktop',
+    "-p:Version=$Version",
     "-p:PublishDir=$publishDirectoryWithSlash"
 )
 
@@ -59,6 +63,7 @@ $desktopPublishArguments = @(
     '-c',
     $Configuration,
     '-p:PublishProfile=WindowsDesktop',
+    "-p:Version=$Version",
     "-p:PublishDir=$publishDirectoryWithSlash"
 )
 
@@ -107,6 +112,8 @@ if ($CompileInstaller) {
     $installerArguments = @(
         "/DPublishDir=$publishDirectory",
         "/DInstallerOutputDir=$installerDirectory",
+        "/DMyAppVersion=$Version",
+        "/DMyAppNumericVersion=$(($Version -split '-')[0])",
         $installerScript
     )
     & $isccPath @installerArguments

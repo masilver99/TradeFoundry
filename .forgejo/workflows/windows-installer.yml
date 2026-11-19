@@ -1,70 +1,138 @@
 name: Windows installer
 
+# Builds TradeFoundry-Setup.exe on the Linux runner (Inno Setup runs under Wine in Docker).
+#  - Pushes to main/master: a development build, kept as a workflow artifact only.
+#  - Tags vX.Y.Z / vX.Y.Z-rc.N: the installer is also uploaded to this owner's public
+#    "tradefoundry-windows" generic package. Stable tags additionally replace
+#    tradefoundry-windows/latest/latest.json, which installed tray helpers check for updates.
+
 on:
   push:
     branches:
       - main
       - master
+    tags:
+      - 'v*'
   workflow_dispatch:
+
+concurrency:
+  group: tradefoundry-windows-installer
+  cancel-in-progress: false
 
 jobs:
   build-windows-installer:
-    # Register the Windows Forgejo runner with this label (or change it to the
-    # label used by the repository's Windows runner).
-    runs-on: windows-latest
+    runs-on: docker
+    timeout-minutes: 45
     steps:
       - name: Check out source
         uses: https://data.forgejo.org/actions/checkout@v6
-
-      - name: Set up .NET 10
-        uses: https://github.com/actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          persist-credentials: false
 
-      - name: Install Inno Setup
-        shell: pwsh
+      - name: Build installer
+        id: build
+        shell: bash
+        env:
+          BUILD_REF: ${{ forgejo.ref }}
+          BUILD_SHA: ${{ forgejo.sha }}
+          SERVER_URL: ${{ forgejo.server_url }}
+          OWNER: ${{ forgejo.repository_owner }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          if (-not (Get-Command choco.exe -ErrorAction SilentlyContinue)) {
-            throw 'Chocolatey is required on the Windows runner to install Inno Setup.'
-          }
+          set -Eeuo pipefail
 
-          choco install innosetup --yes --no-progress
+          if [[ "$BUILD_REF" == refs/tags/* ]]; then
+            version="${BUILD_REF#refs/tags/v}"
+            # Same tag rules as the container workflow.
+            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
+              echo 'Use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-rc.N (alpha/beta also supported).'
+              exit 1
+            fi
+          else
+            version="0.0.0-dev.${BUILD_SHA:0:12}"
+          fi
 
-      - name: Build Windows installer
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\windows'
+          package_url="${SERVER_URL%/}/api/packages/${OWNER}/generic/tradefoundry-windows"
+          manifest_url="${package_url}/latest/latest.json"
+          image="tradefoundry-windows-installer:${BUILD_SHA}"
 
-          if (Test-Path -LiteralPath $outputRoot) {
-            Remove-Item -LiteralPath $outputRoot -Recurse -Force
-          }
+          docker build --pull --file installer/Dockerfile --target artifact \
+            --build-arg "VERSION=$version" \
+            --build-arg "REVISION=$BUILD_SHA" \
+            --build-arg "UPDATE_MANIFEST_URL=$manifest_url" \
+            --tag "$image" .
 
-          $isccPath = @(
-            (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source,
-            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7\ISCC.exe'),
-            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
-            (Join-Path $env:ProgramFiles 'Inno Setup 7\ISCC.exe')
-          ) |
-            Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
-            Select-Object -First 1
+          mkdir -p artifacts/windows/installer
+          installer="artifacts/windows/installer/TradeFoundry-Setup-${version}.exe"
+          container="$(docker create "$image" noop)"
+          docker cp "$container:/TradeFoundry-Setup.exe" "$installer"
+          docker rm "$container" > /dev/null
+          docker image rm "$image" > /dev/null
 
-          if ([string]::IsNullOrWhiteSpace($isccPath)) {
-            throw 'Inno Setup compiler (ISCC.exe) was not found after installation.'
-          }
+          sha256="$(sha256sum "$installer" | cut -d' ' -f1)"
+          size="$(stat -c %s "$installer")"
+          echo "$sha256  $(basename "$installer")" > "$installer.sha256"
+          echo "Built $installer ($size bytes, sha256 $sha256)"
 
-          pwsh -NoProfile -File scripts\publish-windows.ps1 `
-            -Configuration Release `
-            -OutputRoot $outputRoot `
-            -InnoSetupPath $isccPath `
-            -CompileInstaller
+          {
+            echo "version=$version"
+            echo "installer=$installer"
+            echo "sha256=$sha256"
+            echo "size=$size"
+            echo "package_url=$package_url"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload installer artifact
         uses: https://data.forgejo.org/actions/upload-artifact@v3.2.2-node20
         with:
-          name: TradeFoundry-Windows-Installer-${{ github.run_number }}
-          path: artifacts/windows/installer/TradeFoundry-Setup.exe
+          name: TradeFoundry-Windows-Installer-${{ steps.build.outputs.version }}
+          path: artifacts/windows/installer/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish release to package registry
+        if: startsWith(forgejo.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          VERSION: ${{ steps.build.outputs.version }}
+          INSTALLER: ${{ steps.build.outputs.installer }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+          SIZE: ${{ steps.build.outputs.size }}
+          PACKAGE_URL: ${{ steps.build.outputs.package_url }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$REGISTRY_USERNAME" || { echo 'Missing REGISTRY_USERNAME secret'; exit 1; }
+          test -n "$REGISTRY_TOKEN" || { echo 'Missing REGISTRY_TOKEN secret (needs write:package)'; exit 1; }
+          command -v curl > /dev/null || { apt-get update -qq && apt-get install -y -qq curl > /dev/null; }
+
+          auth="$REGISTRY_USERNAME:$REGISTRY_TOKEN"
+          file_name="$(basename "$INSTALLER")"
+          installer_url="$PACKAGE_URL/$VERSION/$file_name"
+
+          echo "Uploading $installer_url"
+          curl --fail-with-body --silent --show-error --user "$auth" \
+            --upload-file "$INSTALLER" "$installer_url"
+          curl --fail-with-body --silent --show-error --user "$auth" \
+            --upload-file "$INSTALLER.sha256" "$installer_url.sha256"
+
+          if [[ "$VERSION" == *-* ]]; then
+            echo "Prerelease $VERSION uploaded; latest.json is unchanged, so trays are not offered it."
+            exit 0
+          fi
+
+          published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf '{\n  "version": "%s",\n  "installerUrl": "%s",\n  "sha256": "%s",\n  "size": %s,\n  "publishedAt": "%s"\n}\n' \
+            "$VERSION" "$installer_url" "$SHA256" "$SIZE" "$published_at" > latest.json
+          cat latest.json
+
+          # Generic package files cannot be overwritten, so replace latest.json (404 = first release).
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' --user "$auth" \
+            --request DELETE "$PACKAGE_URL/latest/latest.json")"
+          if [[ "$status" != 204 && "$status" != 404 ]]; then
+            echo "Could not remove the previous latest.json (HTTP $status)"
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --user "$auth" \
+            --upload-file latest.json "$PACKAGE_URL/latest/latest.json"
+          echo "Published $VERSION as the latest Windows release."

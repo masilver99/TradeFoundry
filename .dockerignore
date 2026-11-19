@@ -10,7 +10,6 @@
 output
 artifacts
 node_modules
-DesktopShell
 .tradefoundry-data
 .smoke-data*
 data

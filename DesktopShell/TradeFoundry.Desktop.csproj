@@ -15,6 +15,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>..\wwwroot\favicon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Local builds are development builds; CI passes -p:Version from the release tag. -->
+    <Version Condition="'$(Version)' == ''">0.0.0-dev</Version>
+    <!--
+      Where installed builds look for latest.json. CI sets this; it is empty for local builds,
+      which therefore never offer updates (TradeFoundryUpdateManifestUrl overrides it for testing).
+    -->
+    <UpdateManifestUrl Condition="'$(UpdateManifestUrl)' == ''"></UpdateManifestUrl>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,7 +29,14 @@
     <PackageReference Include="Avalonia.Desktop" Version="12.1.6" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
     <Compile Include="..\Core\DesktopRuntime.cs" Link="Core\DesktopRuntime.cs" />
+    <Compile Include="..\Core\DesktopUpdates.cs" Link="Core\DesktopUpdates.cs" />
     <EmbeddedResource Include="..\wwwroot\favicon.ico" Link="Assets\TradeFoundry.ico" LogicalName="TradeFoundry.ico" />
+    <!--
+      Also shipped as a loose file: the installer uses it for shortcuts and Add/Remove Programs,
+      because builds on Linux cannot embed the icon into the .exe (NETSDK1074).
+    -->
+    <None Include="..\wwwroot\favicon.ico" Link="TradeFoundry.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <AssemblyMetadata Include="TradeFoundryUpdateManifestUrl" Value="$(UpdateManifestUrl)" Condition="'$(UpdateManifestUrl)' != ''" />
   </ItemGroup>
 
 </Project>

@@ -64,11 +64,30 @@ Install Inno Setup 7 and pass `-CompileInstaller` to compile the installer in th
 pwsh -File scripts\publish-windows.ps1 -CompileInstaller
 ~~~
 
-The script searches both standard Program Files locations. For a custom installation, pass the compiler path explicitly with `-InnoSetupPath C:\path\to\ISCC.exe`.
+The script searches both standard Program Files locations. For a custom installation, pass the compiler path explicitly with `-InnoSetupPath C:\path\to\ISCC.exe`. Pass `-Version 1.2.0` to stamp a version; local builds default to `0.0.0-dev`.
 
 The installer is per-user and does not remove the selected data directory during uninstall. Re-running it reuses the previously selected data directory.
 
-The Forgejo Action in `.forgejo/workflows/windows-installer.yml` runs for pushes to `main` and `master` and can also be started manually. It requires a Windows runner registered with the `windows-latest` label. Download the `TradeFoundry-Windows-Installer` artifact from the completed workflow run.
+### Automated builds and releases
+
+The Forgejo Action in `.forgejo/workflows/windows-installer.yml` builds the installer on the Linux `docker` runner. No Windows runner is needed: `installer/Dockerfile` publishes `win-x64` with the .NET SDK and compiles the installer with Inno Setup running under Wine. To run the same build locally on any machine with Docker:
+
+~~~bash
+docker build -f installer/Dockerfile --target artifact --build-arg VERSION=1.2.0 -t tf-installer .
+id=$(docker create tf-installer noop) && docker cp "$id:/TradeFoundry-Setup.exe" . && docker rm "$id"
+~~~
+
+- **Pushes to `main`/`master`** build a development installer (`0.0.0-dev.<sha>`) and keep it as the `TradeFoundry-Windows-Installer-*` workflow artifact for 30 days. Development builds never offer updates.
+- **Tag `vX.Y.Z`** (for example `git tag v1.2.0 && git push forgejo v1.2.0`) also uploads `TradeFoundry-Setup-X.Y.Z.exe` and its `.sha256` to the owner's public generic package `tradefoundry-windows`, then replaces `tradefoundry-windows/latest/latest.json`. Installed tray helpers read that manifest.
+- **Tag `vX.Y.Z-rc.N`** (or `alpha`/`beta`) uploads the installer but leaves `latest.json` alone, so no one is offered it.
+
+Publishing uses the same `REGISTRY_USERNAME` / `REGISTRY_TOKEN` secrets as the container workflow; the token needs `write:package`. Package files are public whenever the owner's profile is public, even though the repository is private. The source code stays private, but anyone with the link can download the installer.
+
+### Updates in the tray
+
+Installed release builds check `latest.json` 30 seconds after starting and then every 12 hours. **Check for updates** in the tray menu checks on demand. When a newer stable version exists, the tray offers **Install and restart**. It downloads the installer and verifies its size and SHA-256 (a mismatch is refused). Then it stops the server cleanly, starts Setup with `/SILENT /TFUPDATE=1`, and exits. Setup waits up to 60 seconds for TradeFoundry to exit, upgrades in place (keeping the data directory), and starts the tray again. The update log is written to `%TEMP%\TradeFoundry-Update\install.log`.
+
+The manifest URL is baked into the tray at build time (`-p:UpdateManifestUrl`). For testing, `TradeFoundryUpdateManifestUrl` overrides it and also enables update checks on development builds. Installers are not code-signed yet, so Windows SmartScreen may warn on a manual install.
 
 ## Run with Docker
 

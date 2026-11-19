@@ -21,9 +21,27 @@ internal sealed class App : Application
     private NativeMenuItem? _statusItem;
     private NativeMenuItem? _toggleServerItem;
     private NativeMenuItem? _startAtSignInItem;
+    private NativeMenuItem? _updateItem;
     private MessageWindow? _messageWindow;
+    private Updater? _updater;
+    private DispatcherTimer? _updateTimer;
+    private DesktopUpdateManifest? _availableUpdate;
+    private UpdatePhase _updatePhase;
+    private int _downloadPercent;
+    private string? _promptedVersion;
     private bool _openBrowserWhenReady;
     private bool _quitting;
+
+    private enum UpdatePhase
+    {
+        Idle,
+        Checking,
+        Downloading,
+        Installing
+    }
+
+    private static readonly TimeSpan FirstUpdateCheckDelay = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(12);
 
     public App(TrayOptions? options)
     {
@@ -43,9 +61,16 @@ internal sealed class App : Application
         {
             _server = new ServerController(_options.Url);
             _server.StateChanged += () => Dispatcher.UIThread.Post(OnServerStateChanged);
-            desktop.Exit += (_, _) => _server.Dispose();
+            _updater = new Updater();
+            desktop.Exit += (_, _) =>
+            {
+                _updateTimer?.Stop();
+                _server.Dispose();
+                _updater.Dispose();
+            };
 
             CreateTrayIcon();
+            StartUpdateChecks();
             _options.Instance.StartListening(() => Dispatcher.UIThread.Post(OpenJournal));
 
             _openBrowserWhenReady = _options.OpenBrowserOnStart;
@@ -89,6 +114,11 @@ internal sealed class App : Application
         menu.Items.Add(openData);
         menu.Items.Add(new NativeMenuItemSeparator());
 
+        _updateItem = new NativeMenuItem("Check for updates");
+        _updateItem.Click += (_, _) => OnUpdateItemClicked();
+        menu.Items.Add(_updateItem);
+        menu.Items.Add(new NativeMenuItemSeparator());
+
         var quit = new NativeMenuItem("Quit TradeFoundry");
         quit.Click += async (_, _) => await QuitAsync();
         menu.Items.Add(quit);
@@ -127,7 +157,7 @@ internal sealed class App : Application
         _statusItem.Header = status;
         _toggleServerItem.Header = toggle;
         _toggleServerItem.IsEnabled = canToggle && !_quitting;
-        _trayIcon.ToolTipText = $"TradeFoundry: {status}";
+        RefreshToolTip(status);
 
         if (state is ServerState.Running or ServerState.External && _openBrowserWhenReady)
         {
@@ -139,6 +169,181 @@ internal sealed class App : Application
             _openBrowserWhenReady = false;
             ShowMessage(_server.FailureMessage ?? "The TradeFoundry server stopped.", _server.RecentOutput);
         }
+    }
+
+    private void RefreshToolTip(string? status = null)
+    {
+        if (_trayIcon is null)
+        {
+            return;
+        }
+
+        status ??= _statusItem?.Header ?? string.Empty;
+        _trayIcon.ToolTipText = _availableUpdate is { } update
+            ? $"TradeFoundry: {status}\nUpdate {update.Version} available"
+            : $"TradeFoundry: {status}";
+    }
+
+    private void StartUpdateChecks()
+    {
+        if (_updater is null || _updateItem is null)
+        {
+            return;
+        }
+
+        if (!_updater.IsEnabled)
+        {
+            _updateItem.Header = DesktopUpdates.IsDevelopmentVersion(_updater.CurrentVersion)
+                ? $"Version {_updater.CurrentVersion} (development build)"
+                : $"Version {_updater.CurrentVersion}";
+            _updateItem.IsEnabled = false;
+            return;
+        }
+
+        RefreshUpdateItem();
+        DispatcherTimer.RunOnce(() => _ = CheckForUpdatesAsync(userInitiated: false), FirstUpdateCheckDelay);
+        _updateTimer = new DispatcherTimer { Interval = UpdateCheckInterval };
+        _updateTimer.Tick += (_, _) => _ = CheckForUpdatesAsync(userInitiated: false);
+        _updateTimer.Start();
+    }
+
+    private void OnUpdateItemClicked()
+    {
+        if (_availableUpdate is not null)
+        {
+            _ = InstallUpdateAsync();
+        }
+        else
+        {
+            _ = CheckForUpdatesAsync(userInitiated: true);
+        }
+    }
+
+    private async Task CheckForUpdatesAsync(bool userInitiated)
+    {
+        if (_updater is null || !_updater.IsEnabled || _updatePhase != UpdatePhase.Idle || _quitting)
+        {
+            return;
+        }
+
+        _updatePhase = UpdatePhase.Checking;
+        RefreshUpdateItem();
+        try
+        {
+            _availableUpdate = await _updater.CheckAsync(CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or FormatException or IOException)
+        {
+            if (userInitiated)
+            {
+                ShowMessage($"TradeFoundry could not check for updates: {exception.Message}", null);
+            }
+
+            return;
+        }
+        finally
+        {
+            _updatePhase = UpdatePhase.Idle;
+            RefreshUpdateItem();
+            RefreshToolTip();
+        }
+
+        if (_availableUpdate is { } update)
+        {
+            // Offer each version once per session, unless the user asked.
+            if (userInitiated || !string.Equals(_promptedVersion, update.Version, StringComparison.Ordinal))
+            {
+                _promptedVersion = update.Version;
+                ShowMessage(
+                    $"TradeFoundry {update.Version} is available. You have {_updater.CurrentVersion}.\n\n" +
+                    "Installing stops TradeFoundry for a moment, updates it, and starts it again. Your journal data is not touched.",
+                    null,
+                    ("Install and restart", () => _ = InstallUpdateAsync()));
+            }
+        }
+        else if (userInitiated)
+        {
+            ShowMessage($"TradeFoundry {_updater.CurrentVersion} is up to date.", null);
+        }
+    }
+
+    private async Task InstallUpdateAsync()
+    {
+        if (_updater is null || _server is null || _availableUpdate is not { } update || _updatePhase != UpdatePhase.Idle || _quitting)
+        {
+            return;
+        }
+
+        _updatePhase = UpdatePhase.Downloading;
+        _downloadPercent = 0;
+        RefreshUpdateItem();
+
+        string installerPath;
+        try
+        {
+            installerPath = await _updater.DownloadAsync(
+                update,
+                new Progress<int>(percent =>
+                {
+                    _downloadPercent = percent;
+                    RefreshUpdateItem();
+                }),
+                CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            _updatePhase = UpdatePhase.Idle;
+            RefreshUpdateItem();
+            ShowMessage($"The TradeFoundry update could not be downloaded: {exception.Message}", null);
+            return;
+        }
+
+        _updatePhase = UpdatePhase.Installing;
+        _quitting = true;
+        RefreshUpdateItem();
+        OnServerStateChanged();
+
+        // Stop the server cleanly so the database is closed before files are replaced.
+        await _server.StopAsync();
+
+        try
+        {
+            Updater.LaunchInstaller(installerPath);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _quitting = false;
+            _updatePhase = UpdatePhase.Idle;
+            RefreshUpdateItem();
+            ShowMessage($"The TradeFoundry update could not be started: {exception.Message}", null);
+            _ = _server.StartAsync();
+            return;
+        }
+
+        // Setup waits for this process to exit, upgrades in place, and starts the tray again.
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.Shutdown();
+        }
+    }
+
+    private void RefreshUpdateItem()
+    {
+        if (_updateItem is null || _updater is null || !_updater.IsEnabled)
+        {
+            return;
+        }
+
+        _updateItem.Header = _updatePhase switch
+        {
+            UpdatePhase.Checking => "Checking for updates…",
+            UpdatePhase.Downloading => $"Downloading update… {_downloadPercent}%",
+            UpdatePhase.Installing => "Installing update…",
+            _ => _availableUpdate is { } update
+                ? $"Install update {update.Version}…"
+                : $"Check for updates (version {_updater.CurrentVersion})"
+        };
+        _updateItem.IsEnabled = _updatePhase == UpdatePhase.Idle && !_quitting;
     }
 
     private void OpenJournal()
@@ -236,10 +441,10 @@ internal sealed class App : Application
         }
     }
 
-    private void ShowMessage(string message, string? details)
+    private void ShowMessage(string message, string? details, (string Label, Action Invoke)? primaryAction = null)
     {
         _messageWindow?.Close();
-        _messageWindow = new MessageWindow(message, details, _trayIcon?.Icon);
+        _messageWindow = new MessageWindow(message, details, _trayIcon?.Icon, primaryAction);
         _messageWindow.Closed += (sender, _) =>
         {
             if (ReferenceEquals(sender, _messageWindow))

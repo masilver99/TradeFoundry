@@ -862,16 +862,32 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
   .tf-sidebar-resizing { user-select: none; }
 }
 @media (max-width: 991.98px) {
-  .tf-sidebar .container-fluid { min-height: auto; }
-  .tf-sidebar .navbar-collapse { max-height: calc(100vh - 8rem); overflow-y: auto; }
+  /* Collapsed sidebar becomes one compact top bar: menu toggle, logo, then the journal switcher and bell. */
+  .tf-sidebar { padding-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--tf-line); }
+  .tf-sidebar .container-fluid { display: grid; grid-template-columns: auto auto minmax(0, 1fr); grid-template-areas: "toggle brand context" "menu menu menu"; align-items: center; column-gap: 10px; min-height: auto; }
+  .tf-sidebar .navbar-toggler { grid-area: toggle; margin: 0; padding: 6px; }
+  .tf-sidebar .tf-sidebar-brand-row { grid-area: brand; width: auto; }
+  .tf-sidebar .tf-brand { margin: 0; }
+  .tf-sidebar .tf-brand > a { justify-content: flex-start; }
+  .tf-sidebar .tf-brand-logo { width: auto; height: 32px; }
+  .tf-sidebar .tf-journal-context { grid-area: context; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; padding: 0; border: 0; background: transparent; }
+  .tf-sidebar .tf-journal-context-heading { order: 3; flex: 0 0 auto; }
+  .tf-sidebar .tf-journal-context .tf-sidebar-label { display: none; }
+  .tf-sidebar .tf-journal-context .form-select { order: 1; width: auto; min-width: 0; max-width: 240px; margin-top: 0; }
+  .tf-sidebar .tf-context-meta { order: 2; margin-top: 0; white-space: nowrap; }
+  .tf-sidebar .navbar-collapse { grid-area: menu; max-height: calc(100vh - 4rem); overflow-y: auto; }
   .tf-sidebar-footer { margin-top: 1.25rem; }
-  .tf-notification-panel { top: 12px; max-height: calc(100vh - 24px); }
+  .tf-notification-panel { top: 56px; right: 12px; left: auto; max-height: calc(100vh - 68px); }
   .tf-stat-strip { grid-template-columns: repeat(3, 1fr); }
   .tf-stat-strip > div:nth-child(3) { border-right: 0; }
   .tf-stat-strip > div:nth-child(-n+3) { border-bottom: 1px solid var(--tf-line); }
 }
 @media (max-width: 767.98px) {
   .page-body > .container-xl { padding-top: 1rem; }
+  .tf-sidebar .container-fluid { column-gap: 8px; }
+  .tf-sidebar .tf-brand-logo { height: 28px; }
+  .tf-sidebar .tf-context-meta { display: none; }
+  .page-header .container-xl { padding-top: 10px; padding-bottom: 10px; }
   .tf-page-context { display: none; }
   .tf-page-header-tools { align-items: flex-start; }
   .tf-hero { align-items: flex-start; }

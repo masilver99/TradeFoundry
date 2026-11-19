@@ -1,16 +1,16 @@
 name: Windows installer
 
 # Builds TradeFoundry-Setup.exe on the Linux runner (Inno Setup runs under Wine in Docker).
-#  - Pushes to main/master: a development build, kept as a workflow artifact only.
+# Only release tags build automatically; branch pushes don't, because development installers
+# never offer updates and would just repeat the slow Wine build on every push.
+#  - Manual run (Run workflow): a development build of the chosen branch, kept as a workflow
+#    artifact only. Use it to try an installer before tagging.
 #  - Tags vX.Y.Z / vX.Y.Z-rc.N: the installer is also uploaded to this owner's public
 #    "tradefoundry-windows" generic package. Stable tags additionally replace
 #    tradefoundry-windows/latest/latest.json, which installed tray helpers check for updates.
 
 on:
   push:
-    branches:
-      - main
-      - master
     tags:
       - 'v*'
   workflow_dispatch:

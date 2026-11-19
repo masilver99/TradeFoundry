@@ -77,7 +77,7 @@ docker build -f installer/Dockerfile --target artifact --build-arg VERSION=1.2.0
 id=$(docker create tf-installer noop) && docker cp "$id:/TradeFoundry-Setup.exe" . && docker rm "$id"
 ~~~
 
-- **Pushes to `main`/`master`** build a development installer (`0.0.0-dev.<sha>`) and keep it as the `TradeFoundry-Windows-Installer-*` workflow artifact for 30 days. Development builds never offer updates.
+- **Branch pushes do not build an installer.** To try one before tagging, start the workflow manually (**Actions → Windows installer → Run workflow**). That builds a development installer (`0.0.0-dev.<sha>`) and keeps it as a workflow artifact for 30 days. Development builds never offer updates.
 - **Tag `vX.Y.Z`** (for example `git tag v1.2.0 && git push forgejo v1.2.0`) also uploads `TradeFoundry-Setup-X.Y.Z.exe` and its `.sha256` to the owner's public generic package `tradefoundry-windows`, then replaces `tradefoundry-windows/latest/latest.json`. Installed tray helpers read that manifest.
 - **Tag `vX.Y.Z-rc.N`** (or `alpha`/`beta`) uploads the installer but leaves `latest.json` alone, so no one is offered it.
 
@@ -136,7 +136,7 @@ Receipts are private files in `expense-receipts/<journal-id>/` beside `journal.d
 
 ### Publishing images on Forgejo
 
-`.forgejo/workflows/container.yml` tests and publishes Linux images to `git.shaa.one/masilver/tradefoundry` on every push or merge to the repository's default branch (currently `master`) and on version-tag pushes. Other branch pushes skip publishing. Default-branch builds publish `main` (the tag used by `compose.published.yml`) and `sha-<commit>` tags. The workflow can also be run manually on the default branch. Images include the application version and commit in .NET assembly metadata and OCI labels. The initial architecture is that of the Linux Docker runner (normally amd64); ARM64 is not built separately.
+`.forgejo/workflows/container.yml` tests and publishes Linux images to `git.shaa.one/masilver/tradefoundry` on every push or merge to the repository's default branch (currently `master`) and on version-tag pushes. Other branch pushes skip publishing. Default-branch builds publish `main` (the tag used by `compose.published.yml`) and `sha-<commit>` tags. A version tag does not rebuild: it promotes the already-tested `sha-<commit>` image of the tagged commit to the numbered tag (and `latest` for stable releases). If master never built that commit, the tag gets a full build instead. The workflow can also be run manually on the default branch. Images include the application version and commit in .NET assembly metadata and OCI labels. A promoted release keeps the version of the master build it came from (`0.0.0-dev.<sha>`); its registry tag names the release. The initial architecture is that of the Linux Docker runner (normally amd64); ARM64 is not built separately.
 
 Configure these prerequisites on git.shaa.one:
 

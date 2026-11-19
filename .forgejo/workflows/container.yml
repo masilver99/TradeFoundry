@@ -65,6 +65,23 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" |
             docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
 
+          # Release tags promote the image master already built and tested for this commit
+          # (this workflow's concurrency group makes a tag wait for that build). The app inside
+          # keeps its 0.0.0-dev.<sha> build version; the registry tags carry the release version.
+          # Tags on commits master never built fall through to a full build below.
+          if [[ "$BUILD_REF" == refs/tags/* ]]; then
+            tested_image="$IMAGE_NAME:sha-$BUILD_SHA"
+            if docker pull --quiet "$tested_image" > /dev/null 2>&1; then
+              for tag in "${image_tags[@]}"; do
+                docker tag "$tested_image" "$tag"
+                docker push "$tag"
+              done
+              echo "Promoted $tested_image to: ${image_tags[*]}"
+              exit 0
+            fi
+            echo "No tested image for $BUILD_SHA; building one."
+          fi
+
           docker build --pull --target test \
             --build-arg "VERSION=$version" --build-arg "REVISION=$BUILD_SHA" .
           tag_args=()

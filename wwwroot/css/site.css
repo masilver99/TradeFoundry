@@ -142,6 +142,34 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-notification-dismiss { display: grid; flex: 0 0 28px; width: 28px; height: 28px; margin: -4px -4px 0 0; padding: 0; place-items: center; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--tf-muted); font-size: var(--tf-fs-xl); line-height: 1; cursor: pointer; }
 .tf-notification-dismiss:hover { border-color: var(--tf-line); background: var(--tf-bg); color: var(--tf-ink); }
 .tf-notification-empty { margin: 0; padding: 24px 16px; color: var(--tf-muted); font-size: var(--tf-fs-xs); text-align: center; }
+.tf-toast-stack { position: fixed; z-index: 1080; right: 16px; bottom: 16px; display: flex; width: min(380px, calc(100vw - 32px)); flex-direction: column; gap: 8px; pointer-events: none; }
+.tf-toast { display: flex; align-items: flex-start; gap: 10px; padding: 12px 12px 12px 14px; border: 1px solid var(--tf-line-strong); border-left: 3px solid var(--tf-blue); border-radius: 8px; background: var(--tf-surface); box-shadow: 0 14px 40px rgba(0,0,0,.48); pointer-events: auto; animation: tf-toast-in .2s ease-out; transition: opacity .2s ease, transform .2s ease; }
+.tf-toast.tf-notification-warning { border-left-color: var(--tf-gold); }
+.tf-toast.tf-notification-error { border-left-color: var(--tf-red); }
+.tf-toast.tf-notification-success { border-left-color: var(--tf-green); }
+.tf-toast-leaving { opacity: 0; transform: translateY(6px); }
+.tf-toast-body { display: block; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.tf-toast-body:focus-visible { outline: 2px solid rgba(var(--tf-blue-rgb), .55); outline-offset: 2px; border-radius: 2px; }
+.tf-toast-title { display: block; margin-bottom: 3px; color: var(--tf-blue); font-size: var(--tf-fs-xs); font-weight: 650; }
+.tf-toast.tf-notification-warning .tf-toast-title { color: var(--tf-gold); }
+.tf-toast.tf-notification-error .tf-toast-title { color: var(--tf-red); }
+.tf-toast.tf-notification-success .tf-toast-title { color: var(--tf-green); }
+@keyframes tf-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.tf-busy-overlay { position: fixed; z-index: 1090; inset: 0; display: grid; padding: 16px; place-items: center; background: rgba(13,17,23,.62); backdrop-filter: blur(2px); cursor: progress; }
+.tf-busy-overlay[hidden] { display: none; }
+.tf-busy-card { display: grid; width: min(400px, 100%); grid-template-columns: auto 1fr; align-items: center; gap: 12px 14px; padding: 18px 20px 16px; border: 1px solid var(--tf-line-strong); border-radius: 8px; background: var(--tf-surface); box-shadow: 0 14px 40px rgba(0,0,0,.48); }
+.tf-busy-card strong { display: block; color: var(--tf-ink); font-size: var(--tf-fs-base); font-weight: 650; }
+.tf-busy-card [data-busy-elapsed] { display: block; margin-top: 2px; color: var(--tf-muted); font-size: var(--tf-fs-xs); font-variant-numeric: tabular-nums; }
+.tf-busy-spinner { width: 26px; height: 26px; border: 3px solid var(--tf-line); border-top-color: var(--tf-accent); border-radius: 50%; animation: tf-spin .8s linear infinite; }
+.tf-busy-bar { position: relative; height: 3px; overflow: hidden; grid-column: 1 / -1; border-radius: 999px; background: var(--tf-line); }
+.tf-busy-bar span { position: absolute; top: 0; bottom: 0; left: -40%; width: 40%; border-radius: inherit; background: var(--tf-accent); animation: tf-busy-slide 1.3s ease-in-out infinite; }
+@keyframes tf-spin { to { transform: rotate(360deg); } }
+@keyframes tf-busy-slide { to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) {
+  .tf-toast { animation: none; }
+  .tf-busy-spinner { animation-duration: 2.4s; }
+  .tf-busy-bar span { left: 0; width: 100%; animation: none; opacity: .6; }
+}
 .tf-brand { width: 100%; margin: .9rem 0 1rem; padding: 0; }
 .tf-brand a, .tf-public-brand { display: inline-flex; align-items: center; color: var(--tf-blue); text-decoration: none; }
 .tf-sidebar .tf-brand > a { width: 100%; justify-content: center; }

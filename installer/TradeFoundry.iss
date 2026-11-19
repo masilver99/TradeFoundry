@@ -38,6 +38,9 @@ Uninstallable=yes
 CloseApplications=yes
 CloseApplicationsFilter=TradeFoundry*.exe
 RestartApplications=no
+; Held while Setup runs. A TradeFoundry launch during a silent update sees it and leaves the
+; restart to Setup (see the tray's Program.cs).
+SetupMutex=TradeFoundry.Setup
 ; No AppMutex directive: the running-app check lives in [Code] (EnsureAppClosed) so that an
 ; update started from the tray can wait for the tray to exit instead of failing silently.
 
@@ -48,12 +51,20 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [InstallDelete]
-; Remove top-level binaries from the previous version (including the retired WPF/WebView2
-; shell) before installing the new ones. Journal data never lives directly in {app}.
-Type: files; Name: "{app}\*.dll"
-Type: files; Name: "{app}\TradeFoundry*.exe"
-Type: files; Name: "{app}\createdump.exe"
-Type: files; Name: "{app}\*.json"
+; Remove leftovers of the retired WPF/WebView2 shell. Only files the current build never ships
+; are listed, so an update that fails partway can never leave TradeFoundry without its own files.
+Type: files; Name: "{app}\Microsoft.Web.WebView2.*.dll"
+Type: files; Name: "{app}\WebView2Loader.dll"
+Type: files; Name: "{app}\Presentation*.dll"
+Type: files; Name: "{app}\*_cor3.dll"
+Type: files; Name: "{app}\DirectWriteForwarder.dll"
+Type: files; Name: "{app}\ReachFramework.dll"
+Type: files; Name: "{app}\System.Xaml.dll"
+Type: files; Name: "{app}\UIAutomation*.dll"
+Type: files; Name: "{app}\WindowsFormsIntegration.dll"
+Type: files; Name: "{app}\System.Windows.Controls.Ribbon.dll"
+Type: files; Name: "{app}\System.Windows.Input.Manipulations.dll"
+Type: files; Name: "{app}\System.Windows.Presentation.dll"
 Type: filesandordirs; Name: "{app}\runtimes"
 
 [Files]
@@ -69,8 +80,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Start TradeFoundry"; Flags: nowait postinstall skipifsilent
-; After a silent update started from the tray, start the tray again automatically.
-Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: IsTrayUpdate
+; After a silent update started from the tray, start the tray again automatically. It waits
+; for Setup to exit before starting the server. (A failed update relaunches it from
+; DeinitializeSetup instead.)
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--after-update"; Flags: nowait; Check: IsTrayUpdate
 
 [Code]
 const
@@ -80,6 +93,7 @@ const
 
 var
   DataDirectoryPage: TInputDirWizardPage;
+  InstallCompleted: Boolean;
 
 { True when the tray's updater started Setup (it passes /TFUPDATE=1). }
 function IsTrayUpdate: Boolean;
@@ -133,6 +147,27 @@ end;
 function InitializeUninstall: Boolean;
 begin
   Result := EnsureAppClosed;
+end;
+
+{ A silent update shows nothing, so if it did not finish, start the tray again and let it
+  report the failure in its menu. The tray passes its own path as /TFTRAY=... }
+procedure DeinitializeSetup;
+var
+  TrayPath: string;
+  ResultCode: Integer;
+begin
+  if (not IsTrayUpdate) or InstallCompleted or CheckForMutexes(RunningMutexes) then
+    Exit;
+
+  TrayPath := ExpandConstant('{param:TFTRAY|}');
+  if (TrayPath = '') or (not FileExists(TrayPath)) then
+  begin
+    Log('The update did not finish and the tray path is unknown; not restarting TradeFoundry.');
+    Exit;
+  end;
+
+  Log('The update did not finish; restarting TradeFoundry to report it.');
+  Exec(TrayPath, '--after-update --update-failed', ExtractFileDir(TrayPath), SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
 
 function JsonEscape(const Value: string): string;
@@ -195,6 +230,9 @@ var
   ConfigDirectory: string;
   ConfigJson: string;
 begin
+  if CurStep = ssDone then
+    InstallCompleted := True;
+
   if CurStep <> ssPostInstall then
     Exit;
 

@@ -34,6 +34,9 @@
     <None Remove="DesktopShell\**" />
     <!-- Standalone file-based tools such as scripts/generate-icons.cs. -->
     <Compile Remove="scripts\**" />
+    <!-- Local publish/installer output; without this a previous publish is copied into the next. -->
+    <Content Remove="artifacts\**" />
+    <None Remove="artifacts\**" />
   </ItemGroup>
 
 </Project>

@@ -71,6 +71,8 @@ internal sealed class App : Application
                 _updater.Dispose();
             };
 
+            // Setup relaunches the tray with --update-failed when a silent update did not finish.
+            _updateStatus = _options.UpdateFailed ? "Update failed. Try again" : null;
             CreateTrayIcon();
             StartUpdateChecks();
             _options.Instance.StartListening(() => Dispatcher.UIThread.Post(OpenJournal));
@@ -182,9 +184,11 @@ internal sealed class App : Application
         }
 
         status ??= _statusItem?.Header ?? string.Empty;
-        _trayIcon.ToolTipText = _availableUpdate is { } update
-            ? $"TradeFoundry: {status}\nUpdate {update.Version} available"
-            : $"TradeFoundry: {status}";
+        // A status such as "Update failed" wins over "Update X available", so failures show on hover.
+        var updateLine = _updateStatus ?? (_availableUpdate is { } update ? $"Update {update.Version} available" : null);
+        _trayIcon.ToolTipText = updateLine is null
+            ? $"TradeFoundry: {status}"
+            : $"TradeFoundry: {status}\n{updateLine}";
     }
 
     private void StartUpdateChecks()
@@ -204,7 +208,9 @@ internal sealed class App : Application
         }
 
         RefreshUpdateItem();
-        DispatcherTimer.RunOnce(() => _ = CheckForUpdatesAsync(userInitiated: false), FirstUpdateCheckDelay);
+        // After a failed update, look up the release again promptly so retrying is one click.
+        var firstCheckDelay = _options?.UpdateFailed == true ? TimeSpan.FromSeconds(3) : FirstUpdateCheckDelay;
+        DispatcherTimer.RunOnce(() => _ = CheckForUpdatesAsync(userInitiated: false), firstCheckDelay);
         _updateTimer = new DispatcherTimer { Interval = UpdateCheckInterval };
         _updateTimer.Tick += (_, _) => _ = CheckForUpdatesAsync(userInitiated: false);
         _updateTimer.Start();
@@ -232,7 +238,12 @@ internal sealed class App : Application
         }
 
         _updatePhase = UpdatePhase.Checking;
-        _updateStatus = null;
+        if (userInitiated)
+        {
+            // Automatic checks keep a "last update failed" status until the user acts on it.
+            _updateStatus = null;
+        }
+
         RefreshUpdateItem();
         try
         {
@@ -301,7 +312,7 @@ internal sealed class App : Application
 
         try
         {
-            Updater.LaunchInstaller(installerPath);
+            Updater.LaunchInstaller(installerPath, Environment.ProcessPath);
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -351,6 +362,7 @@ internal sealed class App : Application
                 : $"Check for updates (version {_updater.CurrentVersion})"
         };
         _updateItem.IsEnabled = _updatePhase == UpdatePhase.Idle && !_quitting;
+        RefreshToolTip();
     }
 
     private void OpenJournal()

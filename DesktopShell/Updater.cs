@@ -145,10 +145,12 @@ internal sealed class Updater : IDisposable
     }
 
     /// <summary>
-    /// Starts the installer in silent update mode. Setup waits for the tray and server to exit,
-    /// upgrades in place (keeping the data directory), and relaunches the tray.
+    /// Starts the installer in fully silent update mode (no window). Setup waits for the tray
+    /// and server to exit, upgrades in place (keeping the data directory), and relaunches the
+    /// tray. If the update does not finish, Setup relaunches the tray from
+    /// <paramref name="trayPath"/> with <c>--update-failed</c> so the menu can report it.
     /// </summary>
-    public static void LaunchInstaller(string installerPath)
+    public static void LaunchInstaller(string installerPath, string? trayPath)
     {
         var log = Path.Combine(Path.GetDirectoryName(installerPath)!, "install.log");
         var startInfo = new ProcessStartInfo(installerPath)
@@ -156,12 +158,16 @@ internal sealed class Updater : IDisposable
             UseShellExecute = false,
             WorkingDirectory = Path.GetDirectoryName(installerPath)!
         };
-        startInfo.ArgumentList.Add("/SILENT");
+        startInfo.ArgumentList.Add("/VERYSILENT");
         startInfo.ArgumentList.Add("/SUPPRESSMSGBOXES");
         startInfo.ArgumentList.Add("/NORESTART");
         startInfo.ArgumentList.Add("/CLOSEAPPLICATIONS");
         startInfo.ArgumentList.Add(DesktopUpdates.InstallerUpdateSwitch);
         startInfo.ArgumentList.Add($"/LOG={log}");
+        if (!string.IsNullOrEmpty(trayPath))
+        {
+            startInfo.ArgumentList.Add($"/TFTRAY={trayPath}");
+        }
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("The update installer could not be started.");

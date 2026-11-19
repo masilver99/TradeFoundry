@@ -95,7 +95,12 @@ Installed release builds check `latest.json` 30 seconds after starting and then 
 - the app shows a notice in its notifications panel (the tray passes the version to the server over its standard input). Dismissing it hides it for that version;
 - the menu item becomes **Install update X.Y.Z and restart**.
 
-Choosing that item downloads the installer and verifies its size and SHA-256 (a mismatch is refused, and the menu item says so). Then it stops the server cleanly, starts Setup with `/SILENT /TFUPDATE=1`, and exits. Setup waits up to 60 seconds for TradeFoundry to exit, upgrades in place (keeping the data directory), and starts the tray again. The update log is written to `%TEMP%\TradeFoundry-Update\install.log`.
+Choosing that item downloads the installer and verifies its size and SHA-256 (a mismatch is refused, and the menu item says so). Then it stops the server cleanly, starts Setup with `/VERYSILENT /TFUPDATE=1`, and exits. No installer window appears. Setup waits up to 60 seconds for TradeFoundry to exit, upgrades in place (keeping the data directory), and starts the tray again with `--after-update`. The relaunched tray waits for Setup to finish before starting the server, and opens the journal.
+
+- **Launching TradeFoundry mid-update** (for example from the Start menu) does nothing: the tray sees Setup's `TradeFoundry.Setup` mutex and exits, so it can't lock files being replaced. Setup starts it when done.
+- **If the update does not finish**, Setup still starts the tray (with `--update-failed`). Its tooltip and menu item then say **Update failed. Try again…**, and clicking the item retries.
+
+The update log is written to `%TEMP%\TradeFoundry-Update\install.log`.
 
 The manifest URL is baked into the tray at build time (`-p:UpdateManifestUrl`). For testing, `TradeFoundryUpdateManifestUrl` overrides it and also enables update checks on development builds. Installers are not code-signed yet, so Windows SmartScreen may warn on a manual install.
 

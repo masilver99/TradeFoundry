@@ -113,6 +113,7 @@ public sealed class ImportService
         var journal = _database.GetJournal(journalId);
         var journalTimeZone = TimeZoneCatalog.CanonicalId(journal?.TimeZone ?? "UTC");
         var requestedTimeZone = string.IsNullOrWhiteSpace(timeZone) ? TimeZoneCatalog.Auto : timeZone;
+        EnsureAutoDetectedSourceIsRecognized(text, requestedType);
         var importTimeZone = ResolveSourceTimeZone(text, requestedType, requestedTimeZone, journalTimeZone);
         var parsed = Parse(text, requestedType, interval, importTimeZone, benchmarkSymbol, _database.GetInstrumentConfiguration(), barSymbol);
         return _database.CommitImport(journalId, fileName, parsed, groupingPolicy, interval, importTimeZone);
@@ -156,11 +157,7 @@ public sealed class ImportService
         if (Has("adjclose", "adjustedclose", "totalreturn", "totalreturnvalue") && Has("date", "datetime", "timestamp")) return false;
         if (Has("open") && Has("high") && Has("low") && Has("close", "last")) return false;
 
-        return Has("timestamp", "datetime", "filledat", "executedat", "date", "time")
-            && Has("quantity", "qty", "contracts", "filledquantity")
-            && Has("price", "fillprice", "filledprice", "executionprice")
-            && Has("side", "action", "buysell", "direction", "type")
-            && Has("symbol", "ticker", "instrument");
+        return LooksLikeTradingViewAccount(headers);
     }
 
     public ParsedImport Parse(string text, string requestedType = "auto", string interval = "source", string timeZone = "UTC", string benchmarkSymbol = "SPY", InstrumentConfiguration? configuration = null, string barSymbol = "")
@@ -292,13 +289,21 @@ public sealed class ImportService
                 else
                 {
                     var balance = DecimalOrNull(Value(row, headers, "accountbalance", "balance"));
+                    var account = Value(row, headers, "tradeaccount", "account");
+                    // Sierra's daily "Cash balance adjustment" rows leave the AccountBalance
+                    // column empty and report the reconciled balance in Order Action Source.
+                    if (!balance.HasValue && TryParseSierraCashAdjustment(orderActionSource, out var adjustedBalance, out var adjustedAccount))
+                    {
+                        balance = adjustedBalance;
+                        if (string.IsNullOrWhiteSpace(account)) account = adjustedAccount;
+                    }
                     if (!balance.HasValue)
                         result.Warnings.Add($"Sierra row {rowNumber}: AccountBalance is missing or invalid.");
                     else
                         accountBalance = new AccountBalanceDraft
                         {
                             SourceType = result.SourceType, SourceKey = sourceKey, EventUtc = eventUtc, TransactionUtc = transactionUtc, SourceTimeText = eventText,
-                            Account = Value(row, headers, "tradeaccount", "account"), Balance = balance, Note = Value(row, headers, "note"), RowNumber = rowNumber
+                            Account = account, Balance = balance, Note = Value(row, headers, "note"), RowNumber = rowNumber
                         };
                 }
             }
@@ -634,6 +639,52 @@ public sealed class ImportService
         if ((headers.Contains("adjclose") || headers.Contains("adjustedclose") || headers.Contains("totalreturn") || headers.Contains("totalreturnvalue")) && (headers.Contains("date") || headers.Contains("datetime") || headers.Contains("timestamp"))) return ImportSource.Benchmark;
         if (headers.Contains("open") && headers.Contains("high") && headers.Contains("low") && (headers.Contains("close") || headers.Contains("last"))) return ImportSource.Bars;
         return ImportSource.TradingViewAccount;
+    }
+
+    private static readonly Regex SierraCashAdjustmentBalancePattern = new(@"\b(New NLV|BalanceFromFirmImportFile|Balance):\s*(-?[0-9][0-9,]*(?:\.[0-9]+)?)", RegexOptions.CultureInvariant);
+    private static readonly Regex SierraCashAdjustmentAccountPattern = new(@"\bAccount:\s*([^|)]+?)\s*(?:\||\)|$)", RegexOptions.CultureInvariant);
+
+    internal static bool TryParseSierraCashAdjustment(string orderActionSource, out decimal balance, out string account)
+    {
+        balance = 0m;
+        account = string.Empty;
+        if (string.IsNullOrWhiteSpace(orderActionSource)
+            || !orderActionSource.Contains("Cash balance adjustment", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Prefer the post-adjustment value: New NLV, then the firm file balance, then
+        // the pre-adjustment Balance field.
+        var values = SierraCashAdjustmentBalancePattern.Matches(orderActionSource)
+            .GroupBy(match => match.Groups[1].Value)
+            .ToDictionary(group => group.Key, group => group.First().Groups[2].Value);
+        foreach (var key in new[] { "New NLV", "BalanceFromFirmImportFile", "Balance" })
+        {
+            if (values.TryGetValue(key, out var text) && TryDecimal(text, out balance))
+            {
+                var accountMatch = SierraCashAdjustmentAccountPattern.Match(orderActionSource);
+                if (accountMatch.Success) account = accountMatch.Groups[1].Value.Trim();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool LooksLikeTradingViewAccount(string[] headers)
+    {
+        bool Has(params string[] names) => names.Any(headers.Contains);
+        return Has("timestamp", "datetime", "filledat", "executedat", "date", "time")
+            && Has("quantity", "qty", "contracts", "filledquantity")
+            && Has("price", "fillprice", "filledprice", "executionprice")
+            && Has("side", "action", "buysell", "direction", "type")
+            && Has("symbol", "ticker", "instrument");
+    }
+
+    private static void EnsureAutoDetectedSourceIsRecognized(string text, string requestedType)
+    {
+        if (NormalizeHeader(requestedType) is not ("" or "auto")) return;
+        if (!TryReadHeader(text, out _, out _, out var headers, out _)) return;
+        if (DetectSource(headers, requestedType) == ImportSource.TradingViewAccount && !LooksLikeTradingViewAccount(headers))
+            throw new FormatException("The file format was not recognized. Supported sources are Sierra Chart fills and orders, TradingView account history, TradingView Strategy Tester, benchmark daily series, and OHLC bars. Choose a format explicitly if this file is one of them.");
     }
 
     private static bool IsSierraBarsRequest(string requestedType) => NormalizeHeader(requestedType) is "sierrabars" or "sierraohlc" or "sierraohlcbars" or "sierrachartbars";

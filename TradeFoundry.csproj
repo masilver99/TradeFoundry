@@ -32,6 +32,8 @@
     <EmbeddedResource Remove="DesktopShell\**" />
     <Content Remove="DesktopShell\**" />
     <None Remove="DesktopShell\**" />
+    <!-- Standalone file-based tools such as scripts/generate-icons.cs. -->
+    <Compile Remove="scripts\**" />
   </ItemGroup>
 
 </Project>

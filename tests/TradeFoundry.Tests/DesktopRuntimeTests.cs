@@ -80,6 +80,44 @@ public sealed class DesktopRuntimeTests
     }
 
     [Fact]
+    public async Task ParentCommandsArePassedOnUntilStop()
+    {
+        using var input = new StringReader("update-available 1.3.0\n\nupdate-none\nstop\nupdate-available 9.9.9\n");
+        var received = new List<string>();
+
+        await DesktopRuntime.ReadParentCommandsAsync(input, received.Add).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(["update-available 1.3.0", "update-none"], received);
+    }
+
+    [Theory]
+    [InlineData("update-available 1.3.0", true, "1.3.0")]
+    [InlineData("UPDATE-AVAILABLE 1.3.0-rc.1", true, "1.3.0-rc.1")]
+    [InlineData("update-none", true, null)]
+    [InlineData("update-available", false, null)]
+    [InlineData("update-available <script>", false, null)]
+    [InlineData("update-available 1.3.0 extra", false, null)]
+    [InlineData("hello", false, null)]
+    public void UpdateCommandsAreParsedStrictly(string command, bool parsed, string? version)
+    {
+        Assert.Equal(parsed, DesktopRuntime.TryParseUpdateCommand(command, out var actual));
+        Assert.Equal(version, actual);
+    }
+
+    [Fact]
+    public void UpdateNoticeFollowsTrayCommands()
+    {
+        var notice = new TradeFoundry.Services.DesktopUpdateNotice();
+
+        Assert.True(notice.Apply(DesktopRuntime.FormatUpdateCommand("1.3.0")));
+        Assert.Equal("1.3.0", notice.AvailableVersion);
+        Assert.False(notice.Apply("something else"));
+        Assert.Equal("1.3.0", notice.AvailableVersion);
+        Assert.True(notice.Apply(DesktopRuntime.FormatUpdateCommand(null)));
+        Assert.Null(notice.AvailableVersion);
+    }
+
+    [Fact]
     public async Task EmbeddedServerStopsWhenParentClosesInput()
     {
         using var input = new StringReader("unrelated\n");

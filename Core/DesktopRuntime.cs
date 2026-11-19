@@ -86,15 +86,29 @@ public static class DesktopRuntime
     /// <see cref="ShutdownCommand"/> or by closing the input stream (including when it exits).
     /// </summary>
     public static Task WaitForShutdownSignalAsync(TextReader input) =>
+        ReadParentCommandsAsync(input, onCommand: null);
+
+    /// <summary>
+    /// Reads commands from the tray helper until it asks the server to stop or goes away.
+    /// Lines other than <see cref="ShutdownCommand"/> are passed to <paramref name="onCommand"/>
+    /// (for example <c>update-available 1.2.0</c>, see <see cref="TryParseUpdateCommand"/>).
+    /// </summary>
+    public static Task ReadParentCommandsAsync(TextReader input, Action<string>? onCommand) =>
         Task.Run(() =>
         {
             try
             {
                 while (input.ReadLine() is { } line)
                 {
-                    if (string.Equals(line.Trim(), ShutdownCommand, StringComparison.OrdinalIgnoreCase))
+                    var command = line.Trim();
+                    if (string.Equals(command, ShutdownCommand, StringComparison.OrdinalIgnoreCase))
                     {
                         return;
+                    }
+
+                    if (command.Length > 0)
+                    {
+                        onCommand?.Invoke(command);
                     }
                 }
             }
@@ -105,6 +119,44 @@ public static class DesktopRuntime
             {
             }
         });
+
+    /// <summary>Tray → server: a newer release is available (followed by its version).</summary>
+    public const string UpdateAvailableCommand = "update-available";
+
+    /// <summary>Tray → server: no update is pending.</summary>
+    public const string NoUpdateCommand = "update-none";
+
+    public static string FormatUpdateCommand(string? availableVersion) =>
+        availableVersion is null ? NoUpdateCommand : $"{UpdateAvailableCommand} {availableVersion}";
+
+    /// <summary>
+    /// Parses an update command. Returns false for anything else; on success
+    /// <paramref name="availableVersion"/> is the pending version, or null when none is pending.
+    /// Versions are limited to semantic-version characters.
+    /// </summary>
+    public static bool TryParseUpdateCommand(string command, out string? availableVersion)
+    {
+        availableVersion = null;
+        if (string.Equals(command, NoUpdateCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var prefix = UpdateAvailableCommand + " ";
+        if (!command.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var version = command[prefix.Length..].Trim();
+        if (version.Length is 0 or > 64 || !version.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '-'))
+        {
+            return false;
+        }
+
+        availableVersion = version;
+        return true;
+    }
 
     public static string UserConfigurationDirectory =>
         Path.Combine(GetLocalApplicationData(), "TradeFoundry");

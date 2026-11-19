@@ -2,6 +2,7 @@
 @using TradeFoundry.Data
 @using TradeFoundry.Services
 @inject TradeFoundryDb Database
+@inject DesktopUpdateNotice UpdateNotice
 @{
     var authenticated = User.Identity?.IsAuthenticated == true;
     var journals = authenticated ? Database.GetJournals() : Array.Empty<Journal>();
@@ -31,7 +32,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@pageTitle · TradeFoundry</title>
-    <link rel="icon" type="image/webp" href="~/images/TradeFoundryLogo.webp" asp-append-version="true" />
+    <link rel="icon" href="~/favicon.ico" sizes="any" asp-append-version="true" />
+    <link rel="icon" type="image/svg+xml" href="~/favicon.svg" asp-append-version="true" />
     <link rel="stylesheet" href="~/lib/tabler/tabler.min.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
@@ -157,7 +159,7 @@
                 </div>
             </div>
             }
-            <div class="page-body"><div class="container-xl">@if (filterContext is not null){<partial name="_JournalFilterBar" model="filterContext" />}@RenderBody()</div></div>
+            <div class="page-body"><div class="container-xl">@if (UpdateNotice.AvailableVersion is { } availableUpdate){<div class="alert alert-info" data-notification-ephemeral data-notification-key="desktop-update:@availableUpdate">TradeFoundry @availableUpdate is available. To install it, right-click the TradeFoundry tray icon and choose Install update @availableUpdate and restart.</div>}@if (filterContext is not null){<partial name="_JournalFilterBar" model="filterContext" />}@RenderBody()</div></div>
         </div>
     </div>
 }

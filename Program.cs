@@ -98,6 +98,7 @@ builder.Services.AddSingleton<IAiReviewProvider>(services =>
             () => services.GetRequiredService<IHttpClientFactory>().CreateClient("ChatGpt"),
             services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiOptions>>(),
             services.GetRequiredService<ILogger<ChatGptPlanProvider>>()));
+builder.Services.AddSingleton<DesktopUpdateNotice>();
 builder.Services.AddHostedService<McpHostedService>();
 builder.Services.AddHostedService<ImportFolderMonitor>(services => services.GetRequiredService<ImportFolderMonitor>());
 builder.Services.AddHttpClient<YahooFinanceBenchmarkProvider>(client =>
@@ -150,7 +151,9 @@ if (desktopMode && !embeddedMode)
 if (embeddedMode)
 {
     // The tray helper owns this process: stop gracefully when it asks, or when it goes away.
-    _ = DesktopRuntime.WaitForShutdownSignalAsync(Console.In)
+    // Meanwhile it reports available updates, which the layout shows as a notification.
+    var updateNotice = app.Services.GetRequiredService<DesktopUpdateNotice>();
+    _ = DesktopRuntime.ReadParentCommandsAsync(Console.In, command => updateNotice.Apply(command))
         .ContinueWith(_ => app.Lifetime.StopApplication(), TaskScheduler.Default);
 }
 

@@ -29,6 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeSidebarResize();
   initializeSidebarVisibility();
   initializeImportDropzones();
+  initializeBusyForms();
   const journalFeed = document.querySelector("[data-daily-journal-feed]");
   if (journalFeed) {
     journalFeed.querySelectorAll("[data-daily-journal-form]:not([hidden])").forEach(form => {
@@ -138,6 +139,10 @@ function initializeNotifications() {
       dismiss.addEventListener("click", () => {
         if (item.ephemeral) {
           ephemeralItems = ephemeralItems.filter(candidate => candidate.key !== item.key);
+          if (item.rememberDismissal && !state.dismissed.includes(item.key)) {
+            state.dismissed.push(item.key);
+            persist();
+          }
         } else {
           state.items = state.items.filter(candidate => candidate.key !== item.key);
           if (!state.dismissed.includes(item.key)) state.dismissed.push(item.key);
@@ -177,16 +182,92 @@ function initializeNotifications() {
     }
 
     const sourcePath = window.location.pathname;
-    const key = JSON.stringify([sourcePath, severity, message, href]);
+    // An explicit key (data-notification-key) identifies the same notice across pages, so a
+    // dismissal is remembered even for ephemeral, server-rendered notices.
+    const explicitKey = alert.dataset.notificationKey || "";
+    const key = explicitKey || JSON.stringify([sourcePath, severity, message, href]);
+    // data-notification-toast marks the result of an action the user just took (an import, an
+    // undo). It is always surfaced again, even when identical text was seen or dismissed before.
+    const forceToast = !ephemeral && alert.dataset.notificationToast !== undefined;
+    if (forceToast) {
+      state.items = state.items.filter(item => item.key !== key);
+      state.dismissed = state.dismissed.filter(candidate => candidate !== key);
+    }
     const destination = ephemeral ? ephemeralItems : state.items;
-    if ((ephemeral || !state.dismissed.includes(key)) && !destination.some(item => item.key === key)) {
-      destination.unshift({ key, sourcePath, severity, message, href, createdAt: new Date().toISOString(), ephemeral });
+    if (((ephemeral && !explicitKey) || !state.dismissed.includes(key)) && !destination.some(item => item.key === key)) {
+      const item = { key, sourcePath, severity, message, href, createdAt: new Date().toISOString(), ephemeral, rememberDismissal: ephemeral && Boolean(explicitKey) };
+      destination.unshift(item);
       if (!ephemeral) persist();
       render();
+      // New notices are captured into the tray; pop a transient toast so the user notices them.
+      if (!ephemeral) showToast(item);
     }
 
     alert.hidden = true;
     alert.dataset.notificationCaptured = "true";
+  };
+
+  let toastStack = null;
+  const showToast = item => {
+    if (!toastStack) {
+      toastStack = document.createElement("div");
+      toastStack.className = "tf-toast-stack";
+      toastStack.setAttribute("aria-live", "polite");
+      toastStack.dataset.notificationExclude = "";
+      document.body.append(toastStack);
+    }
+    const severity = ["error", "warning", "success"].includes(item.severity) ? item.severity : "notice";
+    const toast = document.createElement("div");
+    toast.className = "tf-toast tf-notification-" + severity;
+
+    const content = document.createElement("button");
+    content.type = "button";
+    content.className = "tf-notification-content tf-toast-body";
+    content.title = "Open notifications";
+    const title = document.createElement("strong");
+    title.className = "tf-toast-title";
+    title.textContent = severity === "error" ? "Error" : severity === "warning" ? "Warning" : severity === "success" ? "Success" : "Notice";
+    const message = document.createElement("span");
+    message.className = "tf-notification-message";
+    message.textContent = item.message;
+    content.append(title, message);
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "tf-notification-dismiss";
+    close.setAttribute("aria-label", "Close popup");
+    close.title = "Close (stays in notifications)";
+    close.textContent = "×";
+    toast.append(content, close);
+
+    let timer = 0;
+    const remove = () => {
+      window.clearTimeout(timer);
+      toast.classList.add("tf-toast-leaving");
+      window.setTimeout(() => toast.remove(), 200);
+    };
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(remove, severity === "error" || severity === "warning" ? 12000 : 7000);
+    };
+    close.addEventListener("click", event => {
+      event.stopPropagation();
+      remove();
+    });
+    content.addEventListener("click", event => {
+      event.stopPropagation();
+      remove();
+      panel.hidden = false;
+      toggle.setAttribute("aria-expanded", "true");
+    });
+    toast.addEventListener("mouseenter", () => window.clearTimeout(timer));
+    toast.addEventListener("mouseleave", schedule);
+    toast.addEventListener("focusin", () => window.clearTimeout(timer));
+    toast.addEventListener("focusout", schedule);
+
+    toastStack.prepend(toast);
+    while (toastStack.children.length > 4) toastStack.lastElementChild.remove();
+    schedule();
   };
 
   const scan = root => {
@@ -237,6 +318,59 @@ function initializeNotifications() {
     });
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+}
+
+// Forms marked data-busy-message do slow server work (imports, rebuilds) behind a full-page POST.
+// Cover the page with a progress overlay until the response arrives so it is clear work is running
+// and the form is not submitted twice.
+function initializeBusyForms() {
+  let overlay = null;
+  let tick = 0;
+  const hide = () => {
+    window.clearInterval(tick);
+    if (overlay) overlay.hidden = true;
+    document.body.removeAttribute("aria-busy");
+  };
+  const show = text => {
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.className = "tf-busy-overlay";
+      overlay.setAttribute("role", "status");
+      overlay.setAttribute("aria-live", "polite");
+      overlay.innerHTML = '<div class="tf-busy-card"><span class="tf-busy-spinner" aria-hidden="true"></span><div><strong data-busy-text></strong><span data-busy-elapsed></span></div><div class="tf-busy-bar" aria-hidden="true"><span></span></div></div>';
+      document.body.append(overlay);
+    }
+    overlay.querySelector("[data-busy-text]").textContent = text;
+    const elapsed = overlay.querySelector("[data-busy-elapsed]");
+    const started = Date.now();
+    elapsed.textContent = "Keep this page open until the result appears.";
+    window.clearInterval(tick);
+    tick = window.setInterval(() => {
+      const seconds = Math.floor((Date.now() - started) / 1000);
+      elapsed.textContent = `${seconds}s elapsed · keep this page open until the result appears.`;
+    }, 1000);
+    overlay.hidden = false;
+    document.body.setAttribute("aria-busy", "true");
+  };
+
+  document.addEventListener("submit", event => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.dataset.busyMessage) return;
+    // Inline confirm() handlers run first; respect a cancelled confirmation.
+    if (event.defaultPrevented) return;
+    if (form.dataset.busySubmitted === "true") {
+      event.preventDefault();
+      return;
+    }
+    form.dataset.busySubmitted = "true";
+    show(form.dataset.busyMessage);
+  });
+  // Returning via the back button can restore this page from the bfcache with the overlay open.
+  window.addEventListener("pageshow", event => {
+    if (!event.persisted) return;
+    hide();
+    document.querySelectorAll("form[data-busy-submitted]").forEach(form => delete form.dataset.busySubmitted);
+  });
 }
 
 function initializeImportDropzones() {
@@ -1814,9 +1948,9 @@ function initializePnlCalendar() {
       row.append(weekLabel,
         element("strong", "", formatPnl(netPnl)),
         element("span", "", `${tradeCount} ${tradeCount === 1 ? "trade" : "trades"}`),
-        element("span", "", `${maeValues.length ? formatMae(Math.max(...maeValues)) : "�"} max MAE`),
+        element("span", "", `${maeValues.length ? formatMae(Math.max(...maeValues)) : "—"} max MAE`),
         element("span", "", `${total("points").toFixed(2)}p`),
-        element("span", "", tradeCount > 0 && hasPercent ? formatProfitPercent(total("profitPercent")) : "�"));
+        element("span", "", tradeCount > 0 && hasPercent ? formatProfitPercent(total("profitPercent")) : "—"));
       days.append(row);
       weekDays = [];
     };

@@ -34,6 +34,8 @@ internal sealed class ServerController : IDisposable
     private Process? _process;
     private bool _stopRequested;
     private bool _disposed;
+    private readonly object _inputGate = new();
+    private string? _availableUpdate;
 
     public ServerController(string url)
     {
@@ -126,6 +128,10 @@ internal sealed class ServerController : IDisposable
             process.Start();
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
+            if (_availableUpdate is { } pendingUpdate)
+            {
+                SendCommand(process, DesktopRuntime.FormatUpdateCommand(pendingUpdate));
+            }
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -365,16 +371,59 @@ internal sealed class ServerController : IDisposable
         return null;
     }
 
-    private static void RequestGracefulStop(Process process)
+    private void RequestGracefulStop(Process process)
     {
-        try
+        lock (_inputGate)
         {
-            process.StandardInput.WriteLine(DesktopRuntime.ShutdownCommand);
-            process.StandardInput.Close();
+            try
+            {
+                process.StandardInput.WriteLine(DesktopRuntime.ShutdownCommand);
+                process.StandardInput.Close();
+            }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException or ObjectDisposedException)
+            {
+                // The server already exited or closed its input.
+            }
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or ObjectDisposedException)
+    }
+
+    /// <summary>
+    /// Tells the server which update (if any) is pending so the app can show it. The value is
+    /// remembered and sent again whenever the server is restarted.
+    /// </summary>
+    public void SetAvailableUpdate(string? version)
+    {
+        Process? process;
+        lock (_gate)
         {
-            // The server already exited or closed its input.
+            if (string.Equals(_availableUpdate, version, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _availableUpdate = version;
+            process = _process;
+        }
+
+        if (process is not null)
+        {
+            SendCommand(process, DesktopRuntime.FormatUpdateCommand(version));
+        }
+    }
+
+    private void SendCommand(Process process, string command)
+    {
+        lock (_inputGate)
+        {
+            try
+            {
+                process.StandardInput.WriteLine(command);
+                process.StandardInput.Flush();
+            }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException or ObjectDisposedException)
+            {
+                // The server is exiting; it gets the current value when it next starts.
+            }
         }
     }
 

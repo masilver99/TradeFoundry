@@ -8,11 +8,7 @@ namespace TradeFoundry.Desktop;
 /// <summary>A small error dialog; the tray helper has no main window to host one.</summary>
 internal sealed class MessageWindow : Window
 {
-    /// <param name="primaryAction">
-    /// Optional button (label and callback) shown before a "Later" button, for questions such as
-    /// "Install update?". Without it the window is a plain message with an OK button.
-    /// </param>
-    public MessageWindow(string message, string? details, WindowIcon? icon, (string Label, Action Invoke)? primaryAction = null)
+    public MessageWindow(string message, string? details, WindowIcon? icon)
     {
         Title = "TradeFoundry";
         Icon = icon;
@@ -45,35 +41,16 @@ internal sealed class MessageWindow : Window
             });
         }
 
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Spacing = 8
-        };
-
-        if (primaryAction is { } action)
-        {
-            var primary = new Button { Content = action.Label, MinWidth = 80, IsDefault = true };
-            primary.Classes.Add("accent");
-            primary.Click += (_, _) =>
-            {
-                Close();
-                action.Invoke();
-            };
-            buttons.Children.Add(primary);
-        }
-
         var close = new Button
         {
-            Content = primaryAction is null ? "OK" : "Later",
+            Content = "OK",
+            HorizontalAlignment = HorizontalAlignment.Right,
             MinWidth = 80,
-            IsDefault = primaryAction is null,
+            IsDefault = true,
             IsCancel = true
         };
         close.Click += (_, _) => Close();
-        buttons.Children.Add(close);
-        content.Children.Add(buttons);
+        content.Children.Add(close);
 
         Content = content;
     }

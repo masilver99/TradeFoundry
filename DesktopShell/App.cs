@@ -28,7 +28,9 @@ internal sealed class App : Application
     private DesktopUpdateManifest? _availableUpdate;
     private UpdatePhase _updatePhase;
     private int _downloadPercent;
-    private string? _promptedVersion;
+    private string? _updateStatus;
+    private WindowIcon? _normalIcon;
+    private WindowIcon? _updateIcon;
     private bool _openBrowserWhenReady;
     private bool _quitting;
 
@@ -125,13 +127,14 @@ internal sealed class App : Application
 
         _trayIcon = new TrayIcon
         {
-            Icon = LoadIcon(),
+            Icon = _normalIcon = LoadIcon("TradeFoundry.ico"),
             ToolTipText = "TradeFoundry",
             Menu = menu,
             IsVisible = true
         };
         _trayIcon.Clicked += (_, _) => OpenJournal();
 
+        _updateIcon = LoadIcon("TradeFoundry-update.ico");
         TrayIcon.SetIcons(this, [_trayIcon]);
         OnServerStateChanged();
     }
@@ -219,6 +222,8 @@ internal sealed class App : Application
         }
     }
 
+    // Update notices never open windows: the tray icon gains a badge, the menu item changes,
+    // and the server shows a notification inside the app.
     private async Task CheckForUpdatesAsync(bool userInitiated)
     {
         if (_updater is null || !_updater.IsEnabled || _updatePhase != UpdatePhase.Idle || _quitting)
@@ -227,43 +232,28 @@ internal sealed class App : Application
         }
 
         _updatePhase = UpdatePhase.Checking;
+        _updateStatus = null;
         RefreshUpdateItem();
         try
         {
             _availableUpdate = await _updater.CheckAsync(CancellationToken.None);
+            if (_availableUpdate is null && userInitiated)
+            {
+                _updateStatus = $"Up to date (version {_updater.CurrentVersion})";
+            }
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or FormatException or IOException)
         {
+            // Keep any update found earlier; only report the failure when the user asked.
             if (userInitiated)
             {
-                ShowMessage($"TradeFoundry could not check for updates: {exception.Message}", null);
+                _updateStatus = "Update check failed. Try again";
             }
-
-            return;
         }
         finally
         {
             _updatePhase = UpdatePhase.Idle;
-            RefreshUpdateItem();
-            RefreshToolTip();
-        }
-
-        if (_availableUpdate is { } update)
-        {
-            // Offer each version once per session, unless the user asked.
-            if (userInitiated || !string.Equals(_promptedVersion, update.Version, StringComparison.Ordinal))
-            {
-                _promptedVersion = update.Version;
-                ShowMessage(
-                    $"TradeFoundry {update.Version} is available. You have {_updater.CurrentVersion}.\n\n" +
-                    "Installing stops TradeFoundry for a moment, updates it, and starts it again. Your journal data is not touched.",
-                    null,
-                    ("Install and restart", () => _ = InstallUpdateAsync()));
-            }
-        }
-        else if (userInitiated)
-        {
-            ShowMessage($"TradeFoundry {_updater.CurrentVersion} is up to date.", null);
+            ApplyUpdateState();
         }
     }
 
@@ -275,6 +265,7 @@ internal sealed class App : Application
         }
 
         _updatePhase = UpdatePhase.Downloading;
+        _updateStatus = null;
         _downloadPercent = 0;
         RefreshUpdateItem();
 
@@ -293,8 +284,10 @@ internal sealed class App : Application
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException or InvalidDataException or UnauthorizedAccessException)
         {
             _updatePhase = UpdatePhase.Idle;
+            _updateStatus = exception is InvalidDataException
+                ? $"Update {update.Version} failed verification. Try again"
+                : $"Update {update.Version} download failed. Try again";
             RefreshUpdateItem();
-            ShowMessage($"The TradeFoundry update could not be downloaded: {exception.Message}", null);
             return;
         }
 
@@ -314,8 +307,8 @@ internal sealed class App : Application
         {
             _quitting = false;
             _updatePhase = UpdatePhase.Idle;
+            _updateStatus = $"Update {update.Version} could not start. Try again";
             RefreshUpdateItem();
-            ShowMessage($"The TradeFoundry update could not be started: {exception.Message}", null);
             _ = _server.StartAsync();
             return;
         }
@@ -325,6 +318,19 @@ internal sealed class App : Application
         {
             desktop.Shutdown();
         }
+    }
+
+    /// <summary>Reflects the pending update in the tray icon, tooltip, menu, and the app.</summary>
+    private void ApplyUpdateState()
+    {
+        if (_trayIcon is not null)
+        {
+            _trayIcon.Icon = _availableUpdate is null ? _normalIcon : _updateIcon;
+        }
+
+        _server?.SetAvailableUpdate(_availableUpdate?.Version);
+        RefreshUpdateItem();
+        RefreshToolTip();
     }
 
     private void RefreshUpdateItem()
@@ -339,8 +345,9 @@ internal sealed class App : Application
             UpdatePhase.Checking => "Checking for updates…",
             UpdatePhase.Downloading => $"Downloading update… {_downloadPercent}%",
             UpdatePhase.Installing => "Installing update…",
+            _ when _updateStatus is not null => $"{_updateStatus}…",
             _ => _availableUpdate is { } update
-                ? $"Install update {update.Version}…"
+                ? $"Install update {update.Version} and restart"
                 : $"Check for updates (version {_updater.CurrentVersion})"
         };
         _updateItem.IsEnabled = _updatePhase == UpdatePhase.Idle && !_quitting;
@@ -441,10 +448,10 @@ internal sealed class App : Application
         }
     }
 
-    private void ShowMessage(string message, string? details, (string Label, Action Invoke)? primaryAction = null)
+    private void ShowMessage(string message, string? details)
     {
         _messageWindow?.Close();
-        _messageWindow = new MessageWindow(message, details, _trayIcon?.Icon, primaryAction);
+        _messageWindow = new MessageWindow(message, details, _normalIcon);
         _messageWindow.Closed += (sender, _) =>
         {
             if (ReferenceEquals(sender, _messageWindow))
@@ -489,9 +496,9 @@ internal sealed class App : Application
         return DesktopRuntime.DefaultDataDirectory;
     }
 
-    private static WindowIcon LoadIcon()
+    private static WindowIcon LoadIcon(string resourceName)
     {
-        using var stream = typeof(App).Assembly.GetManifestResourceStream("TradeFoundry.ico")
+        using var stream = typeof(App).Assembly.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException("The tray icon resource is missing.");
         return new WindowIcon(stream);
     }

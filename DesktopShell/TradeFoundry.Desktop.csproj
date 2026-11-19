@@ -30,7 +30,9 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
     <Compile Include="..\Core\DesktopRuntime.cs" Link="Core\DesktopRuntime.cs" />
     <Compile Include="..\Core\DesktopUpdates.cs" Link="Core\DesktopUpdates.cs" />
+    <!-- Icons come from scripts/generate-icons.cs (gold = private app; green = public journal). -->
     <EmbeddedResource Include="..\wwwroot\favicon.ico" Link="Assets\TradeFoundry.ico" LogicalName="TradeFoundry.ico" />
+    <EmbeddedResource Include="Assets\TradeFoundry-update.ico" LogicalName="TradeFoundry-update.ico" />
     <!--
       Also shipped as a loose file: the installer uses it for shortcuts and Add/Remove Programs,
       because builds on Linux cannot embed the icon into the .exe (NETSDK1074).

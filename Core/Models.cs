@@ -45,6 +45,8 @@ public sealed class Journal
     public string GroupingPolicy { get; init; } = "flat_to_flat";
     public decimal? StartingEquity { get; init; }
     public string ImportWatchDirectory { get; init; } = string.Empty;
+    public string ImportWatchFile { get; init; } = string.Empty;
+    public bool ImportWatchFileEnabled { get; init; }
     public DateTimeOffset CreatedUtc { get; init; }
 }
 

@@ -139,6 +139,106 @@ public sealed class ImportFolderMonitorTests
         }
     }
 
+    [Fact]
+    public async Task WatchedFileImportsOnChangeOnlyAddsNewRowsAndStopsWhenDisabled()
+    {
+        var root = NewDirectory();
+        ImportFolderMonitor? monitor = null;
+        try
+        {
+            var database = CreateDatabase(Path.Combine(root, "data"));
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var folder = Path.Combine(root, "sierra");
+            Directory.CreateDirectory(folder);
+            var filePath = Path.Combine(folder, "activity.csv");
+            var sibling = Path.Combine(folder, "other.csv");
+            await File.WriteAllTextAsync(filePath, AccountCsv("2026-09-03T10:00:00Z", "5000"));
+            await File.WriteAllTextAsync(sibling, AccountCsv("2026-09-03T09:00:00Z", "4990"));
+
+            Assert.True(database.SaveImportWatchFile(journal.Id, filePath, enabled: true));
+            var saved = database.GetJournal(journal.Id)!;
+            Assert.True(saved.ImportWatchFileEnabled);
+            Assert.Equal(Path.GetFullPath(filePath), saved.ImportWatchFile);
+
+            monitor = NewMonitor(database);
+            await monitor.StartAsync(CancellationToken.None);
+            var first = await WaitForStatusAsync(database, journal.Id, filePath, "completed");
+            Assert.Equal(1, Imports(database, journal.Id).TotalCount);
+            Assert.Null(database.GetWatchedImportFileStatus(journal.Id, sibling));
+
+            await File.AppendAllTextAsync(filePath, "2026-09-03T10:05:00Z,MESZ26,Sell,1,5004\n");
+            var second = await WaitForStatusAsync(database, journal.Id, filePath, "completed", first.ContentHash);
+            var batches = Imports(database, journal.Id);
+            Assert.Equal(2, batches.TotalCount);
+            var latest = batches.Items.Single(batch => batch.Id == second.ImportBatchId);
+            Assert.Equal(1, latest.NewRows);
+            Assert.Equal(1, latest.DuplicateRows);
+
+            Assert.True(database.SaveImportWatchFile(journal.Id, filePath, enabled: false));
+            Assert.Equal(Path.GetFullPath(filePath), database.GetJournal(journal.Id)?.ImportWatchFile);
+            monitor.NotifyConfigurationChanged();
+            await Task.Delay(TimeSpan.FromMilliseconds(300));
+            await File.AppendAllTextAsync(filePath, "2026-09-03T10:10:00Z,MESZ26,Buy,1,5006\n");
+            await Task.Delay(TimeSpan.FromSeconds(2.5));
+            Assert.Equal(2, Imports(database, journal.Id).TotalCount);
+        }
+        finally
+        {
+            if (monitor is not null)
+            {
+                await monitor.StopAsync(CancellationToken.None);
+                monitor.Dispose();
+            }
+            DeleteDirectory(root);
+        }
+    }
+
+    [Fact]
+    public async Task WatchedFileHeldOpenByWriterImportsOnlyCompleteLines()
+    {
+        var root = NewDirectory();
+        ImportFolderMonitor? monitor = null;
+        FileStream? writer = null;
+        try
+        {
+            var database = CreateDatabase(Path.Combine(root, "data"));
+            database.CreateOwner("Owner", "test-hash");
+            var journal = database.CreateJournal("Live", "live", string.Empty, "UTC", "USD", "flat_to_flat");
+            var filePath = Path.Combine(root, "live-log.csv");
+
+            writer = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 4096, useAsync: true);
+            await writer.WriteAsync(System.Text.Encoding.UTF8.GetBytes(
+                "timestamp,symbol,side,quantity,price\n2026-09-04T10:00:00Z,MESZ26,Buy,1,5000\n2026-09-04T10:01:00Z,MESZ26,Sell,1,50"));
+            await writer.FlushAsync();
+
+            Assert.True(database.SaveImportWatchFile(journal.Id, filePath, enabled: true));
+            monitor = NewMonitor(database);
+            await monitor.StartAsync(CancellationToken.None);
+
+            var first = await WaitForStatusAsync(database, journal.Id, filePath, "completed");
+            var firstBatch = Imports(database, journal.Id).Items.Single();
+            Assert.Equal(1, firstBatch.NewRows);
+
+            await writer.WriteAsync(System.Text.Encoding.UTF8.GetBytes("04.25\n"));
+            await writer.FlushAsync();
+            var second = await WaitForStatusAsync(database, journal.Id, filePath, "completed", first.ContentHash);
+            var secondBatch = Imports(database, journal.Id).Items.Single(batch => batch.Id == second.ImportBatchId);
+            Assert.Equal(1, secondBatch.NewRows);
+            Assert.Equal(1, secondBatch.DuplicateRows);
+        }
+        finally
+        {
+            if (writer is not null) await writer.DisposeAsync();
+            if (monitor is not null)
+            {
+                await monitor.StopAsync(CancellationToken.None);
+                monitor.Dispose();
+            }
+            DeleteDirectory(root);
+        }
+    }
+
     private static ImportFolderMonitor NewMonitor(TradeFoundryDb database) =>
         new(database, new ImportService(database), NullLogger<ImportFolderMonitor>.Instance);
 

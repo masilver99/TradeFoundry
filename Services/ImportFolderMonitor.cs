@@ -19,6 +19,7 @@ public sealed class ImportFolderMonitor : BackgroundService
     private readonly ILogger<ImportFolderMonitor> _logger;
     private readonly Channel<MonitorWork> _work = Channel.CreateUnbounded<MonitorWork>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly Dictionary<Guid, WatchBinding> _watchers = new();
+    private readonly Dictionary<Guid, WatchBinding> _fileWatchers = new();
 
     public ImportFolderMonitor(TradeFoundryDb database, ImportService imports, ILogger<ImportFolderMonitor> logger)
     {
@@ -49,8 +50,9 @@ public sealed class ImportFolderMonitor : BackgroundService
         }
         finally
         {
-            foreach (var watcher in _watchers.Values) watcher.Dispose();
+            foreach (var watcher in _watchers.Values.Concat(_fileWatchers.Values)) watcher.Dispose();
             _watchers.Clear();
+            _fileWatchers.Clear();
         }
     }
 
@@ -153,7 +155,73 @@ public sealed class ImportFolderMonitor : BackgroundService
             }
         }
 
+        ReconcileWatchedFiles(journals, cancellationToken);
         await Task.CompletedTask;
+    }
+
+    private void ReconcileWatchedFiles(IReadOnlyList<Journal> journals, CancellationToken cancellationToken)
+    {
+        var configured = journals
+            .Where(journal => journal.ImportWatchFileEnabled && !string.IsNullOrWhiteSpace(journal.ImportWatchFile))
+            .ToDictionary(journal => journal.Id, journal => (Journal: journal, Path: Path.GetFullPath(journal.ImportWatchFile)));
+
+        foreach (var existing in _fileWatchers.ToArray())
+        {
+            if (!configured.TryGetValue(existing.Key, out var target) ||
+                !PathEquals(existing.Value.DirectoryPath, target.Path) ||
+                !Directory.Exists(Path.GetDirectoryName(target.Path)))
+            {
+                existing.Value.Dispose();
+                _fileWatchers.Remove(existing.Key);
+            }
+        }
+
+        foreach (var target in configured.Values)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var directory = Path.GetDirectoryName(target.Path);
+            if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+            {
+                _logger.LogWarning("The folder containing watched import file {FilePath} for journal {JournalId} does not exist.", target.Path, target.Journal.Id);
+                continue;
+            }
+
+            if (!_fileWatchers.ContainsKey(target.Journal.Id))
+            {
+                try
+                {
+                    var watcher = new FileSystemWatcher(directory, Path.GetFileName(target.Path))
+                    {
+                        IncludeSubdirectories = false,
+                        NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                        EnableRaisingEvents = false
+                    };
+                    var journalId = target.Journal.Id;
+                    var watchedPath = target.Path;
+                    FileSystemEventHandler changed = (_, _) => QueueFile(journalId, watchedPath);
+                    RenamedEventHandler renamed = (_, _) => QueueFile(journalId, watchedPath);
+                    ErrorEventHandler error = (_, args) =>
+                    {
+                        _logger.LogWarning(args.GetException(), "Import file watcher overflowed for {FilePath}; a full scan was queued.", watchedPath);
+                        NotifyConfigurationChanged();
+                    };
+                    watcher.Created += changed;
+                    watcher.Changed += changed;
+                    watcher.Renamed += renamed;
+                    watcher.Error += error;
+                    watcher.EnableRaisingEvents = true;
+                    _fileWatchers[journalId] = new WatchBinding(watchedPath, watcher);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                {
+                    _logger.LogError(ex, "Could not watch import file {FilePath} for journal {JournalId}.", target.Path, target.Journal.Id);
+                    continue;
+                }
+            }
+
+            if (File.Exists(target.Path))
+                QueueFile(target.Journal.Id, target.Path);
+        }
     }
 
     private void QueueFile(Guid journalId, string filePath)
@@ -165,14 +233,19 @@ public sealed class ImportFolderMonitor : BackgroundService
     private async Task ProcessFileAsync(Guid journalId, string filePath, CancellationToken cancellationToken)
     {
         var journal = _database.GetJournal(journalId);
-        if (journal is null || string.IsNullOrWhiteSpace(journal.ImportWatchDirectory)) return;
+        if (journal is null) return;
 
         var fullPath = Path.GetFullPath(filePath);
-        if (!IsDirectChild(journal.ImportWatchDirectory, fullPath) || !IsSupportedExtension(fullPath)) return;
+        if (!IsSupportedExtension(fullPath)) return;
+        var inWatchedFolder = !string.IsNullOrWhiteSpace(journal.ImportWatchDirectory) && IsDirectChild(journal.ImportWatchDirectory, fullPath);
+        var isWatchedFile = IsWatchedFile(journal, fullPath);
+        if (!inWatchedFolder && !isWatchedFile) return;
 
         try
         {
-            var bytes = await ReadStableFileAsync(fullPath, cancellationToken);
+            // A single watched file is often a log the trading platform keeps open while appending,
+            // so it may be read while shared; folder drops still wait for the writer to close the file.
+            var bytes = await ReadStableFileAsync(fullPath, isWatchedFile, cancellationToken);
             if (bytes is null) return;
 
             var contentHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
@@ -207,7 +280,12 @@ public sealed class ImportFolderMonitor : BackgroundService
         }
     }
 
-    private static async Task<byte[]?> ReadStableFileAsync(string path, CancellationToken cancellationToken)
+    internal static bool IsWatchedFile(Journal journal, string filePath) =>
+        journal.ImportWatchFileEnabled &&
+        !string.IsNullOrWhiteSpace(journal.ImportWatchFile) &&
+        PathEquals(journal.ImportWatchFile, Path.GetFullPath(filePath));
+
+    private static async Task<byte[]?> ReadStableFileAsync(string path, bool allowSharedRead, CancellationToken cancellationToken)
     {
         long? previousLength = null;
         DateTime? previousWriteTimeUtc = null;
@@ -237,6 +315,11 @@ public sealed class ImportFolderMonitor : BackgroundService
                 catch (IOException)
                 {
                     // A writer still has the file open or the file changed while it was read.
+                    if (allowSharedRead)
+                    {
+                        var shared = await TryReadSharedAsync(path, length, writeTimeUtc, cancellationToken);
+                        if (shared is not null) return shared;
+                    }
                 }
             }
 
@@ -245,6 +328,27 @@ public sealed class ImportFolderMonitor : BackgroundService
             await Task.Delay(StableInterval, cancellationToken);
         }
         return null;
+    }
+
+    private static async Task<byte[]?> TryReadSharedAsync(string path, long length, DateTime writeTimeUtc, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+            using var memory = new MemoryStream(length > 0 && length <= int.MaxValue ? (int)length : 0);
+            await stream.CopyToAsync(memory, cancellationToken);
+            var after = new FileInfo(path);
+            if (!after.Exists || after.Length != length || after.LastWriteTimeUtc != writeTimeUtc || memory.Length != length) return null;
+
+            // The writer may be mid-row; only complete lines are safe to treat as immutable evidence.
+            var bytes = memory.ToArray();
+            var lastNewLine = Array.LastIndexOf(bytes, (byte)'\n');
+            return lastNewLine < 0 ? null : bytes[..(lastNewLine + 1)];
+        }
+        catch (IOException)
+        {
+            return null;
+        }
     }
 
     private static bool IsSupportedExtension(string path) => SupportedExtensions.Contains(Path.GetExtension(path));
@@ -256,7 +360,7 @@ public sealed class ImportFolderMonitor : BackgroundService
         return fullPath.Length > (root?.Length ?? 0) ? Path.TrimEndingDirectorySeparator(fullPath) : fullPath;
     }
 
-    private static bool PathEquals(string left, string right) => string.Equals(
+    internal static bool PathEquals(string left, string right) => string.Equals(
         NormalizeDirectory(left), NormalizeDirectory(right),
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 

@@ -280,6 +280,13 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-table small { display: block; margin-top: 1px; color: var(--tf-muted); font-size: var(--tf-fs-xs); }
 .tf-table .row-link { color: var(--tf-ink); font-weight: 600; text-decoration: none; }
 .tf-table .row-link:hover { color: var(--tf-blue); }
+.tf-table td.tf-import-status { width: 100%; max-width: 0; min-width: 260px; white-space: normal; }
+.tf-import-message { margin-top: 1px; color: var(--tf-muted); }
+.tf-import-message summary { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; list-style: none; }
+.tf-import-message summary::-webkit-details-marker { display: none; }
+.tf-import-message summary::before { content: "\25B8"; display: inline-block; width: 1em; color: var(--tf-muted); }
+.tf-import-message[open] summary { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--tf-ink); }
+.tf-import-message[open] summary::before { content: "\25BE"; }
 .tf-review-indicators-column, .tf-review-indicators-cell { width: 42px; min-width: 42px; padding-right: 4px !important; padding-left: 10px !important; text-align: center; }
 .tf-review-indicators-cell .tf-review-indicators { margin-right: 0; }
 .tf-ledger-indicators { display: inline-flex; align-items: center; gap: 5px; vertical-align: middle; }
@@ -1573,8 +1580,8 @@ body:has(.tf-review-shell) .page-body > .container-xl { padding-top:12px; }
 .tf-review-chart-card.is-empty [data-lightweight-export] { display: none; }
 .tf-review-evidence-card > summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; cursor: pointer; list-style: none; }
 .tf-review-evidence-card > summary::-webkit-details-marker { display: none; }
-.tf-review-evidence-card > summary::before { content: "B8"; color: var(--tf-muted); }
-.tf-review-evidence-card[open] > summary::before { content: "BE"; }
+.tf-review-evidence-card > summary::before { content: "\25B8"; color: var(--tf-muted); }
+.tf-review-evidence-card[open] > summary::before { content: "\25BE"; }
 .tf-review-evidence-card:not([open]) > summary { border-bottom: 0; }
 .tf-review-evidence-card > summary .text-secondary { font-size: var(--tf-fs-xs); }
 .tf-review-shortcuts-button { min-width: 38px; font-weight: 600; }

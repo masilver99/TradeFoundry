@@ -93,6 +93,10 @@ public class AnalyticsModel : PageModel
     public string RiskDisciplineRollingHeatChart => ChartRenderer.TearSheetRiskDisciplineRollingHeat(Trades);
     public string RiskDisciplineRollingViolationsChart => ChartRenderer.TearSheetRiskDisciplineRollingViolations(Trades);
     public string RiskDisciplineMonthlyChart => ChartRenderer.TearSheetRiskDisciplineMonthly(Trades, Journal?.TimeZone);
+    private DailyHeatSummary? _dailyHeat;
+    public DailyHeatSummary DailyHeat => _dailyHeat ??= DailyHeatMetrics.Build(Trades, Journal?.TimeZone);
+    public string DailyHeatRangeChart => ChartRenderer.DailyHeatRange(DailyHeat);
+    public string DailyPnlPerHeatChart => ChartRenderer.DailyPnlPerHeat(DailyHeat);
     public string EdgePersistenceRollingExpectancyChart => ChartRenderer.TearSheetEdgePersistenceRollingExpectancy(EdgePersistence);
     public string EdgePersistenceRollingQualityChart => ChartRenderer.TearSheetEdgePersistenceRollingQuality(EdgePersistence);
     public string EdgePersistenceRollingMaeChart => ChartRenderer.TearSheetEdgePersistenceRollingMae(EdgePersistence);

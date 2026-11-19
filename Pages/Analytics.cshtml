@@ -755,6 +755,32 @@
                     <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Monthly Risk Discipline score</h4></div><span class="text-secondary">score + trade count</span></div><div class="card-body">@Html.Raw(Model.RiskDisciplineMonthlyChart)</div></article>
                 </div>
             </div>
+
+            @{
+                var dailyHeat = Model.DailyHeat;
+                var overallPnlPerHeat = dailyHeat.PnlPerHeat;
+                var latestRollingPnlPerHeat = dailyHeat.Rolling.Count > 0 ? dailyHeat.Rolling[^1].PnlPerHeat : null;
+                var pnlPerHeatSummary = overallPnlPerHeat.HasValue
+                    ? $"overall {overallPnlPerHeat.Value.ToString("0.00", CultureInfo.CurrentCulture)}"
+                      + (latestRollingPnlPerHeat.HasValue ? $" · last {DailyHeatMetrics.RollingWindow} days {latestRollingPnlPerHeat.Value.ToString("0.00", CultureInfo.CurrentCulture)}" : string.Empty)
+                    : "no MAE recorded";
+            }
+            <div class="tf-risk-discipline-trends" id="daily-heat">
+                <div class="tf-chart-subsection-heading">
+                    <div class="tf-chart-subsection-heading-main">
+                        <div class="tf-chart-subsection-title-row">
+                            <h3>Daily heat</h3>
+                            <button type="button" class="tf-section-info-button" data-section-info-toggle data-section-info-label="Daily heat" aria-expanded="false" aria-controls="daily-heat-description" aria-label="Show explanation for Daily heat"><span aria-hidden="true">i</span></button>
+                        </div>
+                        <p id="daily-heat-description" class="tf-section-info" hidden>Each range bar runs from flat to the day's net P&amp;L; the gold wick runs down to the day's estimated low. The low is the lowest running P&amp;L reached: trades closed before each entry plus that trade's position MAE. A long wick under a green bar is a rescued day. When positions overlap, the low is an estimate because MAE does not record when it happened. P&amp;L per dollar of heat divides net P&amp;L by the summed position MAE of trades that recorded MAE; the @DailyHeatMetrics.RollingWindow-day line divides summed P&amp;L by summed heat, so low-heat days cannot dominate it. Days without any recorded MAE are left out.</p>
+                    </div>
+                    <span>@pnlPerHeatSummary</span>
+                </div>
+                <div class="tf-chart-grid">
+                    <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Daily P&amp;L and intraday low</h4></div><span class="text-secondary">body = net P&amp;L · wick = worst point</span></div><div class="card-body">@Html.Raw(Model.DailyHeatRangeChart)</div></article>
+                    <article class="card tf-card tf-library-chart tf-library-chart-wide"><div class="card-header"><div><h4 class="tf-card-title">Net P&amp;L per dollar of heat</h4></div><span class="text-secondary">daily · @DailyHeatMetrics.RollingWindow-day rolling</span></div><div class="card-body">@Html.Raw(Model.DailyPnlPerHeatChart)</div></article>
+                </div>
+            </div>
         </div>
 
         <div id="risk-drawdown" class="tf-chart-subsection">

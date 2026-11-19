@@ -97,6 +97,8 @@ public static class CommandPaletteCatalog
             new ChartEntry("risk-discipline", "Rolling winner heat and MAE", ["Winner heat"], ["risk", "discipline", "adverse excursion"]),
             new ChartEntry("risk-discipline", "Rolling MAE violations", ["MAE breaches"], ["risk", "discipline", "risk target"]),
             new ChartEntry("risk-discipline", "Monthly Risk Discipline score", ["Risk Discipline by month"], ["risk", "discipline", "monthly"]),
+            new ChartEntry("daily-heat", "Daily P&L and intraday low", ["Daily heat", "Daily MAE vs P&L", "Intraday low"], ["risk", "adverse excursion", "rescue", "daily"]),
+            new ChartEntry("daily-heat", "Net P&L per dollar of heat", ["P&L per heat", "Heat efficiency", "MAE efficiency"], ["risk", "adverse excursion", "daily", "rolling"]),
             new ChartEntry("risk-drawdown", "Underwater net P&L", ["Drawdown Underwater", "Drawdown"], ["risk", "drawdown", "equity decline"]),
             new ChartEntry("risk-drawdown", "Worst five drawdown periods", ["Largest drawdowns"], ["risk", "drawdown", "recovery"]),
             new ChartEntry("risk-drawdown", "Drawdown duration and recovery", ["Recovery time"], ["risk", "underwater", "recovery"]),

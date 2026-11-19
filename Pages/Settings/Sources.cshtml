@@ -31,7 +31,7 @@
             <div class="col-lg-9">
                 <label asp-for="ImportWatchDirectory" class="form-label">Folder path on the TradeFoundry server</label>
                 <input asp-for="ImportWatchDirectory" class="form-control font-monospace" placeholder="C:\\TradeFoundry\\Incoming" autocomplete="off" />
-                <div class="form-hint">Leave blank to disable. CSV, TSV, and TXT files in this folder are scanned on startup and while the server runs. Supported trade exports are imported into this journal; files stay in the folder.</div>
+                <div class="form-hint">Leave blank to disable. CSV, TSV, and TXT files in this folder are scanned on startup and while the server runs. Supported trade exports are imported into this journal; files stay in the folder. To monitor a single file instead, use the <a href="/journal/@Model.JournalId/imports">Imports</a> page.</div>
             </div>
             <div class="col-lg-3 d-flex gap-2">
                 <button class="btn btn-primary" type="submit">Save folder</button>

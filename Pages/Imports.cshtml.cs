@@ -14,16 +14,18 @@ public class ImportsModel : PageModel
 {
     private readonly TradeFoundryDb _database;
     private readonly ImportService _imports;
+    private readonly ImportFolderMonitor _importMonitor;
 
-    public ImportsModel(TradeFoundryDb database, ImportService imports)
+    public ImportsModel(TradeFoundryDb database, ImportService imports, ImportFolderMonitor importMonitor)
     {
         _database = database;
         _imports = imports;
+        _importMonitor = importMonitor;
     }
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
-    [BindProperty(SupportsGet = true, Name = "page")] public int PageNumber { get; set; } = 1;
-    [BindProperty(SupportsGet = true)] public string Search { get; set; } = string.Empty;
+    [BindProperty(SupportsGet = true)] public int PageNumber { get; set; } = 1;
+    [BindProperty(SupportsGet = true)] public string? Search { get; set; }
     [BindProperty(SupportsGet = true)] public DateOnly? CalendarStart { get; set; }
     [BindProperty(SupportsGet = true)] public string CalendarSymbol { get; set; } = string.Empty;
     [BindProperty] public IFormFile? ImportFile { get; set; }
@@ -37,6 +39,8 @@ public class ImportsModel : PageModel
     [BindProperty] public string GroupingPolicy { get; set; } = "flat_to_flat";
     [BindProperty] public string BarInterval { get; set; } = "source";
     [BindProperty] public string BenchmarkSymbol { get; set; } = "^GSPC";
+    [BindProperty] public string WatchFilePath { get; set; } = string.Empty;
+    [BindProperty] public bool WatchFileEnabled { get; set; }
 
     public Journal? Journal { get; private set; }
     public PagedResult<ImportBatch> Results { get; private set; } = new();
@@ -44,6 +48,7 @@ public class ImportsModel : PageModel
     public IReadOnlyList<string> OhlcSymbols { get; private set; } = Array.Empty<string>();
     public IReadOnlyList<TimeZoneOption> BarImportTimeZones { get; private set; } = Array.Empty<TimeZoneOption>();
     public IReadOnlyList<TimeZoneOption> ImportTimeZones { get; private set; } = Array.Empty<TimeZoneOption>();
+    public WatchedImportFileStatus? WatchFileStatus { get; private set; }
     public string? FlashMessage { get; private set; }
     public string? FlashKind { get; private set; }
 
@@ -154,6 +159,60 @@ public class ImportsModel : PageModel
         return Redirect($"/journal/{JournalId:D}/imports");
     }
 
+    public IActionResult OnPostSaveWatchFile()
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+
+        var path = (WatchFilePath ?? string.Empty).Trim().Trim('"');
+        var fileExists = false;
+        if (path.Length == 0)
+        {
+            if (WatchFileEnabled) return WatchFileError("Enter the full path of the file to monitor.");
+        }
+        else
+        {
+            if (!Path.IsPathFullyQualified(path)) return WatchFileError("Enter an absolute file path on the TradeFoundry server, such as C:\\SierraChart\\Data\\TradeActivity.txt.");
+            try
+            {
+                path = Path.GetFullPath(path);
+                if (!ImportFileExtensions.Contains(Path.GetExtension(path)))
+                    return WatchFileError("The monitored file must be a CSV, TSV, or TXT export.");
+                if (Directory.Exists(path))
+                    return WatchFileError("That path is a folder. Use Settings → Import sources to watch a whole folder.");
+                var directory = Path.GetDirectoryName(path);
+                if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+                    return WatchFileError("The folder containing that file does not exist or the TradeFoundry server cannot read it.");
+                fileExists = System.IO.File.Exists(path);
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                return WatchFileError("Enter a valid absolute file path.");
+            }
+        }
+
+        _database.SaveImportWatchFile(JournalId, path, WatchFileEnabled);
+        _importMonitor.NotifyConfigurationChanged();
+
+        TempData["FlashMessage"] = (path.Length, WatchFileEnabled, fileExists) switch
+        {
+            (0, _, _) => "Automatic file import cleared. Previous import history was kept.",
+            (_, false, _) => "Automatic file import is off. The file path was saved and previous import history was kept.",
+            (_, true, true) => $"Monitoring {Path.GetFileName(path)}. New records are imported now and whenever the file changes; duplicate rows are ignored.",
+            _ => $"Monitoring {Path.GetFileName(path)}. It does not exist yet and will be imported when it is created."
+        };
+        TempData["FlashKind"] = "success";
+        return Redirect($"/journal/{JournalId:D}/imports");
+    }
+
+    private static readonly HashSet<string> ImportFileExtensions = new(StringComparer.OrdinalIgnoreCase) { ".csv", ".tsv", ".txt" };
+
+    private IActionResult WatchFileError(string message)
+    {
+        TempData["FlashMessage"] = message;
+        TempData["FlashKind"] = "error";
+        return Redirect($"/journal/{JournalId:D}/imports");
+    }
+
     public IActionResult OnPostClearOhlc()
     {
         if (_database.GetJournal(JournalId) is null) return NotFound();
@@ -180,8 +239,11 @@ public class ImportsModel : PageModel
     {
         Journal = _database.GetJournal(JournalId);
         if (Journal is null) return;
-        Results = _database.GetImports(new ImportQuery { JournalId = JournalId, Page = PageNumber, PageSize = 25, Search = Search });
+        Results = _database.GetImports(new ImportQuery { JournalId = JournalId, Page = PageNumber, PageSize = 25, Search = Search ?? string.Empty });
         GroupingPolicy = Journal.GroupingPolicy;
+        WatchFilePath = Journal.ImportWatchFile;
+        WatchFileEnabled = Journal.ImportWatchFileEnabled;
+        WatchFileStatus = string.IsNullOrWhiteSpace(Journal.ImportWatchFile) ? null : _database.GetWatchedImportFileStatus(JournalId, Journal.ImportWatchFile);
         BarImportTimeZone = TimeZoneCatalog.Auto;
         BarImportTimeZones = TimeZoneCatalog.ForImportSelection(Journal.TimeZone);
         ImportTimeZone = TimeZoneCatalog.Auto;

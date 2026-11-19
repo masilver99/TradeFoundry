@@ -16,7 +16,7 @@ namespace TradeFoundry.Data;
 public sealed partial class TradeFoundryDb
 {
     private const string DerivedFillSource = "Derived fills";
-    private const string JournalColumns = "id, name, execution_context, labels, description_lexical_state_json, timezone, currency, grouping_policy, starting_equity, import_watch_directory, created_utc";
+    private const string JournalColumns = "id, name, execution_context, labels, description_lexical_state_json, timezone, currency, grouping_policy, starting_equity, import_watch_directory, created_utc, import_watch_file, import_watch_file_enabled";
     private const string ImportColumns = "id, journal_id, file_name, source_application, source_type, imported_utc, total_rows, new_rows, duplicate_rows, status, message";
     private const string EffectiveExchangeFeesSql = "COALESCE(r.exchange_fees, t.exchange_fees)";
     private const string EffectiveNfaFeesSql = "COALESCE(r.nfa_fees, t.nfa_fees)";
@@ -184,6 +184,8 @@ public sealed partial class TradeFoundryDb
         EnsureColumn(connection, "journals", "starting_equity", "TEXT NULL");
         EnsureColumn(connection, "journals", "description_lexical_state_json", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "journals", "import_watch_directory", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "journals", "import_watch_file", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "journals", "import_watch_file_enabled", "INTEGER NOT NULL DEFAULT 0");
         using (var watchDirectoryIndex = connection.CreateCommand())
         {
             watchDirectoryIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS ix_journals_import_watch_directory ON journals(import_watch_directory COLLATE NOCASE) WHERE archived = 0 AND import_watch_directory <> ''";
@@ -593,6 +595,21 @@ public sealed partial class TradeFoundryDb
         return command.ExecuteNonQuery() == 1;
     }
 
+    public bool SaveImportWatchFile(Guid journalId, string? filePath, bool enabled)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        var normalizedPath = string.IsNullOrWhiteSpace(filePath) ? string.Empty : Path.GetFullPath(filePath.Trim());
+
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE journals SET import_watch_file = $path, import_watch_file_enabled = $enabled WHERE id = $id AND owner_user_id = $owner AND archived = 0";
+        command.Parameters.AddWithValue("$path", normalizedPath);
+        command.Parameters.AddWithValue("$enabled", enabled && normalizedPath.Length > 0 ? 1 : 0);
+        command.Parameters.AddWithValue("$id", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$owner", TradeFoundryConstants.OwnerUserId);
+        return command.ExecuteNonQuery() == 1;
+    }
+
     public IReadOnlyList<WatchedImportFileStatus> GetWatchedImportFileStatuses(Guid journalId, int limit = 25)
     {
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
@@ -897,7 +914,7 @@ public sealed partial class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT j.id, j.name, j.execution_context, j.labels, j.description_lexical_state_json, j.timezone, j.currency, j.grouping_policy, j.starting_equity, j.import_watch_directory, j.created_utc FROM journals j JOIN mcp_token_journals g ON g.journal_id = j.id JOIN mcp_access_tokens t ON t.id = g.token_id WHERE t.id = $token AND t.revoked_utc IS NULL AND j.archived = 0 ORDER BY j.created_utc";
+        command.CommandText = "SELECT j.id, j.name, j.execution_context, j.labels, j.description_lexical_state_json, j.timezone, j.currency, j.grouping_policy, j.starting_equity, j.import_watch_directory, j.created_utc, j.import_watch_file, j.import_watch_file_enabled FROM journals j JOIN mcp_token_journals g ON g.journal_id = j.id JOIN mcp_access_tokens t ON t.id = g.token_id WHERE t.id = $token AND t.revoked_utc IS NULL AND j.archived = 0 ORDER BY j.created_utc";
         command.Parameters.AddWithValue("$token", tokenId.ToString("D"));
         var journals = new List<Journal>();
         using var reader = command.ExecuteReader();
@@ -4327,7 +4344,7 @@ public sealed partial class TradeFoundryDb
 
     private static Journal ReadJournal(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), Name = reader.GetString(1), ExecutionContext = reader.GetString(2), Labels = reader.GetString(3), DescriptionLexicalStateJson = reader.GetString(4), TimeZone = reader.GetString(5), Currency = reader.GetString(6), GroupingPolicy = reader.GetString(7), StartingEquity = NullableDecimal(reader, 8), ImportWatchDirectory = reader.GetString(9), CreatedUtc = ParseDate(reader.GetString(10))
+        Id = Guid.Parse(reader.GetString(0)), Name = reader.GetString(1), ExecutionContext = reader.GetString(2), Labels = reader.GetString(3), DescriptionLexicalStateJson = reader.GetString(4), TimeZone = reader.GetString(5), Currency = reader.GetString(6), GroupingPolicy = reader.GetString(7), StartingEquity = NullableDecimal(reader, 8), ImportWatchDirectory = reader.GetString(9), CreatedUtc = ParseDate(reader.GetString(10)), ImportWatchFile = reader.GetString(11), ImportWatchFileEnabled = reader.GetInt64(12) != 0
     };
 
     private static string InferSourceApplication(string sourceApplication, string sourceType)

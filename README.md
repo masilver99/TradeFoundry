@@ -83,7 +83,7 @@ id=$(docker create tf-installer noop) && docker cp "$id:/TradeFoundry-Setup.exe"
 
 Publishing uses the same `REGISTRY_USERNAME` / `REGISTRY_TOKEN` secrets as the container workflow; the token needs `write:package`. Package files are public whenever the owner's profile is public, even though the repository is private. The source code stays private, but anyone with the link can download the installer.
 
-When a stable tag replaces `latest.json`, the workflow also pushes a Gotify notification (tapping it opens the installer download). Prereleases aren't announced. To turn it on, create an application in Gotify and add a repository Actions variable `GOTIFY_URL` (the server's base URL, such as `https://gotify.example.com`) and a secret `GOTIFY_TOKEN` (that application's token). Until both are set, the step is skipped. A failed push is reported in the log but doesn't fail the release, which is already public by then.
+After a stable tag replaces `latest.json`, the workflow creates a Forgejo release for the tag, linking to the installer. Prereleases don't get one. The repository's Gotify webhook (**Settings → Webhooks**, set up the same way as michaelsilver.us's and limited to **Release** events) turns that into a phone notification. Re-running a tag's workflow leaves an existing release alone, so it won't notify twice.
 
 ### Icons
 

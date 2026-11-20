@@ -44,7 +44,19 @@ public sealed class PublicationWorkflow(TradeFoundryDb database, PublicationExpo
         database.SavePublicationStatus(journalId, status, state.Draft?.Snapshot.SnapshotId == status.SnapshotId);
     }, cancellationToken);
 
-    public async Task Preview(Guid journalId, JournalFilterScope? filter, CancellationToken cancellationToken) => await Locked(journalId, async () =>
+    public async Task Preview(Guid journalId, JournalFilterScope? filter, CancellationToken cancellationToken) => await Locked(journalId,
+        () => PrepareDraft(journalId, filter, cancellationToken), cancellationToken);
+
+    // Skips the review step: builds a fresh snapshot and publishes it in one locked operation. The snapshot is
+    // kept as the draft first, so a timed-out request can be retried as "Publish this exact snapshot".
+    public async Task PublishNow(Guid journalId, JournalFilterScope? filter, CancellationToken cancellationToken) => await Locked(journalId, async () =>
+    {
+        var upload = await PrepareDraft(journalId, filter, cancellationToken);
+        var status = await Request<PublicationStatus>(database.GetPublishingState(journalId), HttpMethod.Put, upload, cancellationToken);
+        database.SavePublicationStatus(journalId, status, published: true);
+    }, cancellationToken);
+
+    private async Task<PublicationUpload> PrepareDraft(Guid journalId, JournalFilterScope? filter, CancellationToken cancellationToken)
     {
         var state = database.GetPublishingState(journalId);
         var status = await Request<PublicationStatus>(state, HttpMethod.Get, null, cancellationToken);
@@ -56,7 +68,8 @@ public sealed class PublicationWorkflow(TradeFoundryDb database, PublicationExpo
         if (JsonSerializer.SerializeToUtf8Bytes(upload, PublicationJson.Options).Length > PublicationJson.MaxUploadBytes)
             throw new InvalidOperationException("The publication exceeds the 128 MB upload limit. Reduce embedded image sizes before publishing.");
         database.SavePublicationDraft(journalId, upload);
-    }, cancellationToken);
+        return upload;
+    }
 
     public async Task Publish(Guid journalId, Guid snapshotId, CancellationToken cancellationToken) => await Locked(journalId, async () =>
     {

@@ -47,6 +47,7 @@
 @if (Model.State.RemoteStatus?.BoundJournalId is { } bound && bound != Model.JournalId) { <p class="text-danger">This website is bound to another journal.</p> }
 <div class="d-flex flex-wrap gap-2"><form method="post" asp-page-handler="Status"><button class="btn" type="submit">Refresh status</button></form>
 <form method="post" asp-page-handler="Preview"><button class="btn btn-primary" type="submit">Create preview</button></form>
+<form method="post" asp-page-handler="PublishNow"><button class="btn btn-outline-success" type="submit" title="Build a new snapshot from the current journal and filter and publish it immediately">Publish now (skip preview)</button></form>
 @if (draft is not null)
 {
 <a class="btn" href="#publication-preview">Jump to preview</a>

@@ -661,6 +661,14 @@ public sealed class PublicationTests
         await workflow.SaveSettings(data.Journal.Id, new(host.Client.BaseAddress.AbsoluteUri, "New title", ""), "", default);
         Assert.Null(data.Database.GetPublishingState(data.Journal.Id).Draft);
         Assert.NotNull(data.Database.GetPublishingState(data.Journal.Id).LastSuccessUtc);
+
+        // Publishing without a preview sends the current journal and keeps that snapshot as a retryable draft.
+        await workflow.PublishNow(data.Journal.Id, null, default);
+        Assert.Contains("Edited after preview", await host.Client.GetStringAsync("/"));
+        var direct = data.Database.GetPublishingState(data.Journal.Id);
+        Assert.Equal(direct.Draft!.Snapshot.SnapshotId, direct.RemoteStatus!.SnapshotId);
+        await workflow.Publish(data.Journal.Id, direct.Draft.Snapshot.SnapshotId, default); // Retry is safe.
+        Assert.Equal(2, (await host.Client.GetFromJsonAsync<PublicationStatus>("/api/v1/publication"))!.Revision);
     }
 
     [Theory]

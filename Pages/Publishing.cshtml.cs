@@ -58,6 +58,8 @@ public sealed class PublishingModel(TradeFoundryDb database, PublicationWorkflow
     public Task<IActionResult> OnPostPreviewAsync(CancellationToken ct) => Action(() => workflow.Preview(JournalId, Filter, ct),
         () => $"Preview prepared for {Filter.Summary}. Review the full snapshot below before publishing.", ct);
     public Task<IActionResult> OnPostPublishAsync(Guid snapshotId, CancellationToken ct) => Action(() => workflow.Publish(JournalId, snapshotId, ct), "Publication succeeded. The website now displays the previewed snapshot.", ct);
+    public Task<IActionResult> OnPostPublishNowAsync(CancellationToken ct) => Action(() => workflow.PublishNow(JournalId, Filter, ct),
+        () => $"Publication succeeded without a preview. The website now displays {Filter.Summary}.", ct);
     public Task<IActionResult> OnPostStatusAsync(CancellationToken ct) => Action(() => workflow.RefreshStatus(JournalId, ct), "Website status refreshed.", ct);
     public Task<IActionResult> OnPostUnpublishAsync(long expectedRevision, bool resetBinding, CancellationToken ct) => Action(() => workflow.Unpublish(JournalId, expectedRevision, resetBinding, ct), "The website is unpublished.", ct);
 

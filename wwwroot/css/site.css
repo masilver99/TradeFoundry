@@ -189,7 +189,8 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-journal-context { padding: 10px 12px; background: var(--tf-bg); border: 1px solid var(--tf-line); border-radius: 6px; }
 .tf-sidebar-label, .tf-nav-heading, .page-pretitle, .tf-kicker, .tf-filter-label { color: var(--tf-muted); font: 600 var(--tf-fs-2xs)/1.2 'Segoe UI', system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
 .tf-sidebar .form-select { margin-top: 7px; border-color: var(--tf-line); background-color: var(--tf-bg); color: var(--tf-ink); }
-.tf-context-meta { margin-top: 7px; color: var(--tf-blue); font-size: var(--tf-fs-2xs); text-transform: uppercase; }
+.tf-context-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 7px; color: var(--tf-blue); font-size: var(--tf-fs-2xs); text-transform: uppercase; }
+.tf-context-filtered { color: var(--tf-accent); font-weight: 600; white-space: nowrap; }
 .tf-journal-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tf-nav-heading { margin: 0 0 4px 12px; font-size: var(--tf-fs-xs); letter-spacing: .08em; }
 .tf-sidebar .nav-link { min-height: 32px; margin: 0; padding: 6px 12px; border: 0; border-left: 2px solid transparent; border-radius: 0; color: var(--tf-muted); font-size: var(--tf-fs-xs); }

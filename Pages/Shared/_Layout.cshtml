@@ -96,7 +96,13 @@
                                 <option value="@($"/journal/{journal.Id:D}/overview")" selected="@(activeJournal?.Id == journal.Id)">@journal.Name</option>
                             }
                         </select>
-                        <div class="tf-context-meta">@activeJournal?.ExecutionContext · @activeJournal?.Currency</div>
+                        <div class="tf-context-meta">
+                            <span>@activeJournal?.ExecutionContext · @activeJournal?.Currency</span>
+                            @if (filterContext is { } sidebarFilter && sidebarFilter.JournalId == activeJournal?.Id && sidebarFilter.Scope.Filter.IsActive)
+                            {
+                                <span class="tf-context-filtered" title="Journal filter: @sidebarFilter.Scope.Summary">Filtered</span>
+                            }
+                        </div>
                     }
                     else
                     {

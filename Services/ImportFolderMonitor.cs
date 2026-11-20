@@ -17,15 +17,17 @@ public sealed class ImportFolderMonitor : BackgroundService
     private readonly TradeFoundryDb _database;
     private readonly ImportService _imports;
     private readonly ILogger<ImportFolderMonitor> _logger;
+    private readonly ImportNotificationFeed? _notifications;
     private readonly Channel<MonitorWork> _work = Channel.CreateUnbounded<MonitorWork>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly Dictionary<Guid, WatchBinding> _watchers = new();
     private readonly Dictionary<Guid, WatchBinding> _fileWatchers = new();
 
-    public ImportFolderMonitor(TradeFoundryDb database, ImportService imports, ILogger<ImportFolderMonitor> logger)
+    public ImportFolderMonitor(TradeFoundryDb database, ImportService imports, ILogger<ImportFolderMonitor> logger, ImportNotificationFeed? notifications = null)
     {
         _database = database;
         _imports = imports;
         _logger = logger;
+        _notifications = notifications;
     }
 
     public void NotifyConfigurationChanged() => _work.Writer.TryWrite(MonitorWork.Reconcile);
@@ -259,11 +261,13 @@ public sealed class ImportFolderMonitor : BackgroundService
                 var result = _imports.ImportWatchedText(journalId, fullPath, text, contentHash);
                 _logger.LogInformation("Automatically imported {NewRows} rows from {FilePath} into journal {JournalId} (batch {BatchId}).",
                     result.Batch.NewRows, fullPath, journalId, result.Batch.Id);
+                _notifications?.Add(journalId, result.Batch.NewRows > 0 ? "success" : "notice", DescribeImport(journal.Name, fullPath, result.Batch));
             }
             catch (Exception ex) when (ex is FormatException or InvalidOperationException)
             {
                 _database.RecordWatchedImportFailure(request, ex.Message);
                 _logger.LogWarning(ex, "Automatic import failed for {FilePath} in journal {JournalId}.", fullPath, journalId);
+                _notifications?.Add(journalId, "error", $"Automatic import of {Path.GetFileName(fullPath)} into {journal.Name} failed: {ex.Message}");
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -278,6 +282,21 @@ public sealed class ImportFolderMonitor : BackgroundService
         {
             _logger.LogError(ex, "Unexpected failure while processing watched import file {FilePath}.", fullPath);
         }
+    }
+
+    internal static string DescribeImport(string journalName, string filePath, ImportBatch batch)
+    {
+        var fileName = Path.GetFileName(filePath);
+        var rows = batch.NewRows == 1 ? "1 new row" : $"{batch.NewRows:N0} new rows";
+        var duplicates = batch.DuplicateRows switch
+        {
+            0 => string.Empty,
+            1 => " (1 duplicate skipped)",
+            var count => $" ({count:N0} duplicates skipped)"
+        };
+        return batch.NewRows > 0
+            ? $"Automatically imported {rows} from {fileName} into {journalName}{duplicates}."
+            : $"Automatically imported {fileName} into {journalName}: no new rows{duplicates}.";
     }
 
     internal static bool IsWatchedFile(Journal journal, string filePath) =>

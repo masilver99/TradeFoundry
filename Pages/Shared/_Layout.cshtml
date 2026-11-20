@@ -3,6 +3,7 @@
 @using TradeFoundry.Services
 @inject TradeFoundryDb Database
 @inject DesktopUpdateNotice UpdateNotice
+@inject ImportNotificationFeed ImportNotifications
 @{
     var authenticated = User.Identity?.IsAuthenticated == true;
     var journals = authenticated ? Database.GetJournals() : Array.Empty<Journal>();
@@ -37,7 +38,7 @@
     <link rel="stylesheet" href="~/lib/tabler/tabler.min.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
-<body class="@(authenticated ? "tf-app" : "tf-public")" data-chart-export-owner-name="@exportOwnerName" data-chart-export-journal-name="@exportJournalName" data-notification-owner-name="@exportOwnerName" data-command-journal-id="@(activeJournal?.Id.ToString("D") ?? string.Empty)" data-command-search-url="@(activeJournal is null ? string.Empty : $"/journal/{activeJournal.Id:D}/command-search")">
+<body class="@(authenticated ? "tf-app" : "tf-public")" data-chart-export-owner-name="@exportOwnerName" data-chart-export-journal-name="@exportJournalName" data-notification-owner-name="@exportOwnerName" data-import-notifications-url="@(authenticated ? "/import-notifications" : string.Empty)" data-import-notifications-after="@(authenticated ? ImportNotifications.LatestSequence : 0)" data-command-journal-id="@(activeJournal?.Id.ToString("D") ?? string.Empty)" data-command-search-url="@(activeJournal is null ? string.Empty : $"/journal/{activeJournal.Id:D}/command-search")">
 @if (authenticated)
 {
     @if (activeJournal is not null)
@@ -159,7 +160,7 @@
                 </div>
             </div>
             }
-            <div class="page-body"><div class="container-xl">@if (UpdateNotice.AvailableVersion is { } availableUpdate){<div class="alert alert-info" data-notification-ephemeral data-notification-key="desktop-update:@availableUpdate">TradeFoundry @availableUpdate is available. To install it, right-click the TradeFoundry tray icon and choose Install update @availableUpdate and restart.</div>}@if (filterContext is not null){<partial name="_JournalFilterBar" model="filterContext" />}@RenderBody()</div></div>
+            <div class="page-body"><div class="container-xl">@if (UpdateNotice.AvailableVersion is { } availableUpdate){<div class="alert alert-info" data-notification-ephemeral data-notification-key="desktop-update:@availableUpdate">TradeFoundry @availableUpdate is available. To install it, right-click the TradeFoundry tray icon and choose Install update @availableUpdate and restart.</div>}@foreach (var importNotice in ImportNotifications.Since(0)){<div class="alert @(importNotice.Severity switch { "success" => "alert-success", "error" => "alert-danger", _ => "alert-info" })" data-notification-key="auto-import:@importNotice.Key.ToString("D")" data-notification-href="/journal/@importNotice.JournalId.ToString("D")/imports">@importNotice.Message</div>}@if (filterContext is not null){<partial name="_JournalFilterBar" model="filterContext" />}@RenderBody()</div></div>
         </div>
     </div>
 }

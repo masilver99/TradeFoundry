@@ -43,10 +43,16 @@ public sealed class ImportFolderMonitorTests
             Assert.False(database.SaveImportWatchDirectory(otherJournal.Id, folder + Path.DirectorySeparatorChar, out conflict));
             Assert.Equal(journal.Name, conflict);
 
-            monitor = NewMonitor(database);
+            var notifications = new ImportNotificationFeed();
+            monitor = NewMonitor(database, notifications);
             await monitor.StartAsync(CancellationToken.None);
             var completed = await WaitForStatusAsync(database, journal.Id, filePath, "completed");
             Assert.NotNull(completed.ImportBatchId);
+            var notice = Assert.Single(notifications.Since(0));
+            Assert.Equal(journal.Id, notice.JournalId);
+            Assert.Equal("success", notice.Severity);
+            Assert.Contains("fills.csv", notice.Message);
+            Assert.Contains(journal.Name, notice.Message);
             Assert.Equal(1, Imports(database, journal.Id).TotalCount);
             Assert.Equal(0, Imports(database, otherJournal.Id).TotalCount);
 
@@ -239,8 +245,31 @@ public sealed class ImportFolderMonitorTests
         }
     }
 
-    private static ImportFolderMonitor NewMonitor(TradeFoundryDb database) =>
-        new(database, new ImportService(database), NullLogger<ImportFolderMonitor>.Instance);
+    [Fact]
+    public void ImportNotificationFeedReturnsNewerItemsAndKeepsOnlyRecentOnes()
+    {
+        var feed = new ImportNotificationFeed();
+        var journalId = Guid.NewGuid();
+        for (var index = 1; index <= 60; index++) feed.Add(journalId, "success", $"Import {index}");
+
+        Assert.Equal(60, feed.LatestSequence);
+        Assert.Equal(50, feed.Since(0).Count);
+        Assert.Equal("Import 11", feed.Since(0)[0].Message);
+        Assert.Equal(new[] { "Import 59", "Import 60" }, feed.Since(58).Select(item => item.Message));
+        Assert.Empty(feed.Since(60));
+    }
+
+    [Fact]
+    public void ImportDescriptionCountsNewAndDuplicateRows()
+    {
+        Assert.Equal("Automatically imported 3 new rows from fills.csv into Live (1 duplicate skipped).",
+            ImportFolderMonitor.DescribeImport("Live", Path.Combine("x", "fills.csv"), new ImportBatch { NewRows = 3, DuplicateRows = 1 }));
+        Assert.Equal("Automatically imported fills.csv into Live: no new rows (2 duplicates skipped).",
+            ImportFolderMonitor.DescribeImport("Live", "fills.csv", new ImportBatch { NewRows = 0, DuplicateRows = 2 }));
+    }
+
+    private static ImportFolderMonitor NewMonitor(TradeFoundryDb database, ImportNotificationFeed? notifications = null) =>
+        new(database, new ImportService(database), NullLogger<ImportFolderMonitor>.Instance, notifications);
 
     private static TradeFoundryDb CreateDatabase(string directory) =>
         new(Options.Create(new StorageOptions { DataDirectory = directory, DatabaseFileName = "journal.db" }));

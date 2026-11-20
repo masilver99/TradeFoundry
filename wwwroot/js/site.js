@@ -318,6 +318,53 @@ function initializeNotifications() {
     });
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  pollImportNotifications();
+}
+
+// Monitored import folders and files are imported in the background. Poll for finished imports and
+// add them as alerts, which the notification observer captures into the list and shows as toasts.
+function pollImportNotifications() {
+  const url = document.body.dataset.importNotificationsUrl;
+  if (!url) return;
+  let after = Number(document.body.dataset.importNotificationsAfter) || 0;
+  let sink = null;
+  let busy = false;
+  const poll = async () => {
+    if (busy || document.hidden) return;
+    busy = true;
+    try {
+      const response = await fetch(url + "?after=" + encodeURIComponent(after), { headers: { Accept: "application/json" }, credentials: "same-origin", redirect: "error" });
+      if (!response.ok) return;
+      const data = await response.json();
+      // The server restarted and its sequence began again; start over (keys prevent duplicates).
+      if (typeof data.latest === "number" && data.latest < after) {
+        after = 0;
+        return;
+      }
+      (Array.isArray(data.items) ? data.items : []).forEach(item => {
+        if (!item || typeof item.message !== "string" || typeof item.key !== "string") return;
+        after = Math.max(after, Number(item.sequence) || 0);
+        if (!sink) {
+          sink = document.createElement("div");
+          sink.className = "tf-import-notification-sink";
+          sink.hidden = true;
+          document.body.append(sink);
+        }
+        const alert = document.createElement("div");
+        alert.className = "alert " + (item.severity === "success" ? "alert-success" : item.severity === "error" ? "alert-danger" : "alert-info");
+        alert.dataset.notificationKey = item.key;
+        if (typeof item.href === "string") alert.dataset.notificationHref = item.href;
+        alert.textContent = item.message;
+        sink.append(alert);
+      });
+    } catch {
+      // Offline, signed out or the server is restarting; try again on the next tick.
+    } finally {
+      busy = false;
+    }
+  };
+  window.setInterval(poll, 15000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
 }
 
 // Forms marked data-busy-message do slow server work (imports, rebuilds) behind a full-page POST.

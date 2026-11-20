@@ -61,6 +61,7 @@ builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection("Ai"));
 builder.Services.AddSingleton<TradeFoundryDb>();
 builder.Services.AddSingleton<ImportService>();
+builder.Services.AddSingleton<ImportNotificationFeed>();
 builder.Services.AddSingleton<ImportFolderMonitor>();
 builder.Services.AddSingleton<MarketDayFeatureCacheService>();
 builder.Services.AddSingleton<MarketProbabilityService>(services => new MarketProbabilityService(
@@ -142,6 +143,19 @@ app.UseAuthorization();
 app.MapRazorPages();
 app.MapGet("/publication-assets/{name}", (string name) => TradeFoundry.Publishing.PublicationAssets.Script(name) is { } script
     ? Results.Content(script, "text/javascript") : Results.NotFound());
+// Open pages poll this for automatic imports that finished in the background (see site.js).
+app.MapGet("/import-notifications", (long? after, ImportNotificationFeed feed) => Results.Json(new
+{
+    latest = feed.LatestSequence,
+    items = feed.Since(after ?? 0).Select(item => new
+    {
+        sequence = item.Sequence,
+        key = "auto-import:" + item.Key.ToString("D"),
+        severity = item.Severity,
+        message = item.Message,
+        href = $"/journal/{item.JournalId:D}/imports"
+    })
+})).RequireAuthorization();
 
 if (desktopMode && !embeddedMode)
 {

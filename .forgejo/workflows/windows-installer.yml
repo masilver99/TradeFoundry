@@ -136,3 +136,49 @@ jobs:
           curl --fail-with-body --silent --show-error --user "$auth" \
             --upload-file latest.json "$PACKAGE_URL/latest/latest.json"
           echo "Published $VERSION as the latest Windows release."
+
+      # Pushes a Gotify notification once a stable release is public (latest.json replaced).
+      # Prereleases are not announced. Skips quietly until the GOTIFY_URL variable and the
+      # GOTIFY_TOKEN secret (a Gotify application token) are set. A failed push never fails the
+      # job: the release is already public by this point.
+      - name: Notify Gotify of release
+        if: startsWith(forgejo.ref, 'refs/tags/v') && !contains(forgejo.ref, '-')
+        continue-on-error: true
+        shell: bash
+        env:
+          GOTIFY_URL: ${{ vars.GOTIFY_URL }}
+          GOTIFY_TOKEN: ${{ secrets.GOTIFY_TOKEN }}
+          VERSION: ${{ steps.build.outputs.version }}
+          INSTALLER: ${{ steps.build.outputs.installer }}
+          SIZE: ${{ steps.build.outputs.size }}
+          PACKAGE_URL: ${{ steps.build.outputs.package_url }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "$GOTIFY_URL" || -z "$GOTIFY_TOKEN" ]]; then
+            echo 'Gotify not configured (GOTIFY_URL variable, GOTIFY_TOKEN secret); skipping.'
+            exit 0
+          fi
+          missing=()
+          command -v curl > /dev/null || missing+=(curl)
+          command -v jq > /dev/null || missing+=(jq)
+          if (( ${#missing[@]} )); then
+            apt-get update -qq && apt-get install -y -qq "${missing[@]}" > /dev/null
+          fi
+
+          installer_url="$PACKAGE_URL/$VERSION/$(basename "$INSTALLER")"
+          size_mb="$(awk -v b="$SIZE" 'BEGIN { printf "%.1f", b / 1048576 }')"
+          message="Installed tray helpers will now offer the update. Installer: $(basename "$INSTALLER") ($size_mb MB)."
+
+          # Tapping the notification opens the installer download.
+          jq -n --arg title "TradeFoundry $VERSION is out for Windows" --arg message "$message" \
+            --arg url "$installer_url" '{
+              title: $title,
+              message: $message,
+              priority: 5,
+              extras: {"client::notification": {click: {url: $url}}}
+            }' \
+            | curl --fail-with-body --silent --show-error \
+                --header "X-Gotify-Key: $GOTIFY_TOKEN" \
+                --header 'Content-Type: application/json' \
+                --data-binary @- "${GOTIFY_URL%/}/message" > /dev/null
+          echo "Gotify notified of $VERSION."

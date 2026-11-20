@@ -6,7 +6,7 @@ namespace TradeFoundry.Publishing;
 // Deliberately independent of internal journal, account, import, and review models.
 public sealed record PublicationSnapshot
 {
-    public int SchemaVersion { get; init; } = 5;
+    public int SchemaVersion { get; init; } = 6;
     public Guid SnapshotId { get; init; } = Guid.NewGuid();
     public Guid JournalId { get; init; }
     public DateTimeOffset GeneratedUtc { get; init; }
@@ -67,6 +67,12 @@ public sealed record PublicationDay
     public int Wins { get; init; }
     public int Losses { get; init; }
     public int Breakevens { get; init; }
+    /// <summary>
+    /// Schema 6: the day's estimated low in running net P&amp;L, combining results closed before each entry
+    /// with that trade's maximum adverse excursion. Null when no trade that day recorded MAE.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? IntradayLow { get; init; }
     public List<PublicationTrade> Trades { get; init; } = [];
     public List<PublicationNode> Content { get; init; } = [];
 }

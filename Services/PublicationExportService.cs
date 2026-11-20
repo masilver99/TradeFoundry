@@ -149,7 +149,9 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
         Func<Trade, PublicationTradeChart?>? chartForTrade = null, Func<Trade, List<PublicationNode>>? journalForTrade = null,
         Func<Trade, PublicationTradeSetupInfo?>? setupForTrade = null)
     {
-        var trading = DailyTradeAggregation.Build(trades.Where(t => t.JournalId == journal.Id), journal.TimeZone).Where(d => d.CompletedTradeCount > 0).ToDictionary(d => d.Date);
+        var journalTrades = trades.Where(t => t.JournalId == journal.Id).ToArray();
+        var trading = DailyTradeAggregation.Build(journalTrades, journal.TimeZone).Where(d => d.CompletedTradeCount > 0).ToDictionary(d => d.Date);
+        var intradayLows = DailyHeatMetrics.Build(journalTrades, journal.TimeZone).Days.ToDictionary(d => d.Date, d => d.WorstPoint);
         var dates = trading.Keys.Concat(entries.Where(e => HasContent(e.Value)).Select(e => e.Key)).Distinct().OrderBy(d => d).ToArray();
         var days = dates.Select(date =>
         {
@@ -158,6 +160,7 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
             return new PublicationDay
             {
                 Date = date, NetPnl = rows.Sum(t => t.NetPnl), Trades = rows,
+                IntradayLow = rows.Count > 0 && intradayLows.TryGetValue(date, out var low) ? low : null,
                 Wins = rows.Count(t => t.NetPnl > 0), Losses = rows.Count(t => t.NetPnl < 0), Breakevens = rows.Count(t => t.NetPnl == 0),
                 Content = entries.GetValueOrDefault(date) ?? []
             };

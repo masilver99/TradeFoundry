@@ -124,6 +124,7 @@ public static partial class PublicationPresentation
             html.Append("<section id=\"performance\" class=\"performance\" aria-labelledby=\"performance-title\"><div class=\"eyebrow\">PERFORMANCE</div><h2 id=\"performance-title\">Results over time</h2>");
             EquityCurve();
             TradeResults();
+            DailyHeat();
             TradeStatistics();
             html.Append("</section>");
             Analysis();
@@ -304,6 +305,37 @@ public static partial class PublicationPresentation
                 html.Append($"<a class=\"pnl-column{(i >= results.Length / 2 ? " end" : "")}\" href=\"{E(DateLink(date))}\" aria-label=\"{E(label)}\"><svg class=\"pnl-bar\" viewBox=\"0 0 10 200\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><line class=\"pnl-zero\" x1=\"0\" x2=\"10\" y1=\"100\" y2=\"100\"/><rect class=\"{Tone(trade.NetPnl)}\" x=\"1\" y=\"{N(y)}\" width=\"8\" height=\"{N(magnitude)}\"/></svg><span class=\"pnl-tooltip\" aria-hidden=\"true\">{E(label)}</span></a>");
             }
             html.Append($"</div><div class=\"axis-labels muted\"><span>{ShortDate(results[0].Date)}</span><span>{ShortDate(results[^1].Date)}</span></div></div>");
+        }
+
+        /// <summary>
+        /// One range bar per trading day with a recorded intraday low: the body runs from zero to the day's
+        /// net P&amp;L and the wick runs down to the day's low, showing the heat behind each result.
+        /// </summary>
+        private void DailyHeat()
+        {
+            var days = active.Where(d => d.IntradayLow.HasValue).ToArray();
+            if (days.Length == 0) return;
+            html.Append("<div class=\"panel curve trade-results daily-heat\"><h3 id=\"heat-title\">Daily P&amp;L and intraday low</h3><p class=\"muted\">Each bar runs from zero to the day's net P&amp;L after fees; the thin wick reaches the day's lowest running P&amp;L, estimated from each trade's maximum adverse excursion. A long wick under a green bar is a day recovered from heat. Select a bar to open that day.</p>");
+            var top = Math.Max(0m, days.Max(d => d.NetPnl));
+            var bottom = Math.Min(0m, days.Min(d => d.IntradayLow!.Value));
+            var span = top == bottom ? 1m : top - bottom;
+            // Leave a small margin so the tallest body and deepest wick do not touch the edges.
+            decimal Y(decimal value) => 4m + (top - value) * 192m / span;
+            html.Append("<div class=\"pnl-bars\" aria-labelledby=\"heat-title\">");
+            for (var i = 0; i < days.Length; i++)
+            {
+                var day = days[i];
+                var low = day.IntradayLow!.Value;
+                var bodyTop = Y(Math.Max(0m, day.NetPnl));
+                var bodyBottom = Y(Math.Min(0m, day.NetPnl));
+                var body = day.NetPnl == 0 ? 0m : Math.Max(1m, bodyBottom - bodyTop);
+                var wick = Y(low) - bodyBottom;
+                var label = $"{ShortDate(day.Date)} · Net {Money(day.NetPnl)} · Low {Money(low)} · Recovered {Money(day.NetPnl - low)}";
+                html.Append($"<a class=\"pnl-column{(i >= days.Length / 2 ? " end" : "")}\" href=\"{E(DateLink(day.Date))}\" aria-label=\"{E(label)}\"><svg class=\"pnl-bar\" viewBox=\"0 0 10 200\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><line class=\"pnl-zero\" x1=\"0\" x2=\"10\" y1=\"{N(Y(0))}\" y2=\"{N(Y(0))}\"/>");
+                if (wick > 0) html.Append($"<rect class=\"wick\" x=\"4.25\" y=\"{N(bodyBottom)}\" width=\"1.5\" height=\"{N(wick)}\"/>");
+                html.Append($"<rect class=\"{Tone(day.NetPnl)}\" x=\"1\" y=\"{N(day.NetPnl >= 0 ? bodyBottom - body : bodyTop)}\" width=\"8\" height=\"{N(body)}\"/></svg><span class=\"pnl-tooltip\" aria-hidden=\"true\">{E(label)}</span></a>");
+            }
+            html.Append($"</div><div class=\"axis-labels muted\"><span>{ShortDate(days[0].Date)}</span><span>{ShortDate(days[^1].Date)}</span></div></div>");
         }
 
         private void Calendar()

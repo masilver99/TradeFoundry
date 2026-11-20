@@ -212,7 +212,7 @@ public sealed class PublicationTests
         Assert.Null(new PublicationExportService(data.Database, new(data.Database)).Build(data.Journal.Id, new(Title: "Public")).TearSheet);
         var trade = Assert.Single(Assert.Single(snapshot.Days).Trades);
         var chart = Assert.IsType<PublicationTradeChart>(trade.Chart);
-        Assert.Equal(5, snapshot.SchemaVersion);
+        Assert.Equal(6, snapshot.SchemaVersion);
         // Schema 5 carries the exact executions alongside the bar-anchored chart markers.
         Assert.Equal(start.AddMinutes(201), trade.EntryUtc);
         Assert.Equal(start.AddMinutes(222), trade.ExitUtc);
@@ -880,6 +880,44 @@ public sealed class PublicationTests
         Assert.Contains("Net P&amp;L by month", html);
         Assert.DoesNotContain("Compared with", html);
         Assert.DoesNotContain("Detailed indicators", html);
+    }
+
+    [Fact]
+    public void SchemaSixPublishesIntradayLowsAndRendersDailyHeatBars()
+    {
+        var journal = Journal();
+        var start = new DateTimeOffset(2026, 3, 2, 14, 0, 0, TimeSpan.Zero);
+        Trade Heat(decimal pnl, decimal? mae, DateTimeOffset entry) => new()
+        {
+            Id = Guid.NewGuid(), JournalId = journal.Id, Symbol = "MES", Direction = "Long", Quantity = 1, ClosedQuantity = 1,
+            EntryUtc = entry, ExitUtc = entry.AddMinutes(5), Status = "closed", NetPnl = pnl, GrossPnl = pnl, MaePoints = mae, PointValue = 1m
+        };
+        // Day one: +500, then 200 of heat before closing +100, so the low is the first trade's 50 of heat.
+        // Day two: no recorded MAE, so no low is published.
+        var trades = new[] { Heat(500, 50, start), Heat(100, 200, start.AddMinutes(10)), Heat(-40, null, start.AddDays(1)) };
+        var snapshot = PublicationExportService.BuildSnapshot(journal, trades, new(), new Dictionary<DateOnly, List<PublicationNode>>(), [], new(Title: "Heat"), start.AddDays(2));
+
+        Assert.Equal(6, snapshot.SchemaVersion);
+        Assert.Equal(-50m, snapshot.Days[0].IntradayLow);
+        Assert.Null(snapshot.Days[1].IntradayLow);
+        var restored = JsonSerializer.Deserialize<PublicationSnapshot>(JsonSerializer.Serialize(snapshot, PublicationJson.Options), PublicationJson.Options)!;
+        PublicationValidation.Validate(restored);
+        var html = PublicationPresentation.Document(restored, null, _ => "", "/", "/publication.css");
+        Assert.Contains("Daily P&amp;L and intraday low", html);
+        Assert.Contains(System.Net.WebUtility.HtmlEncode("Mar 2, 2026 · Net USD 600.00 · Low USD -50.00 · Recovered USD 650.00"), html);
+        Assert.Contains("class=\"wick\"", html);
+        Assert.DoesNotContain(System.Net.WebUtility.HtmlEncode("Mar 3, 2026 · Net"), html);
+
+        var day = snapshot.Days[0];
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { SchemaVersion = 5 }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { Days = [day with { IntradayLow = 10 }, snapshot.Days[1]] }));
+        Assert.Throws<InvalidOperationException>(() => PublicationValidation.Validate(snapshot with { Days = [day, snapshot.Days[1] with { IntradayLow = -20 }] }));
+
+        var withoutLows = snapshot with { SchemaVersion = 5, Days = snapshot.Days.Select(d => d with { IntradayLow = null }).ToList() };
+        PublicationValidation.Validate(withoutLows);
+        var legacyJson = JsonSerializer.Serialize(withoutLows, PublicationJson.Options);
+        Assert.DoesNotContain("intradayLow", legacyJson);
+        Assert.DoesNotContain("Daily P&amp;L and intraday low", PublicationPresentation.Document(withoutLows, null, _ => "", "/", "/publication.css"));
     }
 
     [Fact]

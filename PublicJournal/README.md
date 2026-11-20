@@ -11,13 +11,15 @@ Everything needed to build and host the public site is in this directory:
 
 TradeFoundry's publishing UI, exporter, and integration tests remain in the main application. The public site builds using this directory as its Docker context; it does not need the rest of the repository.
 
-## Analytics (schema version 5)
+## Analytics (schema versions 5 and 6)
 
 Every publication shows trade statistics (expectancy, payoff, drawdown and recovery, streaks, green days, a result histogram and a rolling 20-trade win rate) and an Analysis section with breakdowns by setup, setup-rule adherence, symbol, direction and weekday, plus a monthly table. These are derived from the published trades, so they also appear for older snapshots.
 
 Schema version 5 adds the data some of these need: exact entry and exit times and prices per trade (exact trade timing and the entry-hour breakdown), the account balance at the start of each month (monthly percentage returns), the imported benchmark's daily closes over the trading period with its comparison statistics, and, when **Publish tear-sheet indicators** is selected in the publishing settings, the risk and stability, core performance, trade dynamics, calendar and R-multiple indicator groups. Order-level execution data stays private.
 
 Deploy the updated public reader before publishing a schema-version-5 preview; an older reader rejects it and keeps its current publication. Versions 1 to 4 remain readable.
+
+Schema version 6 adds each trading day's estimated intraday low: the lowest running net P&L reached, combining results closed before each entry with that trade's maximum adverse excursion. The Performance section draws it as **Daily P&L and intraday low**, one range bar per day whose wick reaches the low. Days without recorded MAE publish no low and are left out of the chart. Deploy the updated reader before publishing a schema-version-6 preview; versions 1 to 5 remain readable.
 
 ## Trade setup information
 

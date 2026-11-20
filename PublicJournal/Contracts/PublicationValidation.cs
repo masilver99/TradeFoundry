@@ -6,7 +6,7 @@ public static class PublicationValidation
 {
     public static void Validate(PublicationSnapshot snapshot)
     {
-        if (snapshot.SchemaVersion is not (1 or 2 or 3 or 4 or 5)) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
+        if (snapshot.SchemaVersion is not (1 or 2 or 3 or 4 or 5 or 6)) throw new InvalidOperationException("Unsupported publication schema version. Update the public website before publishing.");
         if (snapshot.JournalId == Guid.Empty || snapshot.SnapshotId == Guid.Empty || snapshot.GeneratedUtc == default || snapshot.AsOfDate == default)
             throw new InvalidOperationException("Publication identity or date is missing.");
         if (string.IsNullOrWhiteSpace(snapshot.Title) || snapshot.Title.Length > 150 || snapshot.Introduction is null || snapshot.Introduction.Length > 5000
@@ -36,6 +36,12 @@ public static class PublicationValidation
                 || day.Wins != day.Trades.Count(t => t.NetPnl > 0) || day.Losses != day.Trades.Count(t => t.NetPnl < 0)
                 || day.Breakevens != day.Trades.Count(t => t.NetPnl == 0))
                 throw new InvalidOperationException("Daily totals do not match the published trade summaries.");
+            if (day.IntradayLow is { } low)
+            {
+                if (snapshot.SchemaVersion < 6) throw new InvalidOperationException("Intraday lows require publication schema version 6.");
+                if (day.Trades.Count == 0 || low > 0 || low > day.NetPnl)
+                    throw new InvalidOperationException("An intraday low must belong to a trading day and sit at or below both zero and the day's net P&L.");
+            }
             PublicationContent.Validate(day.Content, imageIds);
             foreach (var trade in day.Trades)
             {

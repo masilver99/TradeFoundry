@@ -197,6 +197,9 @@ public static class TearSheetMetrics
             ["Risk Data Coverage"] = new("Share of completed trades with both maximum adverse excursion and usable initial-risk data."),
             ["Winner Risk Coverage"] = new("Share of gross winners with both maximum adverse excursion and usable initial-risk data."),
             ["Avg MAE (Winners)"] = new("Average maximum adverse excursion of winning trades: how much adversity winning trades withstood before turning profitable."),
+            ["Heat Factor"] = new(
+                "Summed daily net P&L divided by summed intraday lows (how far below flat each day went, from realized results plus position MAE). Higher means more profit per dollar of drawdown sat through; days without recorded MAE are left out.",
+                value => Gauge("tf-scale-heat-factor", value, -1m, 5m, current => current < 0m ? "Losing" : current < .5m ? "Thin" : current < 1.5m ? "Fair" : current < 3m ? "Strong" : "Excellent")),
             ["MFE/MAE Ratio"] = new("Average MFE divided by absolute average MAE. Above 1 means trades moved further in your favor than against you."),
             ["Avg Entry Chase"] = new("Average points chased per entry order. Positive means paying more than the original price to get filled; lower is better."),
             ["Avg Exit Chase"] = new("Average points chased per exit order. Positive means accepting a worse price to get out; lower is better."),
@@ -368,6 +371,7 @@ public static class TearSheetMetrics
                         Percent("MFE Capture", stats.MfeCapture, "Gross P&L captured from positive MFE"),
                         Money("Avg MAE (Winners)", stats.AvgMaeWinners, "Adverse excursion on winners", currency, "negative"),
                         Ratio("MFE/MAE Ratio", stats.AvgMfeMaeRatio, "Average MFE ÷ absolute average MAE"),
+                        Ratio("Heat Factor", DailyHeatMetrics.Build(trades, timeZoneId).HeatFactor, "Net P&L ÷ intraday low, summed by day"),
                         Number("Long Count", stats.LongCount, "Completed long trades"),
                         Number("Short Count", stats.ShortCount, "Completed short trades"),
                         Percent("Long Win Rate", stats.LongWinRate, "Gross P&L winners among longs"),

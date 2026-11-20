@@ -26,6 +26,7 @@ public sealed class DailyHeatMetricsTests
         Assert.Equal(250m, day.TotalHeat);
         Assert.Equal(650m, day.Recovery);
         Assert.Equal(600m / 250m, day.PnlPerHeat);
+        Assert.Equal(12m, day.HeatFactor);
         Assert.False(day.HasOverlap);
         Assert.True(day.HasCompleteMae);
     }
@@ -43,6 +44,7 @@ public sealed class DailyHeatMetricsTests
         Assert.Equal(-150m, day.NetPnl);
         Assert.Equal(-400m, day.WorstPoint);
         Assert.Equal(250m, day.Recovery);
+        Assert.Equal(-150m / 400m, day.HeatFactor);
     }
 
     [Fact]
@@ -63,6 +65,33 @@ public sealed class DailyHeatMetricsTests
         Assert.Equal(40m, day.ObservedNetPnl);
         Assert.Equal(-20m, day.WorstPoint);
         Assert.Equal(4m, day.PnlPerHeat);
+        // Heat factor uses the whole day's net P&L, not only the MAE-observed trades.
+        Assert.Equal(1m, day.HeatFactor);
+    }
+
+    [Fact]
+    public void Heat_factor_is_null_when_the_day_never_goes_below_flat()
+    {
+        var summary = DailyHeatMetrics.Build(new[] { Trade(50m, maePoints: 0m, entry: Day, minutes: 5) }, "UTC");
+
+        var day = Assert.Single(summary.Days);
+        Assert.Equal(0m, day.WorstPoint);
+        Assert.Null(day.HeatFactor);
+        Assert.Null(summary.HeatFactor);
+    }
+
+    [Fact]
+    public void Rolling_and_overall_heat_factor_divide_summed_pnl_by_summed_low_depth()
+    {
+        var trades = Enumerable.Range(0, 21)
+            .Select(index => Trade(index == 0 ? 1000m : 10m, maePoints: index == 0 ? 1m : 20m, entry: Day.AddDays(index), minutes: 5))
+            .ToArray();
+
+        var summary = DailyHeatMetrics.Build(trades, "UTC");
+
+        Assert.Equal((1000m + 19 * 10m) / (1m + 19 * 20m), summary.Rolling[0].HeatFactor!.Value, precision: 6);
+        Assert.Equal(.5m, summary.Rolling[1].HeatFactor);
+        Assert.Equal((1000m + 20 * 10m) / (1m + 20 * 20m), summary.HeatFactor!.Value, precision: 6);
     }
 
     [Fact]
@@ -105,6 +134,7 @@ public sealed class DailyHeatMetricsTests
 
         Assert.Contains("chart-empty", ChartRenderer.DailyHeatRange(summary));
         Assert.Contains("chart-empty", ChartRenderer.DailyPnlPerHeat(summary));
+        Assert.Contains("chart-empty", ChartRenderer.DailyHeatFactor(summary));
     }
 
     [Fact]
@@ -120,6 +150,21 @@ public sealed class DailyHeatMetricsTests
 
         Assert.True(range[1] < 500m);
         Assert.True(range[1] >= 1m);
+    }
+
+    [Fact]
+    public void Heat_factor_chart_plots_daily_values()
+    {
+        var summary = DailyHeatMetrics.Build(new[]
+        {
+            Trade(100m, maePoints: 50m, entry: Day, minutes: 5),
+            Trade(-60m, maePoints: 120m, entry: Day.AddDays(1), minutes: 5)
+        }, "UTC");
+
+        using var payload = ReadPayload(ChartRenderer.DailyHeatFactor(summary));
+        var bars = payload.RootElement.GetProperty("data")[0];
+
+        Assert.Equal(new[] { 2m, -.5m }, bars.GetProperty("y").EnumerateArray().Select(x => x.GetDecimal()).ToArray());
     }
 
     private static Trade Trade(decimal netPnl, decimal? maePoints, DateTimeOffset entry, int minutes) => new()

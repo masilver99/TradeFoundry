@@ -62,22 +62,53 @@ public static partial class ChartRenderer
     /// divides summed P&amp;L by summed heat so small-heat days cannot dominate it.
     /// </summary>
     public static string DailyPnlPerHeat(DailyHeatSummary summary)
+        => DailyHeatRatio(
+            summary,
+            "Net P&L per dollar of heat",
+            "net P&L per $1 of MAE",
+            day => day.PnlPerHeat,
+            point => point.PnlPerHeat,
+            day => new object?[] { day.ObservedNetPnl, day.TotalHeat, DayCoverageNote(day) },
+            "%{customdata[0]:,.2f} net over %{customdata[1]:,.2f} heat%{customdata[2]}");
+
+    /// <summary>
+    /// Heat factor for each day: net P&amp;L divided by how far below flat the day went,
+    /// with a rolling aggregate of summed P&amp;L over summed low depth.
+    /// </summary>
+    public static string DailyHeatFactor(DailyHeatSummary summary)
+        => DailyHeatRatio(
+            summary,
+            "Heat factor",
+            "net P&L ÷ intraday low",
+            day => day.HeatFactor,
+            point => point.HeatFactor,
+            day => new object?[] { day.NetPnl, day.WorstPoint, DayCoverageNote(day) },
+            "%{customdata[0]:,.2f} net from a %{customdata[1]:,.2f} low%{customdata[2]}");
+
+    private static string DailyHeatRatio(
+        DailyHeatSummary summary,
+        string title,
+        string axisTitle,
+        Func<DailyHeatDay, decimal?> dailyValue,
+        Func<DailyHeatRollingPoint, decimal?> rollingValue,
+        Func<DailyHeatDay, object?[]> customdata,
+        string detailTemplate)
     {
-        var days = summary.Days.Where(day => day.PnlPerHeat.HasValue).ToArray();
+        var days = summary.Days.Where(day => dailyValue(day).HasValue).ToArray();
         if (days.Length == 0) return Empty(NoMaeMessage);
 
         var dates = DayLabels(days);
-        var ratios = days.Select(day => day.PnlPerHeat!.Value).ToArray();
+        var ratios = days.Select(day => dailyValue(day)!.Value).ToArray();
         var rolling = summary.Rolling.ToDictionary(point => point.Date);
         var rollingValues = days
-            .Select(day => rolling.TryGetValue(day.Date, out var point) ? point.PnlPerHeat : null)
+            .Select(day => rolling.TryGetValue(day.Date, out var point) ? rollingValue(point) : null)
             .ToArray();
 
         var layout = CartesianLayout("x unified");
         layout["showlegend"] = true;
         layout["legend"] = new { x = .02, y = .98 };
         SetAxis(layout, "xaxis", "exit date", category: true);
-        SetAxis(layout, "yaxis", "net P&L per $1 of MAE");
+        SetAxis(layout, "yaxis", axisTitle);
         ApplyDailyTicks(layout, days);
         if (OutlierSafeRange(ratios, rollingValues) is { } range)
             SetRange(layout, "yaxis", range);
@@ -91,8 +122,8 @@ public static partial class ChartRenderer
                 y = ratios,
                 name = "Daily",
                 marker = new { color = ratios.Select(value => value >= 0m ? Green : Red).ToArray(), opacity = .7 },
-                customdata = days.Select(day => new object?[] { day.ObservedNetPnl, day.TotalHeat, DayCoverageNote(day) }).ToArray(),
-                hovertemplate = "Daily: %{y:.2f}<br>%{customdata[0]:,.2f} net over %{customdata[1]:,.2f} heat%{customdata[2]}<extra></extra>"
+                customdata = days.Select(customdata).ToArray(),
+                hovertemplate = $"Daily: %{{y:.2f}}<br>{detailTemplate}<extra></extra>"
             }
         };
         if (rollingValues.Any(value => value.HasValue))
@@ -110,7 +141,7 @@ public static partial class ChartRenderer
                 hovertemplate = $"{DailyHeatMetrics.RollingWindow}-day: %{{y:.2f}}<extra></extra>"
             });
         }
-        return Plotly("Net P&L per dollar of heat", traces, layout);
+        return Plotly(title, traces, layout);
     }
 
     private static string[] DayLabels(IEnumerable<DailyHeatDay> days)

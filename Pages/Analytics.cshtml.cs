@@ -97,6 +97,7 @@ public class AnalyticsModel : PageModel
     public DailyHeatSummary DailyHeat => _dailyHeat ??= DailyHeatMetrics.Build(Trades, Journal?.TimeZone);
     public string DailyHeatRangeChart => ChartRenderer.DailyHeatRange(DailyHeat);
     public string DailyPnlPerHeatChart => ChartRenderer.DailyPnlPerHeat(DailyHeat);
+    public string DailyHeatFactorChart => ChartRenderer.DailyHeatFactor(DailyHeat);
     public string EdgePersistenceRollingExpectancyChart => ChartRenderer.TearSheetEdgePersistenceRollingExpectancy(EdgePersistence);
     public string EdgePersistenceRollingQualityChart => ChartRenderer.TearSheetEdgePersistenceRollingQuality(EdgePersistence);
     public string EdgePersistenceRollingMaeChart => ChartRenderer.TearSheetEdgePersistenceRollingMae(EdgePersistence);

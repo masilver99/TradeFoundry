@@ -570,6 +570,7 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-scale-ulcer { background: linear-gradient(to right, var(--tf-green) 0%, var(--tf-gold) 50%, var(--tf-red) 100%); }
 .tf-scale-cvar { background: linear-gradient(to right, var(--tf-green) 0%, #8bc34a 25%, var(--tf-gold) 50%, var(--tf-red) 75%, var(--tf-red) 100%); }
 .tf-scale-payoff { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 20%, var(--tf-gold) 30%, var(--tf-green) 50%, #56e07f 100%); }
+.tf-scale-heat-factor { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 16%, var(--tf-gold) 25%, var(--tf-green) 42%, #56e07f 100%); }
 .tf-scale-gain-to-pain { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-gold) 25%, #8bc34a 50%, var(--tf-green) 75%, #56e07f 100%); }
 .tf-scale-concentration { background: linear-gradient(to right, var(--tf-green) 0%, var(--tf-green) 30%, var(--tf-gold) 50%, var(--tf-red) 70%, var(--tf-red) 100%); }
 .tf-scale-strategy-return { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 16.7%, var(--tf-gold) 25%, #8bc34a 33%, var(--tf-green) 46%, #56e07f 100%); }

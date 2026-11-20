@@ -30,11 +30,23 @@ public sealed record DailyHeatDay(
 
     /// <summary>Net P&amp;L earned per currency unit of MAE sat through; null when no heat was taken.</summary>
     public decimal? PnlPerHeat => TotalHeat > 0m ? ObservedNetPnl / TotalHeat : null;
+
+    /// <summary>How far below flat the day went: the absolute worst point.</summary>
+    public decimal LowDepth => -WorstPoint;
+
+    /// <summary>
+    /// Heat factor: net P&amp;L divided by how far below flat the day went. Null when the day never went under water.
+    /// </summary>
+    public decimal? HeatFactor => LowDepth > 0m ? NetPnl / LowDepth : null;
 }
 
-public sealed record DailyHeatRollingPoint(DateOnly Date, int WindowDayCount, decimal NetPnl, decimal Heat)
+/// <param name="ObservedNetPnl">Summed net P&amp;L of MAE-observed trades, paired with <paramref name="Heat"/>.</param>
+/// <param name="NetPnl">Summed day net P&amp;L, paired with <paramref name="LowDepth"/>.</param>
+/// <param name="LowDepth">Summed absolute worst points across the window.</param>
+public sealed record DailyHeatRollingPoint(DateOnly Date, int WindowDayCount, decimal ObservedNetPnl, decimal Heat, decimal NetPnl, decimal LowDepth)
 {
-    public decimal? PnlPerHeat => Heat > 0m ? NetPnl / Heat : null;
+    public decimal? PnlPerHeat => Heat > 0m ? ObservedNetPnl / Heat : null;
+    public decimal? HeatFactor => LowDepth > 0m ? NetPnl / LowDepth : null;
 }
 
 public sealed record DailyHeatSummary(IReadOnlyList<DailyHeatDay> Days, IReadOnlyList<DailyHeatRollingPoint> Rolling)
@@ -42,6 +54,16 @@ public sealed record DailyHeatSummary(IReadOnlyList<DailyHeatDay> Days, IReadOnl
     public decimal TotalObservedNetPnl => Days.Sum(day => day.ObservedNetPnl);
     public decimal TotalHeat => Days.Sum(day => day.TotalHeat);
     public decimal? PnlPerHeat => TotalHeat > 0m ? TotalObservedNetPnl / TotalHeat : null;
+
+    /// <summary>Summed net P&amp;L divided by summed low depth, so shallow-low days cannot dominate.</summary>
+    public decimal? HeatFactor
+    {
+        get
+        {
+            var depth = Days.Sum(day => day.LowDepth);
+            return depth > 0m ? Days.Sum(day => day.NetPnl) / depth : null;
+        }
+    }
 }
 
 public static class DailyHeatMetrics
@@ -106,7 +128,13 @@ public static class DailyHeatMetrics
             .Select(end =>
             {
                 var window = days.Skip(end - RollingWindow + 1).Take(RollingWindow).ToArray();
-                return new DailyHeatRollingPoint(days[end].Date, window.Length, window.Sum(day => day.ObservedNetPnl), window.Sum(day => day.TotalHeat));
+                return new DailyHeatRollingPoint(
+                    days[end].Date,
+                    window.Length,
+                    window.Sum(day => day.ObservedNetPnl),
+                    window.Sum(day => day.TotalHeat),
+                    window.Sum(day => day.NetPnl),
+                    window.Sum(day => day.LowDepth));
             })
             .ToArray();
     }

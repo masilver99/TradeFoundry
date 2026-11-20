@@ -17,6 +17,8 @@
   --tf-accent-rgb: var(--tf-gold-rgb);
   --tf-accent-hover: #e3b341;
   --tf-accent-ink: #0d1117;
+  --tf-selection-bg: #b3d7ff;
+  --tf-selection-ink: #0d1117;
   --tf-fs-2xs: 11px;
   --tf-fs-xs: 12px;
   --tf-fs-sm: 13px;
@@ -81,6 +83,8 @@ body { min-width: 320px; margin: 0; background: var(--tf-bg); color: var(--tf-in
 a { color: var(--tf-blue); }
 a:hover { color: #79c0ff; }
 button, input, select, textarea { font: inherit; }
+::selection { background-color: var(--tf-selection-bg, #b3d7ff); color: var(--tf-selection-ink, #0d1117); }
+::-moz-selection { background-color: var(--tf-selection-bg, #b3d7ff); color: var(--tf-selection-ink, #0d1117); }
 .text-secondary { color: var(--tf-muted) !important; }
 
 .tf-sidebar { background: var(--tf-surface); border-color: var(--tf-line); }
@@ -284,6 +288,9 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-import-message { margin-top: 1px; color: var(--tf-muted); }
 .tf-import-message summary { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; list-style: none; }
 .tf-import-message summary::-webkit-details-marker { display: none; }
+.tf-import-guidance summary { cursor: pointer; color: var(--tf-muted); font-weight: 600; }
+.tf-import-guidance ol { padding-left: 1.25rem; }
+.tf-source-notice { display: flex; gap: .5rem; align-items: flex-start; margin: 0; color: var(--tf-muted); font-size: .8125rem; }
 .tf-import-message summary::before { content: "\25B8"; display: inline-block; width: 1em; color: var(--tf-muted); }
 .tf-import-message[open] summary { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--tf-ink); }
 .tf-import-message[open] summary::before { content: "\25BE"; }

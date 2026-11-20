@@ -25,6 +25,7 @@ public class TradesModel : PageModel
     public PagedResult<Trade> Results { get; private set; } = new();
     public JournalFilterScope Filter { get; private set; } = JournalFilter.None.Scope(null);
     public IReadOnlySet<DateOnly> DailyJournalEntryDates { get; private set; } = new HashSet<DateOnly>();
+    public string SourceDefinedNotice { get; private set; } = string.Empty;
 
     public DateOnly GetReviewDate(Trade trade)
     {
@@ -50,6 +51,9 @@ public class TradesModel : PageModel
             Sort = Sort
         });
         DailyJournalEntryDates = _database.GetDailyJournalEntryDates(JournalId, Results.Items.Select(GetReviewDate));
+        var (sourceDefined, totalTrades) = _database.CountSourceDefinedTrades(JournalId);
+        if (sourceDefined > 0)
+            SourceDefinedNotice = TradeFoundryConstants.SourceDefinedTradeNotice(sourceDefined, totalTrades);
         return Page();
     }
 }

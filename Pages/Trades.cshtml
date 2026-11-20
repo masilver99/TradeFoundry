@@ -24,7 +24,7 @@
                 <input type="hidden" name="@item.Key" value="@item.Value" />
             }
             <div class="tf-toolbar-fields">
-                <div class="tf-filter tf-filter-wide"><label class="tf-filter-label" for="trade-search">Search</label><input id="trade-search" class="form-control form-control-sm" name="search" value="@Model.Search" placeholder="Symbol, account, side…" /></div>
+                <div class="tf-filter tf-filter-wide"><label class="tf-filter-label" for="trade-search">Search</label><input id="trade-search" class="form-control form-control-sm" name="search" value="@Model.Search" placeholder="Symbol, account, strategy, signal…" /></div>
                 <div class="tf-filter"><label class="tf-filter-label" for="trade-symbol">Symbol</label><input id="trade-symbol" class="form-control form-control-sm" name="symbol" value="@Model.Symbol" placeholder="ES, NQ…" /></div>
                 <div class="tf-filter"><label class="tf-filter-label" for="trade-status">Status</label><select id="trade-status" class="form-select form-select-sm" name="status"><option value="">All statuses</option><option value="closed" selected="@(Model.Status == "closed")">Closed</option><option value="open" selected="@(Model.Status == "open")">Open</option></select></div>
                 <div class="tf-filter"><label class="tf-filter-label" for="trade-sort">Sort</label><select id="trade-sort" class="form-select form-select-sm" name="sort"><option value="entry_desc" selected="@(Model.Sort == "entry_desc")">Newest first</option><option value="entry_asc" selected="@(Model.Sort == "entry_asc")">Oldest first</option><option value="pnl_desc" selected="@(Model.Sort == "pnl_desc")">P&amp;L high to low</option><option value="pnl_asc" selected="@(Model.Sort == "pnl_asc")">P&amp;L low to high</option></select></div>
@@ -33,6 +33,11 @@
         </form>
     </div>
 </section>
+
+@if (Model.SourceDefinedNotice.Length > 0)
+{
+    <p class="tf-source-notice mb-3" role="note" data-source-defined-notice><strong>Source-defined trades:</strong> <span>@Model.SourceDefinedNotice</span></p>
+}
 
 <section class="card tf-card" data-ledger-results>
     <div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">@Model.Journal?.Name</div><h3 class="tf-card-title">Trade ledger</h3></div><span class="text-secondary">@Model.Results.TotalCount.ToString("N0") matching trade(s)@(Model.Filter.IsActive ? $" · {Model.Filter.Summary}" : string.Empty)</span></div></div>

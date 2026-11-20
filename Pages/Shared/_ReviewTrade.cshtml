@@ -40,6 +40,15 @@
         : review.ExchangeFees.HasValue || review.NfaFees.HasValue || review.ClearingFees.HasValue
             ? " · per-trade component override"
             : " · imported/instrument-derived";
+    var isNinjaTrader = trade.SourceType.Equals(TradeFoundryConstants.NinjaTraderTrades, StringComparison.Ordinal);
+    var excursionSourceText = !trade.MaePoints.HasValue && !trade.MfePoints.HasValue
+        ? "Not reported by the source"
+        : isNinjaTrader
+            ? "NinjaTrader native MAE/MFE, converted from currency to points per contract"
+            : "Derived from imported fill evidence";
+    var groupingText = trade.IsSourceDefined
+        ? $"Source-defined · paired by {sourceApplication}; a scaled position can appear as several trades"
+        : trade.GroupingPolicy;
     var hasFeeOverride = review.AllInCommission.HasValue || review.ExchangeFees.HasValue || review.NfaFees.HasValue || review.ClearingFees.HasValue;
     var feeSourceText = review.AllInCommission.HasValue ? "Per-trade all-in override" : hasFeeOverride ? "Per-trade component override" : "Imported or instrument-settings fees";
     string CriterionTypeLabel(SetupCriterionType type) => type switch
@@ -163,7 +172,16 @@
                     <dt>Trading app</dt><dd>@sourceApplication</dd>
                     <dt>Source type</dt><dd>@trade.SourceType</dd>
                     <dt>Source timeframe</dt><dd>@(string.IsNullOrWhiteSpace(trade.SourceTimeframe) ? "Not recorded" : trade.SourceTimeframe)</dd>
-                    <dt>Grouping</dt><dd>@trade.GroupingPolicy</dd>
+                    <dt>Grouping</dt><dd>@groupingText</dd>
+                    @if (!string.IsNullOrWhiteSpace(trade.Strategy))
+                    {
+                        <dt>Strategy</dt><dd>@trade.Strategy</dd>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(trade.EntryName) || !string.IsNullOrWhiteSpace(trade.ExitName))
+                    {
+                        <dt>Entry / exit signal</dt><dd>@(string.IsNullOrWhiteSpace(trade.EntryName) ? "—" : trade.EntryName) / @(string.IsNullOrWhiteSpace(trade.ExitName) ? "—" : trade.ExitName)@(string.IsNullOrWhiteSpace(trade.ExitType) ? string.Empty : $" · {trade.ExitType}")</dd>
+                    }
+                    <dt>MAE / MFE source</dt><dd>@excursionSourceText</dd>
                     <dt>Account</dt><dd>@trade.Account</dd>
                     <dt>Point value</dt><dd>@trade.PointValue.ToString("C2") per point</dd>
                     <dt>Tick size</dt><dd>@trade.TickSize.ToString("0.########")</dd>

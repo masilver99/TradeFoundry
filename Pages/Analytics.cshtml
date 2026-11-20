@@ -52,6 +52,12 @@
     <div class="alert tf-alert @(Model.BenchmarkRefreshMessageKind == "success" ? string.Empty : Model.BenchmarkRefreshMessageKind == "error" ? "error" : "warning")" role="status">@Model.BenchmarkRefreshMessage</div>
 }
 
+@{ var sourceDefinedNotice = TradeFoundryConstants.SourceDefinedTradeNotice(Model.Trades.Count(trade => trade.IsSourceDefined), Model.Trades.Count); }
+@if (sourceDefinedNotice.Length > 0)
+{
+    <p class="tf-source-notice mb-3" role="note" data-source-defined-notice><strong>Source-defined trades:</strong> <span>@sourceDefinedNotice</span></p>
+}
+
 @if (Model.DataAvailabilityWarnings.Count > 0)
 {
     <div class="alert tf-alert warning" role="status" data-notification-href="@($"/journal/{Model.JournalId:D}/imports")"><strong>Evidence limits:</strong> @string.Join(" ", Model.DataAvailabilityWarnings)</div>

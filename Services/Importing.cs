@@ -122,8 +122,10 @@ public sealed class ImportService
     public ImportResult ImportWatchedText(Guid journalId, string filePath, string text, string contentHash)
     {
         text = (text ?? string.Empty).TrimStart('\uFEFF');
+        if (TryReadHeader(text, out _, out _, out var watchedHeaders, out _) && LooksLikeNinjaTraderExecutions(watchedHeaders))
+            throw new FormatException(NinjaTraderExecutionsMessage);
         if (!IsSupportedTradeExport(text))
-            throw new FormatException("The file is not a recognized trade export. Supported sources are Sierra Chart fills and orders, TradingView account history, and TradingView Strategy Tester.");
+            throw new FormatException("The file is not a recognized trade export. Supported sources are Sierra Chart fills and orders, TradingView account history, TradingView Strategy Tester, and NinjaTrader Trade Performance Trades.");
 
         var journal = _database.GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         var importTimeZone = ResolveSourceTimeZone(text, "auto", TimeZoneCatalog.Auto, TimeZoneCatalog.CanonicalId(journal.TimeZone));
@@ -152,6 +154,8 @@ public sealed class ImportService
         bool Has(params string[] names) => names.Any(headers.Contains);
 
         if (Has("activitytype", "fillexecutionserviceid")) return true;
+        if (LooksLikeNinjaTraderExecutions(headers)) return false;
+        if (LooksLikeNinjaTraderTrades(headers)) return true;
         if ((Has("trade", "tradenumber") && Has("netpnl", "profit", "entryprice"))) return true;
 
         if (Has("adjclose", "adjustedclose", "totalreturn", "totalreturnvalue") && Has("date", "datetime", "timestamp")) return false;
@@ -180,6 +184,8 @@ public sealed class ImportService
             ImportSource.Sierra => ParseSierra(lines, headerLine, headers, delimiter, timeZone, configuration),
             ImportSource.TradingViewAccount => ParseTradingViewAccount(lines, headerLine, headers, delimiter, timeZone, configuration),
             ImportSource.TradingViewStrategy => ParseTradingViewStrategy(lines, headerLine, headers, delimiter, timeZone, configuration),
+            ImportSource.NinjaTraderTrades => ParseNinjaTraderTrades(lines, headerLine, headers, delimiter, timeZone, configuration),
+            ImportSource.NinjaTraderExecutions => throw new FormatException(NinjaTraderExecutionsMessage),
             ImportSource.Benchmark => ParseBenchmark(lines, headerLine, headers, delimiter, timeZone, benchmarkSymbol),
             ImportSource.SierraBars => ParseBars(lines, headerLine, headers, delimiter, interval, timeZone, barSymbol, TradeFoundryConstants.SierraOhlcBars),
             _ => ParseBars(lines, headerLine, headers, delimiter, interval, timeZone, barSymbol, TradeFoundryConstants.OhlcvBars)
@@ -435,6 +441,218 @@ public sealed class ImportService
         return result;
     }
 
+    private const string NinjaTraderExecutionsMessage = "This is a NinjaTrader Executions export. TradeFoundry imports NinjaTrader's Trade Performance Trades grid instead: open Trade Performance, set Display to Currency ($), choose the Trades tab, right-click the grid, and export it to CSV.";
+    private const string NinjaTraderCurrencyMessage = "This NinjaTrader Trades export is not in USD Currency display, so Profit, MAE, and MFE cannot be interpreted. In Trade Performance set Display to Currency ($), then export the Trades grid again.";
+    private static readonly string[] NinjaTraderCostColumns = ["commission", "clearingfee", "exchangefee", "ipfee", "nfafee"];
+
+    internal static bool LooksLikeNinjaTraderTrades(string[] headers)
+    {
+        bool Has(string name) => headers.Contains(name);
+        return Has("tradenumber") && Has("marketpos") && Has("entryprice") && Has("exitprice") && Has("entrytime") && Has("exittime")
+            && Has("profit") && Has("mae") && Has("mfe");
+    }
+
+    internal static bool LooksLikeNinjaTraderExecutions(string[] headers)
+    {
+        bool Has(string name) => headers.Contains(name);
+        // "E/X" normalizes to "ex". Executions also carry Position, Order ID, and Connection.
+        return Has("ex") && Has("position") && Has("orderid") && Has("connection") && Has("action");
+    }
+
+    /// <summary>
+    /// Parses NinjaTrader's Trade Performance "Trades" grid exported in Currency display.
+    /// Each row is one NinjaTrader-paired trade: TradeFoundry keeps the source pairing
+    /// (source_defined), the native MAE/MFE, and commits each typed trade with its raw row.
+    /// </summary>
+    private static ParsedImport ParseNinjaTraderTrades(string[] lines, string headerLine, string[] headers, char delimiter, string timeZone, InstrumentConfiguration configuration)
+    {
+        if (LooksLikeNinjaTraderExecutions(headers))
+            throw new FormatException(NinjaTraderExecutionsMessage);
+        if (!LooksLikeNinjaTraderTrades(headers))
+            throw new FormatException("The file is not a NinjaTrader Trade Performance Trades export. It must include Trade number, Instrument, Account, Market pos., Qty, Entry/Exit price, Entry/Exit time, Profit, MAE, and MFE columns.");
+
+        var result = new ParsedImport
+        {
+            SourceType = TradeFoundryConstants.NinjaTraderTrades,
+            SourceApplication = TradeFoundryConstants.NinjaTrader,
+            GroupingPolicyOverride = TradeFoundryConstants.SourceDefinedGrouping
+        };
+        var rows = Rows(lines, headerLine, headers, delimiter).ToArray();
+
+        // The header does not say whether money columns are currency, points, ticks, or percent.
+        // The display mode is file-wide, so reject the whole file rather than misreading every row.
+        if (rows.Any(item => Value(item.Row, headers, "profit") is { Length: > 0 } profit && !IsUsdMoneyText(profit)))
+            throw new FormatException(NinjaTraderCurrencyMessage);
+
+        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        var runningProfit = 0m;
+        var cumulativeMismatches = 0;
+        var etdMismatches = 0;
+        foreach (var (row, rowNumber) in rows)
+        {
+            var payload = JsonSerializer.Serialize(row);
+            var draft = TryParseNinjaTraderTrade(row, headers, timeZone, configuration, out var identity, out var error, out var profit, out var mfe, out var etd);
+            if (profit.HasValue)
+            {
+                runningProfit += profit.Value;
+                if (TryUsdMoney(Value(row, headers, "cumnetprofit"), out var cumulative) && Math.Abs(cumulative - runningProfit) > 0.01m)
+                    cumulativeMismatches++;
+                if (mfe.HasValue && etd.HasValue && Math.Abs(mfe.Value - profit.Value - etd.Value) > 0.01m)
+                    etdMismatches++;
+            }
+
+            if (draft is null)
+            {
+                result.Warnings.Add($"NinjaTrader row {rowNumber}: {error} The raw row was retained.");
+                result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = Fingerprint(result.SourceType, row), RowNumber = rowNumber, PayloadJson = payload });
+                continue;
+            }
+
+            // Trade number and cumulative profit are report-relative. Identity uses the
+            // trade's own facts plus a one-based occurrence index so that truly identical
+            // paired rows (same second, same prices) remain distinct and re-exports dedupe.
+            var occurrence = occurrences.TryGetValue(identity, out var seen) ? seen + 1 : 1;
+            occurrences[identity] = occurrence;
+            var sourceKey = "nt:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity + "\u001f" + occurrence.ToString(CultureInfo.InvariantCulture)))).ToLowerInvariant();
+            var trade = new ImportedTradeDraft
+            {
+                SourceType = draft.SourceType, SourceKey = sourceKey, Symbol = draft.Symbol, Account = draft.Account, Direction = draft.Direction,
+                EntryUtc = draft.EntryUtc, ExitUtc = draft.ExitUtc, EntryPrice = draft.EntryPrice, ExitPrice = draft.ExitPrice, Quantity = draft.Quantity,
+                GrossPoints = draft.GrossPoints, GrossPnl = draft.GrossPnl, ExchangeFees = draft.ExchangeFees, NfaFees = draft.NfaFees, ClearingFees = draft.ClearingFees,
+                Fees = draft.Fees, NetPnl = draft.NetPnl, ExitType = draft.ExitType, Instrument = draft.Instrument, PointValue = draft.PointValue, TickSize = draft.TickSize,
+                MaePoints = draft.MaePoints, MfePoints = draft.MfePoints, Strategy = draft.Strategy, EntryName = draft.EntryName, ExitName = draft.ExitName,
+                Sequence = draft.Sequence > 0 ? draft.Sequence : rowNumber
+            };
+            result.Records.Add(new ParsedRecord { SourceType = result.SourceType, SourceKey = sourceKey, RowNumber = rowNumber, PayloadJson = payload, Trade = trade });
+        }
+
+        if (cumulativeMismatches > 0)
+            result.Warnings.Add($"NinjaTrader reconciliation: {cumulativeMismatches:N0} row(s) have a Cum. net profit that differs from the running sum of Profit. The export may be filtered or re-sorted; trade values were still imported from each row.");
+        if (etdMismatches > 0)
+            result.Warnings.Add($"NinjaTrader reconciliation: {etdMismatches:N0} row(s) have an ETD that differs from MFE minus Profit. Native MAE/MFE were still imported.");
+        return result;
+    }
+
+    private static ImportedTradeDraft? TryParseNinjaTraderTrade(Dictionary<string, string> row, string[] headers, string timeZone, InstrumentConfiguration configuration,
+        out string identity, out string error, out decimal? profitValue, out decimal? mfeCurrency, out decimal? etdCurrency)
+    {
+        identity = string.Empty;
+        error = string.Empty;
+        profitValue = TryUsdMoney(Value(row, headers, "profit"), out var parsedProfit) ? parsedProfit : null;
+        mfeCurrency = TryUsdMoney(Value(row, headers, "mfe"), out var parsedMfe) ? parsedMfe : null;
+        etdCurrency = TryUsdMoney(Value(row, headers, "etd"), out var parsedEtd) ? parsedEtd : null;
+
+        var symbol = Value(row, headers, "instrument");
+        var account = Value(row, headers, "account");
+        var position = Value(row, headers, "marketpos");
+        var direction = position.Equals("Long", StringComparison.OrdinalIgnoreCase) ? "Long"
+            : position.Equals("Short", StringComparison.OrdinalIgnoreCase) ? "Short" : string.Empty;
+        if (string.IsNullOrWhiteSpace(symbol)) { error = "Instrument is missing."; return null; }
+        if (string.IsNullOrWhiteSpace(account)) { error = "Account is missing."; return null; }
+        if (direction.Length == 0) { error = $"Market pos. '{position}' is not Long or Short."; return null; }
+        if (!int.TryParse(Value(row, headers, "qty"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var quantity) || quantity <= 0) { error = "Qty is missing or not a positive whole number."; return null; }
+        if (!TryDecimal(Value(row, headers, "entryprice"), out var entryPrice) || entryPrice <= 0m) { error = "Entry price is missing or invalid."; return null; }
+        if (!TryDecimal(Value(row, headers, "exitprice"), out var exitPrice) || exitPrice <= 0m) { error = "Exit price is missing or invalid."; return null; }
+        if (!TryLocalDate(Value(row, headers, "entrytime"), out var entryLocal)) { error = "Entry time could not be parsed."; return null; }
+        if (!TryLocalDate(Value(row, headers, "exittime"), out var exitLocal)) { error = "Exit time could not be parsed."; return null; }
+        if (exitLocal < entryLocal) { error = "Exit time is before entry time."; return null; }
+        if (!profitValue.HasValue) { error = "Profit is missing or is not a USD amount."; return null; }
+
+        var reportedCosts = 0m;
+        foreach (var column in NinjaTraderCostColumns)
+        {
+            var text = Value(row, headers, column);
+            if (text.Length == 0) continue;
+            if (!TryUsdMoney(text, out var cost)) { error = $"Fee column '{column}' value '{text}' is not a USD amount."; return null; }
+            reportedCosts += cost;
+        }
+
+        decimal? MoneyOrNull(string column, out bool invalid)
+        {
+            var text = Value(row, headers, column);
+            invalid = false;
+            if (text.Length == 0) return null;
+            if (TryUsdMoney(text, out var amount)) return Math.Abs(amount);
+            invalid = true;
+            return null;
+        }
+        var mae = MoneyOrNull("mae", out var maeInvalid);
+        var mfe = MoneyOrNull("mfe", out var mfeInvalid);
+        if (maeInvalid || mfeInvalid) { error = "MAE or MFE is not a USD amount."; return null; }
+
+        var resolution = configuration.Resolve(TradeFoundryConstants.NinjaTrader, symbol);
+        var pointValue = resolution.PointValue;
+        var grossPoints = (direction == "Long" ? exitPrice - entryPrice : entryPrice - exitPrice) * quantity;
+        var grossPnl = grossPoints * pointValue;
+        var expectedProfit = grossPnl - reportedCosts;
+        if (Math.Abs(expectedProfit - profitValue.Value) > 0.01m)
+        {
+            error = string.Create(CultureInfo.InvariantCulture,
+                $"Price-derived net P&L {expectedProfit:0.00} (point value {NumberFormat.Decimal(pointValue)} for {resolution.InstrumentCode}) does not match Profit {profitValue.Value:0.00}. Check the instrument point value or add a NinjaTrader symbol mapping in Import Source Settings.");
+            return null;
+        }
+
+        // Precedence: source mapping override, then instrument defaults, then the costs NinjaTrader reported.
+        // Fee settings are per contract per side, so a round turn counts both the entry and exit quantity.
+        var feeQuantity = quantity * 2;
+        var fees = ResolveTradeFees(resolution, reportedCosts, feeQuantity);
+        var excursionDivisor = quantity * pointValue;
+        decimal? ToPoints(decimal? currency) => currency.HasValue && excursionDivisor > 0m ? Math.Round(currency.Value / excursionDivisor, 8) : null;
+
+        var entryName = Value(row, headers, "entryname");
+        var exitName = Value(row, headers, "exitname");
+        identity = string.Join('\u001f', "v1", account.Trim().ToUpperInvariant(), symbol.Trim().ToUpperInvariant(), direction, quantity.ToString(CultureInfo.InvariantCulture),
+            entryLocal.ToString("yyyy-MM-ddTHH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture), exitLocal.ToString("yyyy-MM-ddTHH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture),
+            NumberFormat.Decimal(entryPrice), NumberFormat.Decimal(exitPrice));
+        return new ImportedTradeDraft
+        {
+            SourceType = TradeFoundryConstants.NinjaTraderTrades, Symbol = symbol, Account = account, Direction = direction,
+            EntryUtc = TimeZoneCatalog.FromLocal(entryLocal, timeZone), ExitUtc = TimeZoneCatalog.FromLocal(exitLocal, timeZone),
+            EntryPrice = entryPrice, ExitPrice = exitPrice, Quantity = quantity, GrossPoints = grossPoints, GrossPnl = grossPnl,
+            ExchangeFees = resolution.HasFeeBreakdown ? (resolution.ExchangeFeePerContract ?? 0m) * feeQuantity : 0m,
+            NfaFees = resolution.HasFeeBreakdown ? (resolution.NfaFeePerContract ?? 0m) * feeQuantity : 0m,
+            ClearingFees = resolution.HasFeeBreakdown ? (resolution.ClearingFeePerContract ?? 0m) * feeQuantity : 0m,
+            Fees = fees, NetPnl = grossPnl - fees, ExitType = NormalizeNinjaTraderExitType(exitName),
+            Instrument = resolution.InstrumentCode, PointValue = pointValue, TickSize = resolution.TickSize,
+            MaePoints = ToPoints(mae), MfePoints = ToPoints(mfe), Strategy = Value(row, headers, "strategy"), EntryName = entryName, ExitName = exitName,
+            Sequence = int.TryParse(Value(row, headers, "tradenumber"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var tradeNumber) ? tradeNumber : 0
+        };
+    }
+
+    internal static string NormalizeNinjaTraderExitType(string exitName)
+    {
+        var value = (exitName ?? string.Empty).Trim();
+        if (value.Length == 0) return string.Empty;
+        // ATM brackets name exits Stop1/Target1; managed strategies use "Stop loss",
+        // "Trail stop", "Profit target", "Close position", and "Exit on session close".
+        if (value.Contains("stop", StringComparison.OrdinalIgnoreCase)) return "stop";
+        if (value.Contains("target", StringComparison.OrdinalIgnoreCase)) return "target";
+        if (value.StartsWith("Close", StringComparison.OrdinalIgnoreCase) || value.Contains("session close", StringComparison.OrdinalIgnoreCase)) return "close";
+        return string.Empty;
+    }
+
+    private static bool IsUsdMoneyText(string text)
+    {
+        var value = text.Trim();
+        if (!value.Contains('$')) return false;
+        return value.All(ch => char.IsDigit(ch) || ch is '$' or '.' or ',' or '(' or ')' or '-' or ' ');
+    }
+
+    private static bool TryUsdMoney(string text, out decimal value)
+    {
+        value = 0m;
+        if (string.IsNullOrWhiteSpace(text) || !IsUsdMoneyText(text)) return false;
+        return TryDecimal(text, out value);
+    }
+
+    private static bool TryLocalDate(string text, out DateTime value)
+    {
+        value = default;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        return DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out value)
+            || DateTime.TryParse(text, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out value);
+    }
+
     private static ParsedImport ParseBenchmark(string[] lines, string headerLine, string[] headers, char delimiter, string timeZone, string defaultSymbol)
     {
         var result = NewResult(TradeFoundryConstants.BenchmarkSeries);
@@ -593,6 +811,7 @@ public sealed class ImportService
         {
             TradeFoundryConstants.SierraFills => TradeFoundryConstants.SierraChart,
             TradeFoundryConstants.TradingViewAccount or TradeFoundryConstants.TradingViewStrategy => TradeFoundryConstants.TradingView,
+            TradeFoundryConstants.NinjaTraderTrades => TradeFoundryConstants.NinjaTrader,
             TradeFoundryConstants.BenchmarkSeries => TradeFoundryConstants.Benchmark,
             TradeFoundryConstants.OhlcvBars => TradeFoundryConstants.Ohlcv,
             TradeFoundryConstants.SierraOhlcBars => TradeFoundryConstants.SierraChart,
@@ -632,9 +851,15 @@ public sealed class ImportService
         if (request is "sierrabars" or "sierraohlc" or "sierraohlcbars" or "sierrachartbars") return ImportSource.SierraBars;
         if (request is "tradingviewstrategy" or "strategy" or "strategytester") return ImportSource.TradingViewStrategy;
         if (request is "tradingviewaccount" or "account" or "broker") return ImportSource.TradingViewAccount;
+        if (request is "ninjatrader" or "ninjatradertrades" or "nt8trades")
+            return LooksLikeNinjaTraderExecutions(headers) ? ImportSource.NinjaTraderExecutions : ImportSource.NinjaTraderTrades;
         if (request is "benchmark" or "benchmarkseries" or "benchmarkdaily") return ImportSource.Benchmark;
         if (request is "ohlcv" or "bars" or "candles") return ImportSource.Bars;
         if (headers.Contains("activitytype") || headers.Contains("fillexecutionserviceid")) return ImportSource.Sierra;
+        // NinjaTrader exports must be recognized before the generic TradingView signatures:
+        // Trades share Trade number/Profit/Entry price, and Executions look like account history.
+        if (LooksLikeNinjaTraderTrades(headers)) return ImportSource.NinjaTraderTrades;
+        if (LooksLikeNinjaTraderExecutions(headers)) return ImportSource.NinjaTraderExecutions;
         if ((headers.Contains("trade") || headers.Contains("tradenumber")) && (headers.Contains("netpnl") || headers.Contains("profit") || headers.Contains("entryprice"))) return ImportSource.TradingViewStrategy;
         if ((headers.Contains("adjclose") || headers.Contains("adjustedclose") || headers.Contains("totalreturn") || headers.Contains("totalreturnvalue")) && (headers.Contains("date") || headers.Contains("datetime") || headers.Contains("timestamp"))) return ImportSource.Benchmark;
         if (headers.Contains("open") && headers.Contains("high") && headers.Contains("low") && (headers.Contains("close") || headers.Contains("last"))) return ImportSource.Bars;
@@ -684,7 +909,7 @@ public sealed class ImportService
         if (NormalizeHeader(requestedType) is not ("" or "auto")) return;
         if (!TryReadHeader(text, out _, out _, out var headers, out _)) return;
         if (DetectSource(headers, requestedType) == ImportSource.TradingViewAccount && !LooksLikeTradingViewAccount(headers))
-            throw new FormatException("The file format was not recognized. Supported sources are Sierra Chart fills and orders, TradingView account history, TradingView Strategy Tester, benchmark daily series, and OHLC bars. Choose a format explicitly if this file is one of them.");
+            throw new FormatException("The file format was not recognized. Supported sources are Sierra Chart fills and orders, TradingView account history, TradingView Strategy Tester, NinjaTrader Trade Performance Trades, benchmark daily series, and OHLC bars. Choose a format explicitly if this file is one of them.");
     }
 
     private static bool IsSierraBarsRequest(string requestedType) => NormalizeHeader(requestedType) is "sierrabars" or "sierraohlc" or "sierraohlcbars" or "sierrachartbars";
@@ -878,5 +1103,5 @@ public sealed class ImportService
         return string.Empty;
     }
 
-    private enum ImportSource { Sierra, SierraBars, TradingViewAccount, TradingViewStrategy, Benchmark, Bars }
+    private enum ImportSource { Sierra, SierraBars, TradingViewAccount, TradingViewStrategy, NinjaTraderTrades, NinjaTraderExecutions, Benchmark, Bars }
 }

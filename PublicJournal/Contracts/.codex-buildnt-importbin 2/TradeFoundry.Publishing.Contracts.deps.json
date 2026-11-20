@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "TradeFoundry.Publishing.Contracts/1.0.0": {
+        "runtime": {
+          "TradeFoundry.Publishing.Contracts.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "TradeFoundry.Publishing.Contracts/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

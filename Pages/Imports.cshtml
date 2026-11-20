@@ -28,7 +28,7 @@
                         <div class="col-md-5"><label class="tf-import-dropzone" data-import-dropzone data-preview-target="#import-preview" for="import-file"><strong>Drop a CSV or TSV here</strong><span>or choose an export file</span><input id="import-file" asp-for="ImportFile" type="file" accept=".csv,.tsv,.txt" required /></label><pre id="import-preview" class="tf-import-preview" hidden></pre></div>
                         <div class="col-md-7">
                             <div class="row g-3">
-                                <div class="col-md-6"><label class="form-label">Format<select asp-for="RequestedType" class="form-select"><option value="auto">Auto-detect</option><option value="sierra">Sierra Chart fills + orders</option><option value="tradingview-account">TradingView account history</option><option value="tradingview-strategy">TradingView Strategy Tester</option><option value="benchmark">Benchmark daily series</option></select></label></div>
+                                <div class="col-md-6"><label class="form-label">Format<select asp-for="RequestedType" class="form-select"><option value="auto">Auto-detect</option><option value="sierra">Sierra Chart fills + orders</option><option value="tradingview-account">TradingView account history</option><option value="tradingview-strategy">TradingView Strategy Tester</option><option value="ninjatrader">NinjaTrader Trades ($)</option><option value="benchmark">Benchmark daily series</option></select></label></div>
                                 <div class="col-md-6"><label class="form-label">Grouping<select asp-for="GroupingPolicy" class="form-select"><option value="flat_to_flat">Flat-to-flat</option><option value="fifo_lots">FIFO lots (phase 2)</option><option value="source_defined">Source-defined rows</option></select></label></div>
                                 <div class="col-md-6"><label class="form-label">Benchmark ticker<input asp-for="BenchmarkSymbol" class="form-control" placeholder="^GSPC" /></label></div>
                                 <div class="col-md-6"><label class="form-label">Source timezone<select asp-for="ImportTimeZone" class="form-select">@foreach (var timeZone in Model.ImportTimeZones){<option value="@timeZone.Id">@timeZone.Label</option>}</select></label><div class="form-hint">Auto-detect is recommended. Sierra <em>File &rarr; Export</em> is UTC; <em>Save Log As</em> uses Sierra&rsquo;s visible timezone. Other files use @Model.Journal?.TimeZone.</div></div>
@@ -37,6 +37,14 @@
                         </div>
                     </div>
                 </form>
+                <details class="tf-import-guidance mt-3">
+                    <summary class="small">Exporting from NinjaTrader</summary>
+                    <ol class="text-secondary small mb-1 mt-2">
+                        <li>Open <em>New &rarr; Trade Performance</em>, choose the accounts and date range, and set <em>Display</em> to <strong>Currency ($)</strong>.</li>
+                        <li>Select the <em>Trades</em> tab, right-click the grid, and choose <em>Export</em> to save a CSV.</li>
+                    </ol>
+                    <p class="text-secondary small mb-0">Each row is imported exactly as NinjaTrader paired it (<em>source-defined</em>), with NinjaTrader&rsquo;s own MAE/MFE. A scaled position can appear as several trades, so counts and win rate can differ from flat-to-flat positions; total P&amp;L is unaffected. Only completed trades are exported. Executions exports are not supported. Re-exporting the full history is safe: rows already imported are skipped. If NinjaTrader revised earlier trades, undo the previous NinjaTrader batch before importing again.</p>
+                </details>
                 <p class="text-secondary small mb-0 mt-3">Trade imports are deduplicated per journal. Raw rows remain linked to typed fills, order events, balances, benchmark points, and derived trades; Undo removes one batch and rebuilds the affected evidence. Auto-detect identifies Sierra&rsquo;s exchange-native <em>File &rarr; Export</em> format as UTC; use the journal timezone for <em>File &rarr; Save Log As</em>. Explicit offsets in the file still take precedence.</p>
             </div>
         </div>
@@ -67,7 +75,7 @@
                 }
             </div>
         </div>
-        <div class="card tf-card tf-phase-card flex-grow-1"><div class="card-body"><div class="tf-kicker">WORKSPACE RULE</div><h3 class="tf-card-title mb-3">Evidence stays connected.</h3><p class="text-secondary small mb-0">Sierra fills, order events, TradingView histories, benchmark series, and strategy trades remain separate source adapters inside the active journal.</p></div></div></div>
+        <div class="card tf-card tf-phase-card flex-grow-1"><div class="card-body"><div class="tf-kicker">WORKSPACE RULE</div><h3 class="tf-card-title mb-3">Evidence stays connected.</h3><p class="text-secondary small mb-0">Sierra fills, order events, TradingView histories, NinjaTrader trades, benchmark series, and strategy trades remain separate source adapters inside the active journal.</p></div></div></div>
 </section>
 
 <section class="row row-cards mb-3">

@@ -27,7 +27,7 @@ public sealed partial class TradeFoundryDb
     private const string EffectiveNetPnlSql = $"ROUND(CAST(t.gross_pnl AS REAL) - ({EffectiveFeesSql}), 8)";
     private const string EffectiveNetPnlTextSql = $"CAST(ROUND(CAST(t.gross_pnl AS REAL) - ({EffectiveFeesSql}), 8) AS TEXT)";
     private const string TradeFrom = "trades t LEFT JOIN trade_review_annotations r ON r.journal_id = t.journal_id AND r.review_key = t.review_key";
-    private const string TradeColumns = "t.id, t.journal_id, t.import_batch_id, t.source_type, t.source_key, t.grouping_policy, t.sequence, t.symbol, t.account, t.direction, t.entry_utc, t.exit_utc, t.entry_price, t.exit_price, t.quantity, t.closed_quantity, t.gross_points, t.average_points, t.gross_pnl, " + EffectiveExchangeFeesSql + " AS exchange_fees, " + EffectiveNfaFeesSql + " AS nfa_fees, " + EffectiveClearingFeesSql + " AS clearing_fees, " + EffectiveFeesTextSql + " AS fees, " + EffectiveNetPnlTextSql + " AS net_pnl, t.mae_points, t.mfe_points, t.point_value, t.tick_size, t.initial_stop_price, t.initial_target_price, t.initial_risk_points, t.initial_risk_currency, t.r_multiple, t.exit_type, t.entry_order_price, t.exit_order_price, t.entry_chase_points, t.exit_chase_points, t.status, t.note, t.instrument, t.review_key, CASE WHEN LENGTH(TRIM(COALESCE(r.review_note, ''))) > 0 THEN 1 ELSE 0 END AS has_review_note, EXISTS (SELECT 1 FROM trade_review_attachments a WHERE a.journal_id = t.journal_id AND a.review_key = t.review_key AND a.removed_utc IS NULL) AS has_review_image, t.source_timeframe";
+    private const string TradeColumns = "t.id, t.journal_id, t.import_batch_id, t.source_type, t.source_key, t.grouping_policy, t.sequence, t.symbol, t.account, t.direction, t.entry_utc, t.exit_utc, t.entry_price, t.exit_price, t.quantity, t.closed_quantity, t.gross_points, t.average_points, t.gross_pnl, " + EffectiveExchangeFeesSql + " AS exchange_fees, " + EffectiveNfaFeesSql + " AS nfa_fees, " + EffectiveClearingFeesSql + " AS clearing_fees, " + EffectiveFeesTextSql + " AS fees, " + EffectiveNetPnlTextSql + " AS net_pnl, t.mae_points, t.mfe_points, t.point_value, t.tick_size, t.initial_stop_price, t.initial_target_price, t.initial_risk_points, t.initial_risk_currency, t.r_multiple, t.exit_type, t.entry_order_price, t.exit_order_price, t.entry_chase_points, t.exit_chase_points, t.status, t.note, t.instrument, t.review_key, CASE WHEN LENGTH(TRIM(COALESCE(r.review_note, ''))) > 0 THEN 1 ELSE 0 END AS has_review_note, EXISTS (SELECT 1 FROM trade_review_attachments a WHERE a.journal_id = t.journal_id AND a.review_key = t.review_key AND a.removed_utc IS NULL) AS has_review_image, t.source_timeframe, t.strategy, t.entry_name, t.exit_name";
     private const string TradeReviewColumns = "id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, exchange_fees, nfa_fees, clearing_fees, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc";
     private const string FillColumns = "id, journal_id, import_batch_id, source_type, source_key, activity_type, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, side, quantity, price, price2, filled_quantity, open_close, order_type, order_status, parent_order_id, high, low, note, position_quantity, order_id, service_order_id, exchange_order_id, fill_execution_id, client_order_id, time_in_force, username, is_automated, account_balance, fees, exchange_fee_per_contract, nfa_fee_per_contract, clearing_fee_per_contract, row_number, instrument, point_value, tick_size, source_timeframe";
     private const string OrderEventColumns = "id, journal_id, import_batch_id, source_type, source_key, order_action_source, event_utc, transaction_utc, source_time_text, symbol, account, internal_order_id, service_order_id, parent_order_id, exchange_order_id, fill_execution_id, order_type, order_status, side, open_close, price, price2, quantity, filled_quantity, fill_price, position_quantity, note, client_order_id, time_in_force, username, is_automated, fees, row_number, instrument";
@@ -240,6 +240,9 @@ public sealed partial class TradeFoundryDb
         EnsureColumn(connection, "trades", "exchange_fees", "TEXT NOT NULL DEFAULT '0'");
         EnsureColumn(connection, "trades", "nfa_fees", "TEXT NOT NULL DEFAULT '0'");
         EnsureColumn(connection, "trades", "clearing_fees", "TEXT NOT NULL DEFAULT '0'");
+        EnsureColumn(connection, "trades", "strategy", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "trades", "entry_name", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(connection, "trades", "exit_name", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(connection, "fills", "exchange_fee_per_contract", "TEXT NULL");
         EnsureColumn(connection, "fills", "nfa_fee_per_contract", "TEXT NULL");
         EnsureColumn(connection, "fills", "clearing_fee_per_contract", "TEXT NULL");
@@ -2879,6 +2882,11 @@ public sealed partial class TradeFoundryDb
         var messages = new List<string>(parsed.Warnings);
         if (!string.IsNullOrWhiteSpace(sourceTimeZone))
             messages.Add($"Source timezone: {TimeZoneCatalog.CanonicalId(sourceTimeZone)}.");
+        // Source-defined adapters (for example NinjaTrader Trades) keep the source's own
+        // pairing; the journal's fill-grouping policy does not apply to them.
+        var directTradeGrouping = string.IsNullOrWhiteSpace(parsed.GroupingPolicyOverride) ? groupingPolicy : parsed.GroupingPolicyOverride;
+        if (parsed.Records.Any(record => record.Trade is not null))
+            messages.Add($"Trades use {TradeFoundryConstants.SourceApplicationName(parsed.SourceApplication)}'s source-defined pairing, not flat-to-flat positions.");
 
         using (var connection = OpenConnection())
         using (var transaction = connection.BeginTransaction())
@@ -2921,11 +2929,14 @@ public sealed partial class TradeFoundryDb
                 if (record.AccountBalance is not null) InsertAccountBalanceEvent(connection, transaction, journalId, batchId, record.AccountBalance);
                 if (record.Benchmark is not null) InsertBenchmarkPoint(connection, transaction, journalId, batchId, record.Benchmark);
                 if (record.Bar is not null) InsertBar(connection, transaction, journalId, batchId, record.Bar);
+                // The typed trade shares the raw row's identity, so it is written only with a new
+                // raw row and the pair counts once.
+                if (record.Trade is not null) InsertDirectTrade(connection, transaction, journalId, batchId, record.Trade, directTradeGrouping);
             }
 
             foreach (var trade in parsed.Trades)
             {
-                if (InsertDirectTrade(connection, transaction, journalId, batchId, trade, groupingPolicy)) newRows++;
+                if (InsertDirectTrade(connection, transaction, journalId, batchId, trade, directTradeGrouping)) newRows++;
                 else duplicateRows++;
             }
 
@@ -3210,8 +3221,21 @@ public sealed partial class TradeFoundryDb
             transaction.Commit();
         }
         OrderEventsChanged();
-        if (sourceType != TradeFoundryConstants.TradingViewStrategy)
+        // Direct-trade sources never contribute fills, so removing them cannot change fill-derived trades.
+        if (sourceType is not (TradeFoundryConstants.TradingViewStrategy or TradeFoundryConstants.NinjaTraderTrades))
             RebuildFlatTrades(journalId.Value, GetJournal(journalId.Value)?.GroupingPolicy ?? "flat_to_flat");
+    }
+
+    /// <summary>Counts trades whose pairing came from the source application rather than TradeFoundry's grouping.</summary>
+    public (int SourceDefined, int Total) CountSourceDefinedTrades(Guid journalId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COALESCE(SUM(CASE WHEN grouping_policy = $grouping THEN 1 ELSE 0 END), 0), COUNT(*) FROM trades WHERE journal_id = $journal";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$grouping", TradeFoundryConstants.SourceDefinedGrouping);
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? (Convert.ToInt32(reader.GetValue(0), CultureInfo.InvariantCulture), Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture)) : (0, 0);
     }
 
     public void RebuildFlatTrades(Guid journalId, string groupingPolicy)
@@ -3321,7 +3345,7 @@ public sealed partial class TradeFoundryDb
         }
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            filters.Add("(t.symbol LIKE $search OR t.instrument LIKE $search OR t.account LIKE $search OR t.direction LIKE $search OR t.status LIKE $search)");
+            filters.Add("(t.symbol LIKE $search OR t.instrument LIKE $search OR t.account LIKE $search OR t.direction LIKE $search OR t.status LIKE $search OR t.strategy LIKE $search OR t.entry_name LIKE $search OR t.exit_name LIKE $search)");
             command.Parameters.AddWithValue("$search", $"%{query.Search.Trim()}%");
         }
         if (!string.IsNullOrWhiteSpace(query.Symbol))
@@ -3537,7 +3561,7 @@ public sealed partial class TradeFoundryDb
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT OR IGNORE INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, exchange_fees, nfa_fees, clearing_fees, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc, instrument, review_key, source_timeframe) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $exchangeFees, $nfaFees, $clearingFees, $fees, $netPnl, NULL, NULL, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, NULL, NULL, NULL, NULL, $status, $note, $created, $instrument, $reviewKey, $sourceTimeframe)";
+        command.CommandText = "INSERT OR IGNORE INTO trades (id, journal_id, import_batch_id, source_type, source_key, grouping_policy, sequence, symbol, account, direction, entry_utc, exit_utc, entry_price, exit_price, quantity, closed_quantity, gross_points, average_points, gross_pnl, exchange_fees, nfa_fees, clearing_fees, fees, net_pnl, mae_points, mfe_points, point_value, tick_size, initial_stop_price, initial_target_price, initial_risk_points, initial_risk_currency, r_multiple, exit_type, entry_order_price, exit_order_price, entry_chase_points, exit_chase_points, status, note, created_utc, instrument, review_key, source_timeframe, strategy, entry_name, exit_name) VALUES ($id, $journal, $batch, $source, $key, $grouping, $sequence, $symbol, $account, $direction, $entry, $exit, $entryPrice, $exitPrice, $quantity, $closed, $grossPoints, $averagePoints, $grossPnl, $exchangeFees, $nfaFees, $clearingFees, $fees, $netPnl, $mae, $mfe, $pointValue, $tickSize, $initialStop, $initialTarget, $initialRiskPoints, $initialRiskCurrency, $rMultiple, $exitType, NULL, NULL, NULL, NULL, $status, $note, $created, $instrument, $reviewKey, $sourceTimeframe, $strategy, $entryName, $exitName)";
         var quantity = Math.Max(1, draft.Quantity);
         var averagePoints = quantity == 0 ? 0m : draft.GrossPoints / quantity;
         var instrument = string.IsNullOrWhiteSpace(draft.Instrument) ? InstrumentCatalog.ExtractRoot(draft.Symbol) : draft.Instrument;
@@ -3550,7 +3574,7 @@ public sealed partial class TradeFoundryDb
         command.Parameters.AddWithValue("$source", draft.SourceType);
         command.Parameters.AddWithValue("$key", draft.SourceKey);
         command.Parameters.AddWithValue("$grouping", groupingPolicy);
-        command.Parameters.AddWithValue("$sequence", 0);
+        command.Parameters.AddWithValue("$sequence", Math.Max(0, draft.Sequence));
         command.Parameters.AddWithValue("$symbol", draft.Symbol);
         command.Parameters.AddWithValue("$account", draft.Account);
         command.Parameters.AddWithValue("$direction", draft.Direction);
@@ -3582,6 +3606,11 @@ public sealed partial class TradeFoundryDb
         command.Parameters.AddWithValue("$instrument", instrument);
         command.Parameters.AddWithValue("$reviewKey", CreateTradeReviewKey(journalId, draft.SourceType, draft.SourceKey, groupingPolicy, draft.Account, draft.Symbol, draft.Direction));
         command.Parameters.AddWithValue("$sourceTimeframe", draft.SourceTimeframe);
+        AddNullable(command, "$mae", draft.MaePoints);
+        AddNullable(command, "$mfe", draft.MfePoints);
+        command.Parameters.AddWithValue("$strategy", draft.Strategy);
+        command.Parameters.AddWithValue("$entryName", draft.EntryName);
+        command.Parameters.AddWithValue("$exitName", draft.ExitName);
         return command.ExecuteNonQuery() > 0;
     }
 
@@ -4354,6 +4383,7 @@ public sealed partial class TradeFoundryDb
         {
             TradeFoundryConstants.SierraFills => TradeFoundryConstants.SierraChart,
             TradeFoundryConstants.TradingViewAccount or TradeFoundryConstants.TradingViewStrategy => TradeFoundryConstants.TradingView,
+            TradeFoundryConstants.NinjaTraderTrades => TradeFoundryConstants.NinjaTrader,
             TradeFoundryConstants.BenchmarkSeries => TradeFoundryConstants.Benchmark,
             TradeFoundryConstants.OhlcvBars => TradeFoundryConstants.Ohlcv,
             TradeFoundryConstants.SierraOhlcBars => TradeFoundryConstants.SierraChart,
@@ -4695,7 +4725,8 @@ public sealed partial class TradeFoundryDb
 
     private static Trade ReadTrade(SqliteDataReader reader) => new()
     {
-        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), GroupingPolicy = reader.GetString(5), Sequence = reader.GetInt32(6), Symbol = reader.GetString(7), Account = reader.GetString(8), Direction = reader.GetString(9), EntryUtc = ParseDate(reader.GetString(10)), ExitUtc = reader.IsDBNull(11) ? null : ParseDate(reader.GetString(11)), EntryPrice = ParseDecimal(reader.GetString(12)), ExitPrice = reader.IsDBNull(13) ? null : ParseDecimal(reader.GetString(13)), Quantity = reader.GetInt32(14), ClosedQuantity = reader.GetInt32(15), GrossPoints = ParseDecimal(reader.GetString(16)), AveragePoints = ParseDecimal(reader.GetString(17)), GrossPnl = ParseDecimal(reader.GetString(18)), ExchangeFees = ParseDecimal(reader.GetString(19)), NfaFees = ParseDecimal(reader.GetString(20)), ClearingFees = ParseDecimal(reader.GetString(21)), Fees = ParseDecimal(reader.GetString(22)), NetPnl = ParseDecimal(reader.GetString(23)), MaePoints = reader.IsDBNull(24) ? null : ParseDecimal(reader.GetString(24)), MfePoints = reader.IsDBNull(25) ? null : ParseDecimal(reader.GetString(25)), PointValue = ParseDecimal(reader.GetString(26)), TickSize = ParseDecimal(reader.GetString(27)), InitialStopPrice = NullableDecimal(reader, 28), InitialTargetPrice = NullableDecimal(reader, 29), InitialRiskPoints = NullableDecimal(reader, 30), InitialRiskCurrency = NullableDecimal(reader, 31), RMultiple = NullableDecimal(reader, 32), ExitType = reader.GetString(33), EntryOrderPrice = NullableDecimal(reader, 34), ExitOrderPrice = NullableDecimal(reader, 35), EntryChasePoints = NullableDecimal(reader, 36), ExitChasePoints = NullableDecimal(reader, 37), Status = reader.GetString(38), Note = reader.GetString(39), Instrument = string.IsNullOrWhiteSpace(reader.GetString(40)) ? InstrumentCatalog.ExtractRoot(reader.GetString(7)) : reader.GetString(40), ReviewKey = reader.GetString(41), HasReviewNotes = Convert.ToInt32(reader.GetValue(42), CultureInfo.InvariantCulture) != 0, HasReviewImages = Convert.ToInt32(reader.GetValue(43), CultureInfo.InvariantCulture) != 0, SourceTimeframe = reader.GetString(44)
+        Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), ImportBatchId = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)), SourceType = reader.GetString(3), SourceKey = reader.GetString(4), GroupingPolicy = reader.GetString(5), Sequence = reader.GetInt32(6), Symbol = reader.GetString(7), Account = reader.GetString(8), Direction = reader.GetString(9), EntryUtc = ParseDate(reader.GetString(10)), ExitUtc = reader.IsDBNull(11) ? null : ParseDate(reader.GetString(11)), EntryPrice = ParseDecimal(reader.GetString(12)), ExitPrice = reader.IsDBNull(13) ? null : ParseDecimal(reader.GetString(13)), Quantity = reader.GetInt32(14), ClosedQuantity = reader.GetInt32(15), GrossPoints = ParseDecimal(reader.GetString(16)), AveragePoints = ParseDecimal(reader.GetString(17)), GrossPnl = ParseDecimal(reader.GetString(18)), ExchangeFees = ParseDecimal(reader.GetString(19)), NfaFees = ParseDecimal(reader.GetString(20)), ClearingFees = ParseDecimal(reader.GetString(21)), Fees = ParseDecimal(reader.GetString(22)), NetPnl = ParseDecimal(reader.GetString(23)), MaePoints = reader.IsDBNull(24) ? null : ParseDecimal(reader.GetString(24)), MfePoints = reader.IsDBNull(25) ? null : ParseDecimal(reader.GetString(25)), PointValue = ParseDecimal(reader.GetString(26)), TickSize = ParseDecimal(reader.GetString(27)), InitialStopPrice = NullableDecimal(reader, 28), InitialTargetPrice = NullableDecimal(reader, 29), InitialRiskPoints = NullableDecimal(reader, 30), InitialRiskCurrency = NullableDecimal(reader, 31), RMultiple = NullableDecimal(reader, 32), ExitType = reader.GetString(33), EntryOrderPrice = NullableDecimal(reader, 34), ExitOrderPrice = NullableDecimal(reader, 35), EntryChasePoints = NullableDecimal(reader, 36), ExitChasePoints = NullableDecimal(reader, 37), Status = reader.GetString(38), Note = reader.GetString(39), Instrument = string.IsNullOrWhiteSpace(reader.GetString(40)) ? InstrumentCatalog.ExtractRoot(reader.GetString(7)) : reader.GetString(40), ReviewKey = reader.GetString(41), HasReviewNotes = Convert.ToInt32(reader.GetValue(42), CultureInfo.InvariantCulture) != 0, HasReviewImages = Convert.ToInt32(reader.GetValue(43), CultureInfo.InvariantCulture) != 0, SourceTimeframe = reader.GetString(44),
+        Strategy = reader.GetString(45), EntryName = reader.GetString(46), ExitName = reader.GetString(47)
     };
 
     private static PersistedMarketDayFeature ReadMarketDayFeature(SqliteDataReader reader) => new()

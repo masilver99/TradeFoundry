@@ -43,6 +43,11 @@ public static class InstrumentCatalog
             .Replace("FUT_", string.Empty, StringComparison.OrdinalIgnoreCase)
             .Trim('_', ' ', '-');
 
+        // NinjaTrader names futures contracts as "ROOT MM-YY", e.g. "MES 06-23".
+        var ninjaTrader = Regex.Match(value, @"^(?<root>[A-Z0-9]+)\s+\d{2}-\d{2}$", RegexOptions.CultureInvariant);
+        if (ninjaTrader.Success)
+            return ninjaTrader.Groups["root"].Value;
+
         // Sierra symbols commonly end in a month code and two-digit year.
         var match = Regex.Match(value, @"^(?<root>[A-Z0-9]+?)(?:[FGHJKMNQUVXZ]\d{1,4})(?:_|$)", RegexOptions.CultureInvariant);
         if (match.Success)

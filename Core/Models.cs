@@ -7,6 +7,7 @@ public static class TradeFoundryConstants
     public const string OwnerUserId = "owner";
     public const string SierraChart = "sierra_chart";
     public const string TradingView = "tradingview";
+    public const string NinjaTrader = "ninjatrader";
     public const string Benchmark = "benchmark";
     public const string Ohlcv = "ohlcv";
     public const string YahooFinanceBenchmarkSource = "Yahoo Finance chart API";
@@ -14,13 +15,30 @@ public static class TradeFoundryConstants
     public const string SierraOhlcBars = "Sierra Chart OHLC bars";
     public const string TradingViewAccount = "TradingView account history";
     public const string TradingViewStrategy = "TradingView Strategy Tester";
+    public const string NinjaTraderTrades = "NinjaTrader Trade Performance trades";
+    /// <summary>Grouping policy for trades whose pairing was defined by the source application.</summary>
+    public const string SourceDefinedGrouping = "source_defined";
     public const string OhlcvBars = "OHLCV bars";
     public const string BenchmarkSeries = "Benchmark daily series";
+
+    /// <summary>
+    /// Explains why counts differ when some trades were paired by the source application
+    /// (for example NinjaTrader) instead of TradeFoundry's flat-to-flat grouping.
+    /// </summary>
+    public static string SourceDefinedTradeNotice(int sourceDefinedTrades, int totalTrades)
+    {
+        if (sourceDefinedTrades <= 0) return string.Empty;
+        var scope = sourceDefinedTrades >= totalTrades
+            ? (sourceDefinedTrades == 1 ? "This trade uses" : $"All {sourceDefinedTrades:N0} trades use")
+            : $"{sourceDefinedTrades:N0} of {totalTrades:N0} trades use";
+        return $"{scope} source-defined pairing from NinjaTrader. A scaled position can appear as several trades, so trade counts, win rate, and per-trade averages differ from flat-to-flat positions; total P&L is unaffected.";
+    }
 
     public static string SourceApplicationName(string key) => key switch
     {
         SierraChart => "Sierra Chart",
         TradingView => "TradingView",
+        NinjaTrader => "NinjaTrader",
         Benchmark => "Benchmark series",
         Ohlcv => "OHLCV bars",
         _ => string.IsNullOrWhiteSpace(key) ? "Unknown source" : key
@@ -304,6 +322,10 @@ public sealed class Trade
     public string Instrument { get; init; } = string.Empty;
     public string ReviewKey { get; init; } = string.Empty;
     public string SourceTimeframe { get; init; } = string.Empty;
+    public string Strategy { get; init; } = string.Empty;
+    public string EntryName { get; init; } = string.Empty;
+    public string ExitName { get; init; } = string.Empty;
+    public bool IsSourceDefined => GroupingPolicy.Equals(TradeFoundryConstants.SourceDefinedGrouping, StringComparison.OrdinalIgnoreCase);
     public bool HasReviewImages { get; init; }
     public bool HasReviewNotes { get; init; }
     public TimeSpan? Duration => ExitUtc.HasValue ? ExitUtc.Value - EntryUtc : null;
@@ -1093,6 +1115,15 @@ public sealed class ImportedTradeDraft
     public decimal PointValue { get; init; }
     public decimal TickSize { get; init; }
     public string SourceTimeframe { get; init; } = string.Empty;
+    /// <summary>Per-contract adverse excursion in price points; null when the source did not report it.</summary>
+    public decimal? MaePoints { get; init; }
+    /// <summary>Per-contract favorable excursion in price points; null when the source did not report it.</summary>
+    public decimal? MfePoints { get; init; }
+    public string Strategy { get; init; } = string.Empty;
+    public string EntryName { get; init; } = string.Empty;
+    public string ExitName { get; init; } = string.Empty;
+    /// <summary>Source-relative ordering hint (for example the report row number); not part of identity.</summary>
+    public int Sequence { get; init; }
 }
 
 public sealed class ParsedRecord
@@ -1106,6 +1137,8 @@ public sealed class ParsedRecord
     public AccountBalanceDraft? AccountBalance { get; init; }
     public BenchmarkPointDraft? Benchmark { get; init; }
     public BarDraft? Bar { get; init; }
+    /// <summary>A source-defined trade parsed from this exact row. It is committed only when the raw row is new.</summary>
+    public ImportedTradeDraft? Trade { get; init; }
 }
 
 public sealed class ParsedImport
@@ -1113,6 +1146,8 @@ public sealed class ParsedImport
     public string SourceType { get; init; } = string.Empty;
     public string SourceApplication { get; init; } = string.Empty;
     public string? ResolvedBarInterval { get; set; }
+    /// <summary>When set, direct trades are stored with this grouping policy instead of the requested one.</summary>
+    public string? GroupingPolicyOverride { get; init; }
     public List<ParsedRecord> Records { get; } = new();
     public List<ImportedTradeDraft> Trades { get; } = new();
     public List<string> Warnings { get; } = new();

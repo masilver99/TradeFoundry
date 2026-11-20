@@ -23,7 +23,14 @@ public class SourcesModel : PageModel
     [BindProperty] public string ImportWatchDirectory { get; set; } = string.Empty;
     public Journal? Journal { get; private set; }
     public IReadOnlyList<InstrumentDefinition> Instruments { get; private set; } = Array.Empty<InstrumentDefinition>();
-    public IReadOnlyList<InstrumentMapping> SierraChartMappings { get; private set; } = Array.Empty<InstrumentMapping>();
+    /// <summary>Source applications whose imported symbols can be mapped to instruments, in display order.</summary>
+    public static IReadOnlyList<(string Key, string Label, string Example)> MappableApplications { get; } =
+    [
+        (TradeFoundryConstants.SierraChart, "Sierra Chart", "(?<!\\w)MES"),
+        (TradeFoundryConstants.NinjaTrader, "NinjaTrader", "^MES \\d{2}-\\d{2}$")
+    ];
+
+    public IReadOnlyDictionary<string, IReadOnlyList<InstrumentMapping>> MappingsByApplication { get; private set; } = new Dictionary<string, IReadOnlyList<InstrumentMapping>>();
     public IReadOnlyList<WatchedImportFileStatus> WatchedImportFiles { get; private set; } = Array.Empty<WatchedImportFileStatus>();
     public string? FlashMessage { get; private set; }
     public string? FlashKind { get; private set; }
@@ -37,13 +44,14 @@ public class SourcesModel : PageModel
         return Page();
     }
 
-    public IActionResult OnPostSaveSierraMapping(Guid? mappingId, string matchRegex, string instrumentCode, decimal? commissionOverride, int position)
+    public IActionResult OnPostSaveMapping(string applicationKey, Guid? mappingId, string matchRegex, string instrumentCode, decimal? commissionOverride, int position)
     {
         if (_database.GetJournal(JournalId) is null) return NotFound();
+        if (!TryGetApplication(applicationKey, out var application)) return BadRequest();
         var regexIsValid = InstrumentConfiguration.IsValidMatchRegex(matchRegex ?? string.Empty);
-        var saved = regexIsValid && _database.SaveInstrumentMapping(mappingId, TradeFoundryConstants.SierraChart, matchRegex ?? string.Empty, instrumentCode ?? string.Empty, commissionOverride, position);
+        var saved = regexIsValid && _database.SaveInstrumentMapping(mappingId, application.Key, matchRegex ?? string.Empty, instrumentCode ?? string.Empty, commissionOverride, position);
         TempData["FlashMessage"] = saved
-            ? "Sierra Chart mapping saved."
+            ? $"{application.Label} mapping saved."
             : regexIsValid
                 ? "The mapping could not be saved. Check the regex, instrument, commission, and duplicate patterns."
                 : "The mapping regex is invalid.";
@@ -51,13 +59,20 @@ public class SourcesModel : PageModel
         return Redirect($"/journal/{JournalId:D}/settings/sources");
     }
 
-    public IActionResult OnPostDeleteSierraMapping(Guid mappingId)
+    public IActionResult OnPostDeleteMapping(string applicationKey, Guid mappingId)
     {
         if (_database.GetJournal(JournalId) is null) return NotFound();
+        if (!TryGetApplication(applicationKey, out var application)) return BadRequest();
         var deleted = _database.DeleteInstrumentMapping(mappingId);
-        TempData["FlashMessage"] = deleted ? "Sierra Chart mapping removed." : "The Sierra Chart mapping could not be removed.";
+        TempData["FlashMessage"] = deleted ? $"{application.Label} mapping removed." : $"The {application.Label} mapping could not be removed.";
         TempData["FlashKind"] = deleted ? "success" : "error";
         return Redirect($"/journal/{JournalId:D}/settings/sources");
+    }
+
+    private static bool TryGetApplication(string? key, out (string Key, string Label, string Example) application)
+    {
+        application = MappableApplications.FirstOrDefault(item => item.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+        return application.Key is not null;
     }
 
     public IActionResult OnPostSaveImportWatchDirectory(bool clearImportWatchDirectory = false)
@@ -120,7 +135,7 @@ public class SourcesModel : PageModel
         Journal = _database.GetJournal(JournalId);
         ImportWatchDirectory = Journal?.ImportWatchDirectory ?? string.Empty;
         Instruments = _database.GetInstruments();
-        SierraChartMappings = _database.GetInstrumentMappings(TradeFoundryConstants.SierraChart);
+        MappingsByApplication = MappableApplications.ToDictionary(item => item.Key, item => _database.GetInstrumentMappings(item.Key), StringComparer.OrdinalIgnoreCase);
         WatchedImportFiles = Journal is null ? Array.Empty<WatchedImportFileStatus>() : _database.GetWatchedImportFileStatuses(JournalId);
     }
 }

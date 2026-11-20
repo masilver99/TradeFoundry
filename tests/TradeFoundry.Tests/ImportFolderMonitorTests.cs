@@ -48,7 +48,8 @@ public sealed class ImportFolderMonitorTests
             await monitor.StartAsync(CancellationToken.None);
             var completed = await WaitForStatusAsync(database, journal.Id, filePath, "completed");
             Assert.NotNull(completed.ImportBatchId);
-            var notice = Assert.Single(notifications.Since(0));
+            // The monitor records the file status before it publishes the notification, so wait for it.
+            var notice = Assert.Single(await WaitForNotificationsAsync(notifications));
             Assert.Equal(journal.Id, notice.JournalId);
             Assert.Equal("success", notice.Severity);
             Assert.Contains("fills.csv", notice.Message);
@@ -294,6 +295,19 @@ public sealed class ImportFolderMonitorTests
         }
 
         throw new TimeoutException($"Timed out waiting for {Path.GetFileName(filePath)} to reach status '{expectedStatus}'.");
+    }
+
+    private static async Task<IReadOnlyList<ImportNotification>> WaitForNotificationsAsync(ImportNotificationFeed feed)
+    {
+        var timeout = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < timeout)
+        {
+            var items = feed.Since(0);
+            if (items.Count > 0) return items;
+            await Task.Delay(50);
+        }
+
+        return feed.Since(0);
     }
 
     private static string AccountCsv(string timestamp, string price) =>

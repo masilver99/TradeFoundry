@@ -12,6 +12,7 @@ public sealed class ImportFolderMonitor : BackgroundService
 {
     private static readonly TimeSpan ScanInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan StableInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan WatchedFilePollInterval = TimeSpan.FromSeconds(3);
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase) { ".csv", ".tsv", ".txt" };
 
     private readonly TradeFoundryDb _database;
@@ -21,6 +22,7 @@ public sealed class ImportFolderMonitor : BackgroundService
     private readonly Channel<MonitorWork> _work = Channel.CreateUnbounded<MonitorWork>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly Dictionary<Guid, WatchBinding> _watchers = new();
     private readonly Dictionary<Guid, WatchBinding> _fileWatchers = new();
+    private readonly Dictionary<Guid, long> _polledLengths = new();
 
     public ImportFolderMonitor(TradeFoundryDb database, ImportService imports, ILogger<ImportFolderMonitor> logger, ImportNotificationFeed? notifications = null)
     {
@@ -35,6 +37,7 @@ public sealed class ImportFolderMonitor : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _ = QueuePeriodicScansAsync(stoppingToken);
+        _ = QueueWatchedFilePollsAsync(stoppingToken);
         await _work.Writer.WriteAsync(MonitorWork.Reconcile, stoppingToken);
 
         try
@@ -43,6 +46,8 @@ public sealed class ImportFolderMonitor : BackgroundService
             {
                 if (work.ReconcileAll)
                     await ReconcileAndScanAsync(stoppingToken);
+                else if (work.PollWatchedFiles)
+                    PollWatchedFiles();
                 else if (work.JournalId.HasValue && work.Path is not null)
                     await ProcessFileAsync(work.JournalId.Value, work.Path, stoppingToken);
             }
@@ -72,6 +77,48 @@ public sealed class ImportFolderMonitor : BackgroundService
         catch (ChannelClosedException)
         {
         }
+    }
+
+    private async Task QueueWatchedFilePollsAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(WatchedFilePollInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+                await _work.Writer.WriteAsync(MonitorWork.Poll, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (ChannelClosedException)
+        {
+        }
+    }
+
+    // FileSystemWatcher often reports nothing for appends through a handle the writer keeps open
+    // (NTFS updates directory metadata lazily), so watched files are also checked via our own handle.
+    private void PollWatchedFiles()
+    {
+        foreach (var (journalId, binding) in _fileWatchers)
+        {
+            long length;
+            try
+            {
+                using var stream = new FileStream(binding.DirectoryPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                length = stream.Length;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (_polledLengths.TryGetValue(journalId, out var previous) && previous == length) continue;
+            _polledLengths[journalId] = length;
+            QueueFile(journalId, binding.DirectoryPath);
+        }
+
+        foreach (var stale in _polledLengths.Keys.Where(key => !_fileWatchers.ContainsKey(key)).ToArray())
+            _polledLengths.Remove(stale);
     }
 
     private async Task ReconcileAndScanAsync(CancellationToken cancellationToken)
@@ -336,7 +383,7 @@ public sealed class ImportFolderMonitor : BackgroundService
                     // A writer still has the file open or the file changed while it was read.
                     if (allowSharedRead)
                     {
-                        var shared = await TryReadSharedAsync(path, length, writeTimeUtc, cancellationToken);
+                        var shared = await TryReadSharedAsync(path, cancellationToken);
                         if (shared is not null) return shared;
                     }
                 }
@@ -349,18 +396,19 @@ public sealed class ImportFolderMonitor : BackgroundService
         return null;
     }
 
-    private static async Task<byte[]?> TryReadSharedAsync(string path, long length, DateTime writeTimeUtc, CancellationToken cancellationToken)
+    private static async Task<byte[]?> TryReadSharedAsync(string path, CancellationToken cancellationToken)
     {
         try
         {
+            // Directory metadata (FileInfo length/write time) can lag behind an open writer's appends on NTFS,
+            // so take the length from our own handle rather than comparing against it.
             await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
-            using var memory = new MemoryStream(length > 0 && length <= int.MaxValue ? (int)length : 0);
-            await stream.CopyToAsync(memory, cancellationToken);
-            var after = new FileInfo(path);
-            if (!after.Exists || after.Length != length || after.LastWriteTimeUtc != writeTimeUtc || memory.Length != length) return null;
+            var length = stream.Length;
+            if (length <= 0 || length > int.MaxValue) return null;
+            var bytes = new byte[length];
+            await stream.ReadExactlyAsync(bytes, cancellationToken);
 
             // The writer may be mid-row; only complete lines are safe to treat as immutable evidence.
-            var bytes = memory.ToArray();
             var lastNewLine = Array.LastIndexOf(bytes, (byte)'\n');
             return lastNewLine < 0 ? null : bytes[..(lastNewLine + 1)];
         }
@@ -396,8 +444,9 @@ public sealed class ImportFolderMonitor : BackgroundService
         public void Dispose() => Watcher.Dispose();
     }
 
-    private sealed record MonitorWork(bool ReconcileAll, Guid? JournalId = null, string? Path = null)
+    private sealed record MonitorWork(bool ReconcileAll, Guid? JournalId = null, string? Path = null, bool PollWatchedFiles = false)
     {
         public static MonitorWork Reconcile { get; } = new(true);
+        public static MonitorWork Poll { get; } = new(false, PollWatchedFiles: true);
     }
 }

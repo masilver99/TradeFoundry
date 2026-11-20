@@ -26,6 +26,8 @@
     <Content Remove=".codex-build\**" />
     <None Remove=".codex-build\**" />
     <None Include="..\..\Pages\Analytics.cshtml" Link="Pages\Analytics.cshtml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Copied next to the test assembly so sample-based tests work when output lives outside the repo (CI uses artifacts-path). -->
+    <None Include="..\..\Samples\NinjaTrader Trades Export.csv" Link="Samples\NinjaTrader Trades Export.csv" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

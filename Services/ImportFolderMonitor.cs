@@ -297,6 +297,13 @@ public sealed class ImportFolderMonitor : BackgroundService
             var bytes = await ReadStableFileAsync(fullPath, isWatchedFile, cancellationToken);
             if (bytes is null) return;
 
+            // Waiting for a stable file takes time; the watch may have been disabled or moved meanwhile.
+            journal = _database.GetJournal(journalId);
+            if (journal is null) return;
+            if (!IsWatchedFile(journal, fullPath) &&
+                (string.IsNullOrWhiteSpace(journal.ImportWatchDirectory) || !IsDirectChild(journal.ImportWatchDirectory, fullPath)))
+                return;
+
             var contentHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
             var previous = _database.GetWatchedImportFileStatus(journalId, fullPath);
             if (previous is not null && previous.ContentHash.Equals(contentHash, StringComparison.Ordinal)) return;

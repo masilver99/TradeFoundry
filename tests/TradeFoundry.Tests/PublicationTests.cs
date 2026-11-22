@@ -62,7 +62,7 @@ public sealed class PublicationTests
             "Fills,2026-09-10 13:00:00,MESZ26,PRIVATE-ACCOUNT,Sell,1,5002,PRIVATE-SOURCE");
         new ImportService(data.Database).ImportText(data.Journal.Id, "fixture.csv", csv, "sierra", "flat_to_flat", "source");
         var trade = Assert.Single(data.Database.GetAllTrades(data.Journal.Id));
-        data.Database.SaveTradeReview(data.Journal.Id, trade.ReviewKey, new TradeReviewPatch { Setup = "Opening range <label>", Mistakes = "PRIVATE-MISTAKE", TagsText = "PRIVATE-TAG" });
+        data.Database.SaveTradeReview(data.Journal.Id, trade.ReviewKey, new TradeReviewPatch { Setup = "Opening range <label>", Mistakes = "PRIVATE-MISTAKE", TagIds = TestTags.Ids(data.Database, data.Journal.Id, "PRIVATE-TAG") });
         var service = new TradingSetupService(data.Database);
         var setup = service.CreateSetup(data.Journal.Id, new TradingSetupDraft { Name = "Breakout <setup>", DetailedDescription = "PRIVATE-DESCRIPTION" },
         [
@@ -144,7 +144,7 @@ public sealed class PublicationTests
             new { type = "daily-journal-image", attachmentId = image.Id, src = "PRIVATE-LOCAL-URL", altText = "Trade chart" }
         } } });
         var saved = data.Database.SaveTradeReview(data.Journal.Id, trades[0].ReviewKey,
-            new TradeReviewPatch { ReviewNote = state, Mistakes = "PRIVATE-MISTAKES", TagsText = "PRIVATE-TAGS" });
+            new TradeReviewPatch { ReviewNote = state, Mistakes = "PRIVATE-MISTAKES", TagIds = TestTags.Ids(data.Database, data.Journal.Id, "PRIVATE-TAGS") });
         var exporter = new PublicationExportService(data.Database, new(data.Database));
         var snapshot = exporter.Build(data.Journal.Id, new(Title: "Public"));
         var published = snapshot.Days.Single().Trades[0];
@@ -456,7 +456,7 @@ public sealed class PublicationTests
             "Fills,2026-09-10 13:00:00,MESZ26,PRIVATE-ACCOUNT,Sell,1,5002,PRIVATE-SOURCE");
         new ImportService(data.Database).ImportText(data.Journal.Id, "PRIVATE-IMPORT.csv", csv, "sierra", "flat_to_flat", "source");
         var trade = Assert.Single(data.Database.GetAllTrades(data.Journal.Id));
-        data.Database.SaveTradeReview(data.Journal.Id, trade.ReviewKey, new TradeReviewPatch { AllInCommission = 3.75m, ReviewNote = "PUBLIC-TRADE-JOURNAL", Mistakes = "PRIVATE-MISTAKES", Lessons = "PRIVATE-LESSONS", TagsText = "PRIVATE-TAG", ExpectedRevision = 0 });
+        data.Database.SaveTradeReview(data.Journal.Id, trade.ReviewKey, new TradeReviewPatch { AllInCommission = 3.75m, ReviewNote = "PUBLIC-TRADE-JOURNAL", Mistakes = "PRIVATE-MISTAKES", Lessons = "PRIVATE-LESSONS", TagIds = TestTags.Ids(data.Database, data.Journal.Id, "PRIVATE-TAG"), ExpectedRevision = 0 });
         var overview = data.Database.GetOverview(data.Journal.Id);
         var evidenceBefore = Evidence();
         var snapshot = new PublicationExportService(data.Database, new(data.Database)).Build(data.Journal.Id, new(Title: "Public"));

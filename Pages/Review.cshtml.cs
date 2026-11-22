@@ -648,8 +648,6 @@ public class ReviewModel : PageModel
 
     public string DomId(string reviewKey) => "review-" + new string(reviewKey.Where(character => char.IsLetterOrDigit(character) || character is '-' or '_').ToArray());
 
-    public string TagsText(TradeReviewAnnotation annotation) => string.Join(", ", annotation.Tags);
-
     public string DecimalInput(decimal? value) => value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
 
     /// <summary>The journal filter for this request, or null when there is no request (unit tests) or no journal.</summary>

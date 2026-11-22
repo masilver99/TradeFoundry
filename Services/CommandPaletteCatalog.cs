@@ -48,6 +48,9 @@ public static class CommandPaletteCatalog
         Page("Overview", "/overview", "Home", "Dashboard");
         Page("Trade Ledger", "/trades", "Trades", "Trade search", "Ledger");
         Page("Setups", "/setups", "Trading setups", "Strategies", "Setup definitions");
+        Page("Tags", "/tags", "Trade tags", "Day tags", "Edit tags", "Untagged");
+        Page("Tag Report", "/tag-report", "Tag performance", "Tag probabilities", "Best tags", "Probability lookup");
+        Page("Detached Reviews", "/detached-reviews", "Lost reviews", "Unattached reviews");
         Page("Account", "/account", "Balance", "Transactions");
         Page("Tax Liability", "/tax-liability", "Taxes", "Tax estimates");
         Page("Expenses", "/expenses", "Receipts", "Trading expenses", "Software costs");

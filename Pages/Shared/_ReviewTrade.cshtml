@@ -227,7 +227,7 @@
             </div>
             <div class="tf-review-field">
                 <label for="tags-@trade.ReviewKey">Tags</label>
-                <input id="tags-@trade.ReviewKey" name="Edit.TagsText" value="@reviewPage.TagsText(review)" placeholder="comma, separated, tags" />
+                @await Html.PartialAsync("_TagPicker", TradeFoundry.Pages.TagPickerViewModel.ForTrade(trade.JournalId, $"tags-{trade.ReviewKey}", review))
             </div>
             <div class="tf-review-field">
                 <label for="adherence-@trade.ReviewKey">Plan adherence</label>

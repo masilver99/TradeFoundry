@@ -1,0 +1,315 @@
+@page "/journal/{journalId:guid}/tag-report"
+@model TradeFoundry.Pages.TagReportModel
+@using System.Globalization
+@using TradeFoundry.Core
+@using TradeFoundry.Pages
+@using TradeFoundry.Services
+@{
+    ViewData["Title"] = "Tag Report";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / ANALYZE";
+    ViewData["ActiveNav"] = "tag-report";
+    var report = Model.Report;
+    var useR = report.UsesR;
+    var unit = useR ? "net R" : "net P&L";
+    string Money(decimal? value) => value?.ToString("C2", CultureInfo.CurrentCulture) ?? "—";
+    string Tone(decimal? value) => value > 0 ? "text-success" : value < 0 ? "text-danger" : string.Empty;
+    string Points(decimal? value) => value is { } change ? (change * 100m).ToString("+0;-0;0", CultureInfo.CurrentCulture) + " pts" : "—";
+    string Standing(TagPerformanceRow row) => row.Standing switch
+    {
+        TagStanding.Ranked => $"#{row.Rank}",
+        TagStanding.TooFew => "Too few",
+        TagStanding.MissingRisk => "Needs risk data",
+        TagStanding.ReviewFinding => "Review finding",
+        _ => "Needs review"
+    };
+    string StandingHelp(TagPerformanceRow row) => row.Standing switch
+    {
+        TagStanding.Ranked => "Ranked by the low end of the expectancy range",
+        TagStanding.TooFew => report.Target == TagTarget.Day ? $"Ranking needs {report.RequiredCount} days" : $"Ranking needs {report.RequiredCount} trades on {report.RequiredDays} separate days",
+        TagStanding.MissingRisk => "Ranking in R needs risk data on 80% of the sample and enough of it",
+        TagStanding.ReviewFinding => $"Known {Tag.KnownLabel(row.Tag.Known).ToLowerInvariant()}, so it is not usable as a probability",
+        _ => "Add a description and timing on the Tags page"
+    };
+    string Stability(TagStability value) => value switch
+    {
+        TagStability.HeldUp => "Held up",
+        TagStability.Changed => "Changed sign",
+        TagStability.Negative => "Not positive",
+        _ => "—"
+    };
+}
+
+<div class="tf-tag-report-bar">
+    <nav class="tf-tag-tabs" aria-label="Report unit">
+        <a href="@Model.Link(tab: "trades")" aria-current="@(Model.IsDays ? null : "page")">Trade tags</a>
+        <a href="@Model.Link(tab: "days")" aria-current="@(Model.IsDays ? "page" : null)">Day tags</a>
+    </nav>
+    <div class="tf-tag-actions">
+        <div class="btn-group" role="group" aria-label="Measure in">
+            <a class="btn btn-sm @(useR ? "btn-primary" : "btn-outline-secondary")" href="@Model.Link(metric: "r")" aria-pressed="@(useR ? "true" : "false")">R</a>
+            <a class="btn btn-sm @(useR ? "btn-outline-secondary" : "btn-primary")" href="@Model.Link(metric: "money")" aria-pressed="@(useR ? "false" : "true")">@Model.Journal.Currency</a>
+        </div>
+        <form method="get" class="tf-tag-sort">
+            <input type="hidden" name="tab" value="@Model.Tab" />
+            @if (Model.Metric is { } metric) { <input type="hidden" name="metric" value="@metric" /> }
+            @foreach (var item in Model.Filter.Filter.ToQuery()) { <input type="hidden" name="@item.Key" value="@item.Value" /> }
+            <label for="tag-sort">Sort</label>
+            <select id="tag-sort" name="sort" class="form-select form-select-sm">
+                @foreach (var (value, label) in TagReportModel.Sorts)
+                {
+                    <option value="@value" selected="@(Model.Sort == value)">@label</option>
+                }
+            </select>
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Apply</button>
+        </form>
+    </div>
+</div>
+
+<p class="tf-tag-coverage">
+    @report.Tagged.Count of @report.TotalCount completed @Model.Noun tagged · risk data on @TagReportModel.Percent(report.Tagged.RiskCoverage) of them
+    @if (Model.Filter.Filter.HasSide)
+    {
+        <span>· @Model.Filter.SideLabel: P&amp;L counts only those trades</span>
+    }
+</p>
+
+<section class="card tf-card" aria-labelledby="tag-ranking-heading">
+    <div class="card-header"><h3 class="tf-card-title" id="tag-ranking-heading">Tag performance</h3><span class="text-secondary small ms-2">Expectancy in @unit per @(Model.IsDays ? "day" : "trade")</span></div>
+    @if (Model.Rows.Count == 0)
+    {
+        <div class="tf-empty m-3"><strong>No tagged @Model.Noun to report on.</strong><span>@(Model.Filter.IsActive ? "Try a wider journal filter, or tag more." : Model.IsDays ? "Tag days in the Daily Journal. Only days with completed trades count." : "Tag trades in Trade Review. Only completed trades count.")</span></div>
+    }
+    else
+    {
+        var bounds = Model.Rows
+            .Where(row => row.Standing == TagStanding.Ranked)
+            .SelectMany(row => new[] { row.Sample.Value(useR).Lower, row.Sample.Value(useR).Upper })
+            .OfType<decimal>().Append(0m).ToArray();
+        var low = bounds.Min();
+        var high = bounds.Max();
+        var span = high - low;
+        string Position(decimal value) => (span == 0m ? 50m : Math.Clamp((value - low) / span * 100m, 0m, 100m)).ToString("0.##", CultureInfo.InvariantCulture);
+        string Width(decimal from, decimal to) => (span == 0m ? 0m : Math.Clamp((to - low) / span * 100m, 0m, 100m) - Math.Clamp((from - low) / span * 100m, 0m, 100m)).ToString("0.##", CultureInfo.InvariantCulture);
+        <div class="tf-table-wrap">
+            <table class="table table-vcenter tf-table tf-tag-report">
+                <thead>
+                    <tr>
+                        <th scope="col" class="tf-tag-sticky">Tag</th>
+                        <th scope="col">Status</th>
+                        <th scope="col" class="text-end">@(Model.IsDays ? "Days" : "Trades")</th>
+                        <th scope="col" class="text-end">Win rate</th>
+                        <th scope="col" class="text-end" title="95% Wilson interval">Likely range</th>
+                        <th scope="col" class="text-end" title="The win rate needed to break even at this payoff">Break-even</th>
+                        <th scope="col" title="95% range, counting each day as one cluster">Expectancy and likely range</th>
+                        <th scope="col" class="text-end">Total P&amp;L</th>
+                        <th scope="col" class="text-end">Profit factor<small>payoff</small></th>
+                        @if (!Model.IsDays)
+                        {
+                            <th scope="col" class="text-end" title="From MFE and risk">Reached 1R<small>2R</small></th>
+                        }
+                        <th scope="col" class="text-end">@(Model.IsDays ? "Avg worst MAE" : "Avg MAE")@if (!Model.IsDays) { <small>MFE</small> }</th>
+                        <th scope="col" class="text-end" title="Against other tagged @Model.Noun since this tag was first used">Lift</th>
+                        <th scope="col" title="Earlier half against later half">Stability</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Model.Rows)
+                    {
+                        var sample = row.Sample;
+                        var value = sample.Value(useR);
+                        <tr class="@(row.Standing == TagStanding.Ranked ? string.Empty : "is-unranked")">
+                            <th scope="row" class="tf-tag-sticky"><a href="@Model.RowUrl(row.Tag, "all")" title="@row.Tag.Description">@row.Tag.Name</a>@if (row.Tag.Archived) { <span class="tf-tag-badge">Archived</span> }</th>
+                            <td><span class="tf-tag-badge @(row.Standing == TagStanding.Ranked ? "ranked" : row.Standing == TagStanding.NeedsReview ? "warning" : string.Empty)" title="@StandingHelp(row)">@Standing(row)</span></td>
+                            <td class="text-end"><a href="@Model.RowUrl(row.Tag, "all")">@sample.Count</a>@if (!Model.IsDays) { <small>@sample.Days day@(sample.Days == 1 ? string.Empty : "s")</small> }</td>
+                            <td class="text-end"><a href="@Model.RowUrl(row.Tag, "wins")">@TagReportModel.Percent(sample.WinRate)</a></td>
+                            <td class="text-end">@TagReportModel.Percent(sample.WinRange.Lower)–@TagReportModel.Percent(sample.WinRange.Upper)</td>
+                            <td class="text-end"><a href="@Model.RowUrl(row.Tag, "losses")">@TagReportModel.Percent(sample.BreakevenWinRate)</a></td>
+                            <td class="tf-tag-expectancy">
+                                <a class="@Tone(value.Mean)" href="@Model.RowUrl(row.Tag, "value")">@Model.Amount(value.Mean)</a>
+                                @if (value is { Lower: { } lower, Upper: { } upper })
+                                {
+                                    <small>@Model.Amount(lower) to @Model.Amount(upper)</small>
+                                    @* Bars share one scale, which a two-day sample's enormous range would flatten. *@
+                                    @if (row.Standing == TagStanding.Ranked)
+                                    {
+                                        <span class="tf-tag-range" aria-hidden="true">
+                                            <i class="tf-tag-range-zero" style="left:@(Position(0m))%"></i>
+                                            <i class="tf-tag-range-bar @(lower > 0 ? "is-positive" : upper < 0 ? "is-negative" : string.Empty)" style="left:@(Position(lower))%;width:@(Width(lower, upper))%"></i>
+                                        </span>
+                                    }
+                                }
+                            </td>
+                            <td class="text-end"><a class="@Tone(sample.TotalPnl)" href="@Model.RowUrl(row.Tag, "all")">@Money(sample.TotalPnl)</a></td>
+                            <td class="text-end"><a href="@Model.RowUrl(row.Tag, "all")">@(sample.ProfitFactor?.ToString("0.00", CultureInfo.CurrentCulture) ?? (sample.Wins > 0 ? "∞" : "—"))</a><small><a href="@Model.RowUrl(row.Tag, "all")">@(sample.Payoff?.ToString("0.00", CultureInfo.CurrentCulture) ?? "—")</a></small></td>
+                            @if (!Model.IsDays)
+                            {
+                                <td class="text-end" title="Of @sample.ReachSample with risk and MFE data"><a href="@Model.RowUrl(row.Tag, "reached-1r")">@TagReportModel.Share(sample.ReachedOneR, sample.ReachSample)</a><small><a href="@Model.RowUrl(row.Tag, "reached-2r")">@TagReportModel.Share(sample.ReachedTwoR, sample.ReachSample)</a></small></td>
+                            }
+                            <td class="text-end"><a href="@Model.RowUrl(row.Tag, "mae")">@Money(sample.AverageMae)</a>@if (!Model.IsDays) { <small><a href="@Model.RowUrl(row.Tag, "mfe")">@Money(sample.AverageMfe)</a></small> }</td>
+                            <td class="text-end"><a href="@Model.RowUrl(row.Tag, "others-value")">@Model.Amount(row.ValueLift)</a><small>win @Points(row.WinLift)</small><small>vs @row.Others.Count</small></td>
+                            <td>
+                                @Stability(row.Stability)
+                                @if (row.Earlier.HasValue)
+                                {
+                                    <small><a href="@Model.RowUrl(row.Tag, "earlier")">@Model.Amount(row.Earlier)</a> → <a href="@Model.RowUrl(row.Tag, "later")">@Model.Amount(row.Later)</a></small>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer tf-tag-method">
+            <p>
+                Ranking needs @(Model.IsDays ? $"{report.RequiredCount} days" : $"{report.RequiredCount} trades on {report.RequiredDays} separate days")
+                and orders tags by the low end of the expectancy range. Untagged @Model.Noun are left out of lift, because untagged doesn't mean absent.
+                A tag counts as beforehand because you said so, so add those tags without looking at the result.
+                Everything here is net of fees, like the Overview. The key metrics in Analytics use gross P&amp;L, so their win rate and profit factor can differ.
+            </p>
+            @{
+                var ranked = Model.Rows.Count(row => row.Standing == TagStanding.Ranked);
+            }
+            @if (ranked > 1)
+            {
+                <p>With @ranked ranked tags, there is roughly a @report.ChanceOfLuckyTag.ToString("P0", CultureInfo.CurrentCulture) chance that at least one looks profitable by luck even if none has an edge. Check stability before trusting the top one.</p>
+            }
+        </div>
+    }
+</section>
+
+<section class="card tf-card" id="tag-lookup" aria-labelledby="tag-lookup-heading">
+    <div class="card-header"><h3 class="tf-card-title" id="tag-lookup-heading">Probability lookup</h3></div>
+    <div class="card-body">
+        @if (report.Options.Count == 0)
+        {
+            <p class="text-secondary mb-0">Tags you know beforehand appear here once they are on completed @Model.Noun.</p>
+        }
+        else
+        {
+            var chosen = Model.Lookup is { IsProbability: true } current ? current.Picks : Array.Empty<TagPick>();
+            <form method="get" action="@($"/journal/{Model.JournalId:D}/tag-report#tag-lookup")" class="tf-tag-lookup">
+                <input type="hidden" name="tab" value="@Model.Tab" />
+                @if (Model.Metric is { } lookupMetric) { <input type="hidden" name="metric" value="@lookupMetric" /> }
+                @if (Model.Sort != "rank") { <input type="hidden" name="sort" value="@Model.Sort" /> }
+                @foreach (var item in Model.Filter.Filter.ToQuery()) { <input type="hidden" name="@item.Key" value="@item.Value" /> }
+                @for (var index = 0; index < TagPerformanceReport.MaximumPicks; index++)
+                {
+                    var selectedValue = index < chosen.Count ? chosen[index].Value : string.Empty;
+                    <label class="tf-tag-field">@(index == 0 ? "Given" : "And")
+                        <select name="pick" class="form-select">
+                            <option value="">@(index == 0 ? "Choose a tag…" : "—")</option>
+                            @foreach (var option in report.Options)
+                            {
+                                <option value="@option.Value" selected="@(option.Value == selectedValue)">@option.Tag.Name@(!Model.IsDays && option.On == TagTarget.Day ? " (day)" : string.Empty)</option>
+                            }
+                        </select>
+                    </label>
+                }
+                <button class="btn btn-primary" type="submit">Show odds</button>
+            </form>
+        }
+
+        @if (Model.Lookup is { } lookup)
+        {
+            var sample = lookup.Sample;
+            var other = lookup.OtherSample;
+            var value = sample.Value(useR);
+            <div class="tf-tag-odds" id="tag-odds">
+                <h4>@string.Join(" + ", lookup.Picks.Select(pick => pick.Tag.Name + (!Model.IsDays && pick.On == TagTarget.Day ? " (day)" : string.Empty)))</h4>
+                @if (!lookup.IsProbability)
+                {
+                    <p class="tf-tag-notice" role="note"><strong>Review finding, not a probability.</strong> This can't be known before the @(Model.IsDays ? "session" : "entry"), or still needs review.</p>
+                }
+                else if (sample.Count == 0)
+                {
+                    <p class="tf-tag-notice" role="note">No completed @Model.Noun match all of these tags.</p>
+                }
+                else if (!lookup.EnoughData)
+                {
+                    <p class="tf-tag-notice" role="note"><strong>Too few to rely on.</strong> @sample.Count @Model.Noun on @sample.Days day@(sample.Days == 1 ? string.Empty : "s").</p>
+                }
+                @if (sample.Count > 0)
+                {
+                    <dl class="tf-tag-stats">
+                        <div>
+                            <dt>@(Model.IsDays ? "Green day" : "Win")</dt>
+                            <dd><a href="@Model.LookupUrl("wins")">@TagReportModel.Percent(sample.WinRate)</a></dd>
+                            <dd class="tf-tag-sub">@TagReportModel.Percent(sample.WinRange.Lower)–@TagReportModel.Percent(sample.WinRange.Upper) · <a href="@Model.LookupUrl("wins")">@sample.Wins</a> of <a href="@Model.LookupUrl("all")">@sample.Count</a></dd>
+                        </div>
+                        <div>
+                            <dt>Expectancy</dt>
+                            <dd><a class="@Tone(value.Mean)" href="@Model.LookupUrl("value")">@Model.Amount(value.Mean)</a></dd>
+                            <dd class="tf-tag-sub">@(value.Lower.HasValue ? $"{Model.Amount(value.Lower)} to {Model.Amount(value.Upper)}" : "No range yet")</dd>
+                        </div>
+                        <div>
+                            <dt>Break-even win rate</dt>
+                            <dd><a href="@Model.LookupUrl("losses")">@TagReportModel.Percent(sample.BreakevenWinRate)</a></dd>
+                            <dd class="tf-tag-sub">At this payoff</dd>
+                        </div>
+                        <div>
+                            <dt>Closed at 1R or more</dt>
+                            <dd><a href="@Model.LookupUrl("closed-1r")">@TagReportModel.Share(sample.ClosedAtOneR, sample.R.Count)</a></dd>
+                            <dd class="tf-tag-sub">of <a href="@Model.LookupUrl("risk")">@sample.R.Count</a> with risk data</dd>
+                        </div>
+                        @if (!Model.IsDays)
+                        {
+                            <div>
+                                <dt>Reached 1R</dt>
+                                <dd><a href="@Model.LookupUrl("reached-1r")">@TagReportModel.Share(sample.ReachedOneR, sample.ReachSample)</a></dd>
+                                <dd class="tf-tag-sub">of <a href="@Model.LookupUrl("reach")">@sample.ReachSample</a> with risk and MFE</dd>
+                            </div>
+                            <div>
+                                <dt>Reached 2R</dt>
+                                <dd><a href="@Model.LookupUrl("reached-2r")">@TagReportModel.Share(sample.ReachedTwoR, sample.ReachSample)</a></dd>
+                                <dd class="tf-tag-sub">of <a href="@Model.LookupUrl("reach")">@sample.ReachSample</a> with risk and MFE</dd>
+                            </div>
+                        }
+                        <div>
+                            <dt>Other tagged @Model.Noun</dt>
+                            <dd><a href="@Model.LookupUrl("others-wins")">@TagReportModel.Percent(other.WinRate)</a></dd>
+                            <dd class="tf-tag-sub">win · <a href="@Model.LookupUrl("others-value")">@Model.Amount(other.Value(useR).Mean)</a> · <a href="@Model.LookupUrl("others")">@other.Count</a> @Model.Noun</dd>
+                        </div>
+                    </dl>
+                }
+            </div>
+        }
+    </div>
+</section>
+
+@if (Model.Lookup is not null)
+{
+    <section class="card tf-card" id="tag-evidence" aria-labelledby="tag-evidence-heading">
+        <div class="card-header"><h3 class="tf-card-title" id="tag-evidence-heading">@Model.ShownLabel</h3><span class="text-secondary small ms-2" data-evidence-count>@Model.ShownTotal</span></div>
+        @if (Model.ShownTotal == 0)
+        {
+            <div class="tf-empty m-3"><strong>None.</strong></div>
+        }
+        else
+        {
+            <div class="tf-table-wrap">
+                <table class="table table-vcenter tf-table tf-tag-items-table">
+                    <thead><tr><th scope="col">@(Model.IsDays ? "Day" : "Entry")</th><th scope="col">@(Model.IsDays ? "Trades" : "Trade")</th><th scope="col" class="text-end">Net P&amp;L</th><th scope="col" class="text-end">Net R</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in Model.Shown)
+                        {
+                            <tr>
+                                <td><a href="@Model.ItemUrl(item)">@(item.Trade is { } trade ? TimeZoneCatalog.Format(trade.EntryUtc, Model.Journal.TimeZone, "MMM d, yyyy HH:mm") : item.Date.ToString("ddd, MMM d, yyyy", CultureInfo.CurrentCulture))</a></td>
+                                <td>@(item.Trade is { } shown ? $"{shown.Instrument} {shown.Direction}" : item.TradeCount.ToString(CultureInfo.CurrentCulture))</td>
+                                <td class="text-end @Tone(item.NetPnl)">@Money(item.NetPnl)</td>
+                                <td class="text-end">@(item.NetR?.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture) ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (Model.PageCount > 1)
+        {
+            <div class="card-footer tf-tag-pager">
+                @if (Model.PageNumber > 1) { <a href="@Model.LookupUrl(Model.Show ?? "all", Model.PageNumber - 1)">← Newer</a> }
+                <span>Page @Model.PageNumber of @Model.PageCount</span>
+                @if (Model.PageNumber < Model.PageCount) { <a href="@Model.LookupUrl(Model.Show ?? "all", Model.PageNumber + 1)">Older →</a> }
+            </div>
+        }
+    </section>
+}

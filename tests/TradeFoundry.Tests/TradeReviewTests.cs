@@ -148,7 +148,7 @@ public sealed class TradeReviewTests
             {
                 ReviewNote = "EMA pullback confirmed; target was 100% planned.",
                 Setup = "Opening range",
-                TagsText = "trend, pullback",
+                TagIds = TestTags.Ids(database, live.Id, "trend", "pullback"),
                 ExpectedRevision = 0
             });
 
@@ -380,7 +380,7 @@ public sealed class TradeReviewTests
             {
                 ReviewNote = "First pass",
                 Setup = "Opening range",
-                TagsText = "planned, planned, clean",
+                TagIds = TestTags.Ids(database, journal.Id, "planned", "planned", "clean"),
                 ProcessRating = 4,
                 ExpectedRevision = 0,
                 Reason = "Initial review"

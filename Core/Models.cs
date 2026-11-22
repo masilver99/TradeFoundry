@@ -740,7 +740,9 @@ public sealed class TradeReviewAnnotation
     public int Revision { get; init; }
     public string ReviewNote { get; init; } = string.Empty;
     public string Setup { get; init; } = string.Empty;
+    /// <summary>Current tag names, index for index with <see cref="TagIds"/>. History saved before tags had ids has only names.</summary>
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<Guid> TagIds { get; init; } = Array.Empty<Guid>();
     public decimal? PlannedEntryPrice { get; init; }
     public decimal? PlannedStopPrice { get; init; }
     public decimal? PlannedTargetPrice { get; init; }
@@ -777,7 +779,9 @@ public sealed class TradeReviewPatch
 {
     public string ReviewNote { get; set; } = string.Empty;
     public string Setup { get; set; } = string.Empty;
-    public string TagsText { get; set; } = string.Empty;
+    /// <summary>Comma-separated tag ids. Null (the field was not sent) leaves the tags unchanged; empty clears them.</summary>
+    [System.ComponentModel.DataAnnotations.DisplayFormat(ConvertEmptyStringToNull = false)]
+    public string? TagIds { get; set; }
     public decimal? PlannedEntryPrice { get; set; }
     public decimal? PlannedStopPrice { get; set; }
     public decimal? PlannedTargetPrice { get; set; }
@@ -848,6 +852,7 @@ public sealed class DailyReviewModel
     public DailyReviewSummary Summary => DailyReviewSummary.Build(this);
     public Journal Journal { get; init; } = new();
     public DateOnly Date { get; init; }
+    public DailyTagSet DailyTags { get; init; } = DailyTagSet.Empty(default);
     public DailyJournalEntry DailyJournal { get; init; } = new();
     public DailyRating DailyRating { get; init; } = new();
     public IReadOnlyList<DailyReviewTrade> CompletedTrades { get; init; } = Array.Empty<DailyReviewTrade>();

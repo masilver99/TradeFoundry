@@ -262,6 +262,7 @@ public sealed partial class TradeFoundryDb
         AllowAccountCorrectionType(connection);
         BackfillTradeReviewKeys(connection);
         BackfillDailyJournalSearchText(connection);
+        InitializeTags(connection);
         using (var reviewKeyIndex = connection.CreateCommand())
         {
             reviewKeyIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS ix_trades_journal_review_key ON trades(journal_id, review_key) WHERE review_key <> ''";
@@ -1365,17 +1366,8 @@ public sealed partial class TradeFoundryDb
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         using var connection = OpenConnection();
         var annotations = new Dictionary<string, TradeReviewAnnotation>(StringComparer.Ordinal);
-        using (var command = connection.CreateCommand())
-        {
-            command.CommandText = $"SELECT {TradeReviewColumns} FROM trade_review_annotations WHERE journal_id = $journal";
-            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                var annotation = ReadTradeReview(reader);
-                annotations[annotation.ReviewKey] = annotation;
-            }
-        }
+        foreach (var annotation in ReadTradeReviews(connection, null, journalId))
+            annotations[annotation.ReviewKey] = annotation;
 
         // A source-removal tombstone has no active row, but its revision still
         // matters when a later import reintroduces the same stable review key.
@@ -1402,13 +1394,14 @@ public sealed partial class TradeFoundryDb
         if (string.IsNullOrWhiteSpace(reviewKey)) return null;
         _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         using var connection = OpenConnection();
+        var tags = ReadReviewTags(connection, null, journalId, reviewKey);
         using (var command = connection.CreateCommand())
         {
             command.CommandText = $"SELECT {TradeReviewColumns} FROM trade_review_annotations WHERE journal_id = $journal AND review_key = $reviewKey";
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             command.Parameters.AddWithValue("$reviewKey", reviewKey);
             using var reader = command.ExecuteReader();
-            if (reader.Read()) return ReadTradeReview(reader);
+            if (reader.Read()) return ReadTradeReview(reader, tags);
         }
 
         using var history = connection.CreateCommand();
@@ -1433,7 +1426,10 @@ public sealed partial class TradeFoundryDb
         return history;
     }
 
-    public TradeReviewSaveResult SaveTradeReview(Guid journalId, string reviewKey, TradeReviewPatch patch, string action = "saved")
+    public TradeReviewSaveResult SaveTradeReview(Guid journalId, string reviewKey, TradeReviewPatch patch, string action = "saved") =>
+        SaveTradeReview(journalId, reviewKey, patch, action, restoreTagsFrom: null);
+
+    private TradeReviewSaveResult SaveTradeReview(Guid journalId, string reviewKey, TradeReviewPatch patch, string action, TradeReviewAnnotation? restoreTagsFrom)
     {
         if (string.IsNullOrWhiteSpace(reviewKey)) throw new ArgumentException("A review key is required.", nameof(reviewKey));
         if (patch.ExpectedRevision < 0) throw new ArgumentOutOfRangeException(nameof(patch.ExpectedRevision));
@@ -1456,36 +1452,16 @@ public sealed partial class TradeFoundryDb
             return new TradeReviewSaveResult { Conflict = true, Annotation = current };
         }
 
-        var now = DateTimeOffset.UtcNow;
-        var annotation = AnnotationFromPatch(journalId, reviewKey, current.Revision + 1, normalized, now);
-        using (var command = connection.CreateCommand())
-        {
-            command.Transaction = transaction;
-            command.CommandText = "INSERT INTO trade_review_annotations (id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, exchange_fees, nfa_fees, clearing_fees, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc) VALUES ($id, $journal, $reviewKey, $revision, $note, $setup, $tags, $plannedEntry, $plannedStop, $plannedTarget, $riskPoints, $riskCurrency, $exchangeFees, $nfaFees, $clearingFees, $allInCommission, $adherence, $rating, $mistakes, $lessons, $updated) ON CONFLICT(journal_id, review_key) DO UPDATE SET revision = excluded.revision, review_note = excluded.review_note, setup = excluded.setup, tags_json = excluded.tags_json, planned_entry_price = excluded.planned_entry_price, planned_stop_price = excluded.planned_stop_price, planned_target_price = excluded.planned_target_price, planned_risk_points = excluded.planned_risk_points, planned_risk_currency = excluded.planned_risk_currency, exchange_fees = excluded.exchange_fees, nfa_fees = excluded.nfa_fees, clearing_fees = excluded.clearing_fees, all_in_commission = excluded.all_in_commission, plan_adherence = excluded.plan_adherence, process_rating = excluded.process_rating, mistakes = excluded.mistakes, lessons = excluded.lessons, updated_utc = excluded.updated_utc";
-            command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
-            command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
-            command.Parameters.AddWithValue("$reviewKey", reviewKey);
-            command.Parameters.AddWithValue("$revision", annotation.Revision);
-            command.Parameters.AddWithValue("$note", annotation.ReviewNote);
-            command.Parameters.AddWithValue("$setup", annotation.Setup);
-            command.Parameters.AddWithValue("$tags", JsonSerializer.Serialize(annotation.Tags));
-            AddNullable(command, "$plannedEntry", annotation.PlannedEntryPrice);
-            AddNullable(command, "$plannedStop", annotation.PlannedStopPrice);
-            AddNullable(command, "$plannedTarget", annotation.PlannedTargetPrice);
-            AddNullable(command, "$riskPoints", annotation.PlannedRiskPoints);
-            AddNullable(command, "$riskCurrency", annotation.PlannedRiskCurrency);
-            AddNullable(command, "$exchangeFees", annotation.ExchangeFees);
-            AddNullable(command, "$nfaFees", annotation.NfaFees);
-            AddNullable(command, "$clearingFees", annotation.ClearingFees);
-            AddNullable(command, "$allInCommission", annotation.AllInCommission);
-            command.Parameters.AddWithValue("$adherence", annotation.PlanAdherence);
-            AddNullable(command, "$rating", annotation.ProcessRating);
-            command.Parameters.AddWithValue("$mistakes", annotation.Mistakes);
-            command.Parameters.AddWithValue("$lessons", annotation.Lessons);
-            command.Parameters.AddWithValue("$updated", annotation.UpdatedUtc!.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
-            command.ExecuteNonQuery();
-        }
+        var selected = restoreTagsFrom is null ? current.TagIds : RestoreTagSelection(connection, transaction, journalId, restoreTagsFrom);
+        var catalog = ReadTagCatalog(connection, transaction, journalId);
+        if (restoreTagsFrom is null && normalized.TagIds is { } requested)
+            selected = ValidateSelection(catalog, ParseTagIds(requested), current.TagIds.ToHashSet(), TagTarget.Trade);
 
+        var now = DateTimeOffset.UtcNow;
+        var tags = selected.Select(id => catalog.Resolve(id)!).ToArray();
+        var annotation = AnnotationFromPatch(journalId, reviewKey, current.Revision + 1, normalized, tags, now);
+        WriteTradeReview(connection, transaction, annotation);
+        WriteTagLinks(connection, transaction, catalog, selected, "trade_review_tags", "review_key", journalId, reviewKey);
         InsertTradeReviewHistory(connection, transaction, journalId, reviewKey, annotation.Revision, action, SerializeReview(current), SerializeReview(annotation), normalized.Reason, now);
         transaction.Commit();
         return new TradeReviewSaveResult { Saved = true, Annotation = annotation };
@@ -1507,7 +1483,36 @@ public sealed partial class TradeFoundryDb
             throw new InvalidOperationException("The selected review history entry is not readable.");
         }
 
-        return SaveTradeReview(journalId, reviewKey, PatchFromAnnotation(restored, expectedRevision, reason), "reverted");
+        return SaveTradeReview(journalId, reviewKey, PatchFromAnnotation(restored, expectedRevision, reason), "reverted", restoreTagsFrom: restored);
+    }
+
+    private static void WriteTradeReview(SqliteConnection connection, SqliteTransaction transaction, TradeReviewAnnotation annotation)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "INSERT INTO trade_review_annotations (id, journal_id, review_key, revision, review_note, setup, tags_json, planned_entry_price, planned_stop_price, planned_target_price, planned_risk_points, planned_risk_currency, exchange_fees, nfa_fees, clearing_fees, all_in_commission, plan_adherence, process_rating, mistakes, lessons, updated_utc) VALUES ($id, $journal, $reviewKey, $revision, $note, $setup, $tags, $plannedEntry, $plannedStop, $plannedTarget, $riskPoints, $riskCurrency, $exchangeFees, $nfaFees, $clearingFees, $allInCommission, $adherence, $rating, $mistakes, $lessons, $updated) ON CONFLICT(journal_id, review_key) DO UPDATE SET revision = excluded.revision, review_note = excluded.review_note, setup = excluded.setup, tags_json = excluded.tags_json, planned_entry_price = excluded.planned_entry_price, planned_stop_price = excluded.planned_stop_price, planned_target_price = excluded.planned_target_price, planned_risk_points = excluded.planned_risk_points, planned_risk_currency = excluded.planned_risk_currency, exchange_fees = excluded.exchange_fees, nfa_fees = excluded.nfa_fees, clearing_fees = excluded.clearing_fees, all_in_commission = excluded.all_in_commission, plan_adherence = excluded.plan_adherence, process_rating = excluded.process_rating, mistakes = excluded.mistakes, lessons = excluded.lessons, updated_utc = excluded.updated_utc";
+        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$journal", annotation.JournalId.ToString("D"));
+        command.Parameters.AddWithValue("$reviewKey", annotation.ReviewKey);
+        command.Parameters.AddWithValue("$revision", annotation.Revision);
+        command.Parameters.AddWithValue("$note", annotation.ReviewNote);
+        command.Parameters.AddWithValue("$setup", annotation.Setup);
+        command.Parameters.AddWithValue("$tags", JsonSerializer.Serialize(annotation.Tags));
+        AddNullable(command, "$plannedEntry", annotation.PlannedEntryPrice);
+        AddNullable(command, "$plannedStop", annotation.PlannedStopPrice);
+        AddNullable(command, "$plannedTarget", annotation.PlannedTargetPrice);
+        AddNullable(command, "$riskPoints", annotation.PlannedRiskPoints);
+        AddNullable(command, "$riskCurrency", annotation.PlannedRiskCurrency);
+        AddNullable(command, "$exchangeFees", annotation.ExchangeFees);
+        AddNullable(command, "$nfaFees", annotation.NfaFees);
+        AddNullable(command, "$clearingFees", annotation.ClearingFees);
+        AddNullable(command, "$allInCommission", annotation.AllInCommission);
+        command.Parameters.AddWithValue("$adherence", annotation.PlanAdherence);
+        AddNullable(command, "$rating", annotation.ProcessRating);
+        command.Parameters.AddWithValue("$mistakes", annotation.Mistakes);
+        command.Parameters.AddWithValue("$lessons", annotation.Lessons);
+        command.Parameters.AddWithValue("$updated", annotation.UpdatedUtc!.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
     }
 
     public IReadOnlyList<TradeReviewAttachment> GetTradeReviewAttachments(Guid journalId, string reviewKey)
@@ -1697,10 +1702,16 @@ public sealed partial class TradeFoundryDb
 
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        var filters = new List<string> { "journal_id = $journal", "TRIM(COALESCE(search_text, '')) <> ''" };
+        var catalog = ReadTagCatalog(connection, null, journalId);
+        Dictionary<string, string> tagNames;
+        using (var linkCommand = TagSql(connection, null, "SELECT review_date, tag_id FROM daily_tag_links WHERE journal_id = $journal ORDER BY position, tag_id", ("$journal", journalId)))
+            tagNames = ReadResolvedLinks(linkCommand, catalog, value => value).ToDictionary(item => item.Key, item => string.Join(", ", item.Value.Select(tag => tag.Name)), StringComparer.Ordinal);
+        connection.CreateFunction("day_tag_names", (string? date) => date is null ? string.Empty : tagNames.GetValueOrDefault(date, string.Empty));
+        const string dayText = "TRIM(COALESCE(j.search_text, '') || ' ' || day_tag_names(d.review_date))";
+        var filters = new List<string> { $"{dayText} <> ''" };
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
-        AddPaletteSearchTerms(filters, command, "search_text", terms);
-        command.CommandText = $"SELECT review_date, search_text FROM daily_review_journals WHERE {string.Join(" AND ", filters)} ORDER BY review_date DESC LIMIT $limit";
+        AddPaletteSearchTerms(filters, command, dayText, terms);
+        command.CommandText = $"SELECT d.review_date, {dayText} FROM (SELECT review_date FROM daily_review_journals WHERE journal_id = $journal UNION SELECT review_date FROM daily_tag_links WHERE journal_id = $journal) d LEFT JOIN daily_review_journals j ON j.journal_id = $journal AND j.review_date = d.review_date WHERE {string.Join(" AND ", filters)} ORDER BY d.review_date DESC LIMIT $limit";
         command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 10));
 
         var results = new List<DailyJournalSearchHit>();
@@ -1720,7 +1731,7 @@ public sealed partial class TradeFoundryDb
         var terms = SearchTerms(query);
         if (terms.Length == 0) return Array.Empty<TradeReviewSearchHit>();
 
-        const string annotationText = "COALESCE(lexical_plain_text(r.review_note), '') || ' ' || COALESCE(r.setup, '') || ' ' || COALESCE(NULLIF(r.tags_json, '[]'), '') || ' ' || COALESCE(r.plan_adherence, '') || ' ' || COALESCE(r.mistakes, '') || ' ' || COALESCE(r.lessons, '')";
+        const string annotationText = "COALESCE(lexical_plain_text(r.review_note), '') || ' ' || COALESCE(r.setup, '') || ' ' || review_tag_names(t.review_key) || ' ' || COALESCE(r.plan_adherence, '') || ' ' || COALESCE(r.mistakes, '') || ' ' || COALESCE(r.lessons, '')";
         var searchableText = $"COALESCE(t.symbol, '') || ' ' || COALESCE(t.instrument, '') || ' ' || COALESCE(t.note, '') || ' ' || {annotationText}";
         var hasNote = $"TRIM(COALESCE(t.note, '') || ' ' || {annotationText}) <> ''";
 
@@ -1729,8 +1740,10 @@ public sealed partial class TradeFoundryDb
         var filters = new List<string> { "t.journal_id = $journal", hasNote };
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         connection.CreateFunction("lexical_plain_text", (string? value) => LexicalPlainText.Extract(value));
+        var tagNames = ReadReviewTags(connection, null, journalId).ToDictionary(item => item.Key, item => string.Join(", ", item.Value.Select(tag => tag.Name)), StringComparer.Ordinal);
+        connection.CreateFunction("review_tag_names", (string? key) => key is null ? string.Empty : tagNames.GetValueOrDefault(key, string.Empty));
         AddPaletteSearchTerms(filters, command, searchableText, terms);
-        command.CommandText = $"SELECT t.review_key, t.symbol, t.instrument, t.status, t.entry_utc, t.exit_utc, t.note, r.review_note, r.setup, r.tags_json, r.plan_adherence, r.mistakes, r.lessons FROM {TradeFrom} WHERE {string.Join(" AND ", filters)} ORDER BY COALESCE(r.updated_utc, t.entry_utc) DESC, t.entry_utc DESC LIMIT $limit";
+        command.CommandText = $"SELECT t.review_key, t.symbol, t.instrument, t.status, t.entry_utc, t.exit_utc, t.note, r.review_note, r.setup, review_tag_names(t.review_key), r.plan_adherence, r.mistakes, r.lessons FROM {TradeFrom} WHERE {string.Join(" AND ", filters)} ORDER BY COALESCE(r.updated_utc, t.entry_utc) DESC, t.entry_utc DESC LIMIT $limit";
         command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 10));
 
         var results = new List<TradeReviewSearchHit>();
@@ -1743,7 +1756,7 @@ public sealed partial class TradeFoundryDb
             {
                 LexicalPlainText.Extract(StringOrEmpty(reader, 7)),
                 StringOrEmpty(reader, 8),
-                ReadSearchTags(StringOrEmpty(reader, 9)),
+                StringOrEmpty(reader, 9),
                 StringOrEmpty(reader, 10),
                 StringOrEmpty(reader, 11),
                 StringOrEmpty(reader, 12),
@@ -3192,11 +3205,17 @@ public sealed partial class TradeFoundryDb
         }
         if (!journalId.HasValue) return;
 
+        // Direct-trade sources never contribute fills, so removing them cannot change fill-derived trades.
+        var rebuilds = sourceType is not (TradeFoundryConstants.TradingViewStrategy or TradeFoundryConstants.NinjaTraderTrades);
+        var groupingPolicy = GetJournal(journalId.Value)?.GroupingPolicy ?? "flat_to_flat";
         using (var connection = OpenConnection())
         using (var transaction = connection.BeginTransaction())
         {
-            foreach (var reviewKey in ReadReviewKeysForImport(connection, transaction, journalId.Value, batchId))
-                RemoveTradeReviewForSource(connection, transaction, journalId.Value, reviewKey);
+            // Everything the rebuild needs to recognize surviving trades is read before the rows go away.
+            var previous = rebuilds ? ReadDerivedTradeIdentities(connection, transaction, journalId.Value) : Array.Empty<DerivedTradeIdentity>();
+            var setupSnapshots = rebuilds ? SnapshotDerivedTradeSetups(connection, transaction, journalId.Value) : Array.Empty<DerivedTradeSetupSnapshot>();
+            var affected = ReadReviewKeysForImport(connection, transaction, journalId.Value, batchId).ToHashSet(StringComparer.Ordinal);
+            if (rebuilds) affected.UnionWith(ReplayMembership(previous, ReadFills(connection, transaction, journalId.Value), batchId));
 
             foreach (var sql in new[]
             {
@@ -3218,12 +3237,14 @@ public sealed partial class TradeFoundryDb
                 command.Parameters.AddWithValue("$batch", batchId.ToString("D"));
                 command.ExecuteNonQuery();
             }
+
+            if (rebuilds) affected.ExceptWith(RebuildDerivedTrades(connection, transaction, journalId.Value, groupingPolicy, previous, setupSnapshots));
+            // What is left had every one of its fills, or its direct row, removed with the import.
+            foreach (var reviewKey in affected)
+                RemoveTradeReviewForSource(connection, transaction, journalId.Value, reviewKey);
             transaction.Commit();
         }
         OrderEventsChanged();
-        // Direct-trade sources never contribute fills, so removing them cannot change fill-derived trades.
-        if (sourceType is not (TradeFoundryConstants.TradingViewStrategy or TradeFoundryConstants.NinjaTraderTrades))
-            RebuildFlatTrades(journalId.Value, GetJournal(journalId.Value)?.GroupingPolicy ?? "flat_to_flat");
     }
 
     /// <summary>Counts trades whose pairing came from the source application rather than TradeFoundry's grouping.</summary>
@@ -3242,7 +3263,15 @@ public sealed partial class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
-        var setupSnapshots = SnapshotDerivedTradeSetups(connection, transaction, journalId);
+        RebuildDerivedTrades(connection, transaction, journalId, groupingPolicy,
+            ReadDerivedTradeIdentities(connection, transaction, journalId),
+            SnapshotDerivedTradeSetups(connection, transaction, journalId));
+        transaction.Commit();
+    }
+
+    /// <summary>Returns the previous review keys that still belong to a trade.</summary>
+    private static IReadOnlySet<string> RebuildDerivedTrades(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, string groupingPolicy, IReadOnlyList<DerivedTradeIdentity> previous, IReadOnlyList<DerivedTradeSetupSnapshot> setupSnapshots)
+    {
         using (var deleteAllocations = connection.CreateCommand())
         {
             deleteAllocations.Transaction = transaction;
@@ -3260,10 +3289,21 @@ public sealed partial class TradeFoundryDb
             deleteTrades.ExecuteNonQuery();
         }
 
-        var fills = ReadFills(connection, transaction, journalId);
+        var positions = BuildPositions(ReadFills(connection, transaction, journalId));
         var orderLifecycles = BuildOrderLifecycles(ReadOrderEvents(connection, transaction, journalId));
+        var assignment = AssignReviewKeys(connection, transaction, journalId, groupingPolicy, previous, positions);
+        for (var index = 0; index < positions.Count; index++)
+            InsertDerivedTrade(connection, transaction, journalId, positions[index], groupingPolicy, index + 1, assignment.Keys[index], orderLifecycles);
+
+        RestoreDerivedTradeSetups(connection, transaction, journalId, setupSnapshots);
+        return assignment.SurvivingKeys;
+    }
+
+    /// <summary>Flat-to-flat positions, closed ones in closing order followed by the ones still open.</summary>
+    private static List<PositionState> BuildPositions(IEnumerable<Fill> fills)
+    {
+        var positions = new List<PositionState>();
         var states = new Dictionary<string, PositionState>(StringComparer.OrdinalIgnoreCase);
-        var sequence = 0;
         foreach (var fill in fills)
         {
             if (fill.Quantity <= 0 || string.IsNullOrWhiteSpace(fill.Symbol)) continue;
@@ -3294,7 +3334,7 @@ public sealed partial class TradeFoundryDb
                 remaining -= closing;
                 if (state.OpenQuantity == 0)
                 {
-                    InsertDerivedTrade(connection, transaction, journalId, state, groupingPolicy, ++sequence, orderLifecycles);
+                    positions.Add(state);
                     state = null;
                     states.Remove(key);
                 }
@@ -3307,11 +3347,8 @@ public sealed partial class TradeFoundryDb
             }
         }
 
-        foreach (var state in states.Values)
-            InsertDerivedTrade(connection, transaction, journalId, state, groupingPolicy, ++sequence, orderLifecycles);
-
-        RestoreDerivedTradeSetups(connection, transaction, journalId, setupSnapshots);
-        transaction.Commit();
+        positions.AddRange(states.Values);
+        return positions;
     }
 
     private const string TradeDateSql = "(CASE WHEN t.status = 'closed' AND t.exit_utc IS NOT NULL THEN t.exit_utc ELSE t.entry_utc END)";
@@ -3685,7 +3722,7 @@ public sealed partial class TradeFoundryDb
         provenance.ExecuteNonQuery();
     }
 
-    private static void InsertDerivedTrade(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, PositionState state, string groupingPolicy, int sequence, OrderLifecycleIndex orderLifecycles)
+    private static void InsertDerivedTrade(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, PositionState state, string groupingPolicy, int sequence, string reviewKey, OrderLifecycleIndex orderLifecycles)
     {
         var tradeId = Guid.NewGuid().ToString("D");
         var closed = state.ClosedQuantity;
@@ -3740,7 +3777,7 @@ public sealed partial class TradeFoundryDb
         command.Parameters.AddWithValue("$note", note);
         command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$instrument", state.Instrument);
-        command.Parameters.AddWithValue("$reviewKey", CreateTradeReviewKey(journalId, DerivedFillSource, state.EntrySourceKey, groupingPolicy, state.Account, state.Symbol, state.Direction));
+        command.Parameters.AddWithValue("$reviewKey", reviewKey);
         command.Parameters.AddWithValue("$sourceTimeframe", state.SourceTimeframe);
         command.ExecuteNonQuery();
 
@@ -4396,18 +4433,23 @@ public sealed partial class TradeFoundryDb
         Id = Guid.Parse(reader.GetString(0)), JournalId = Guid.Parse(reader.GetString(1)), FileName = reader.GetString(2), SourceApplication = InferSourceApplication(reader.IsDBNull(3) ? string.Empty : reader.GetString(3), reader.GetString(4)), SourceType = reader.GetString(4), ImportedUtc = ParseDate(reader.GetString(5)), TotalRows = reader.GetInt32(6), NewRows = reader.GetInt32(7), DuplicateRows = reader.GetInt32(8), Status = reader.GetString(9), Message = reader.GetString(10)
     };
 
-    private static TradeReviewAnnotation ReadTradeReview(SqliteDataReader reader)
+    private static List<TradeReviewAnnotation> ReadTradeReviews(SqliteConnection connection, SqliteTransaction? transaction, Guid journalId)
     {
-        IReadOnlyList<string> tags;
-        try
-        {
-            tags = JsonSerializer.Deserialize<string[]>(reader.GetString(6)) ?? Array.Empty<string>();
-        }
-        catch (JsonException)
-        {
-            tags = Array.Empty<string>();
-        }
+        var tags = ReadReviewTags(connection, transaction, journalId);
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT {TradeReviewColumns} FROM trade_review_annotations WHERE journal_id = $journal";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        var reviews = new List<TradeReviewAnnotation>();
+        while (reader.Read()) reviews.Add(ReadTradeReview(reader, tags));
+        return reviews;
+    }
 
+    private static TradeReviewAnnotation ReadTradeReview(SqliteDataReader reader, IReadOnlyDictionary<string, IReadOnlyList<Tag>> tagsByKey)
+    {
+        // tags_json is only a copy of the names at the last save. The links are the truth.
+        var tags = tagsByKey.GetValueOrDefault(reader.GetString(2)) ?? Array.Empty<Tag>();
         return new TradeReviewAnnotation
         {
             JournalId = Guid.Parse(reader.GetString(1)),
@@ -4415,7 +4457,8 @@ public sealed partial class TradeFoundryDb
             Revision = reader.GetInt32(3),
             ReviewNote = reader.GetString(4),
             Setup = reader.GetString(5),
-            Tags = tags,
+            Tags = tags.Select(tag => tag.Name).ToArray(),
+            TagIds = tags.Select(tag => tag.Id).ToArray(),
             PlannedEntryPrice = NullableDecimal(reader, 7),
             PlannedStopPrice = NullableDecimal(reader, 8),
             PlannedTargetPrice = NullableDecimal(reader, 9),
@@ -4528,7 +4571,7 @@ public sealed partial class TradeFoundryDb
     {
         ReviewNote = NormalizeReviewNote(patch.ReviewNote),
         Setup = TrimTo(patch.Setup, 240),
-        TagsText = string.Join(", ", ParseReviewTags(patch.TagsText)),
+        TagIds = patch.TagIds,
         PlannedEntryPrice = patch.PlannedEntryPrice,
         PlannedStopPrice = patch.PlannedStopPrice,
         PlannedTargetPrice = patch.PlannedTargetPrice,
@@ -4546,14 +4589,15 @@ public sealed partial class TradeFoundryDb
         ExpectedRevision = patch.ExpectedRevision
     };
 
-    private static TradeReviewAnnotation AnnotationFromPatch(Guid journalId, string reviewKey, int revision, TradeReviewPatch patch, DateTimeOffset updatedUtc) => new()
+    private static TradeReviewAnnotation AnnotationFromPatch(Guid journalId, string reviewKey, int revision, TradeReviewPatch patch, IReadOnlyList<Tag> tags, DateTimeOffset updatedUtc) => new()
     {
         JournalId = journalId,
         ReviewKey = reviewKey,
         Revision = revision,
         ReviewNote = patch.ReviewNote,
         Setup = patch.Setup,
-        Tags = ParseReviewTags(patch.TagsText),
+        Tags = tags.Select(tag => tag.Name).ToArray(),
+        TagIds = tags.Select(tag => tag.Id).ToArray(),
         PlannedEntryPrice = patch.PlannedEntryPrice,
         PlannedStopPrice = patch.PlannedStopPrice,
         PlannedTargetPrice = patch.PlannedTargetPrice,
@@ -4574,7 +4618,6 @@ public sealed partial class TradeFoundryDb
     {
         ReviewNote = annotation.ReviewNote,
         Setup = annotation.Setup,
-        TagsText = string.Join(", ", annotation.Tags),
         PlannedEntryPrice = annotation.PlannedEntryPrice,
         PlannedStopPrice = annotation.PlannedStopPrice,
         PlannedTargetPrice = annotation.PlannedTargetPrice,
@@ -4591,18 +4634,6 @@ public sealed partial class TradeFoundryDb
         Reason = reason,
         ExpectedRevision = expectedRevision
     };
-
-    private static IReadOnlyList<string> ParseReviewTags(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return Array.Empty<string>();
-        return text
-            .Split(new[] { ',', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(tag => TrimTo(tag, 80))
-            .Where(tag => !string.IsNullOrWhiteSpace(tag))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(25)
-            .ToArray();
-    }
 
     private static string TrimTo(string? value, int maxLength)
     {
@@ -4633,24 +4664,13 @@ public sealed partial class TradeFoundryDb
         .Replace("%", "\\%", StringComparison.Ordinal)
         .Replace("_", "\\_", StringComparison.Ordinal);
 
-    private static string ReadSearchTags(string json)
-    {
-        try
-        {
-            return string.Join(", ", JsonSerializer.Deserialize<string[]>(json) ?? Array.Empty<string>());
-        }
-        catch (JsonException)
-        {
-            return string.Empty;
-        }
-    }
-
     private static string StringOrEmpty(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? string.Empty : reader.GetString(ordinal);
 
     private static string SerializeReview(TradeReviewAnnotation annotation) => JsonSerializer.Serialize(annotation);
 
     private static TradeReviewAnnotation ReadTradeReviewOrHistoryRevision(SqliteConnection connection, SqliteTransaction transaction, Guid journalId, string reviewKey)
     {
+        var tags = ReadReviewTags(connection, transaction, journalId, reviewKey);
         using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
@@ -4658,7 +4678,7 @@ public sealed partial class TradeFoundryDb
             command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
             command.Parameters.AddWithValue("$reviewKey", reviewKey);
             using var reader = command.ExecuteReader();
-            if (reader.Read()) return ReadTradeReview(reader);
+            if (reader.Read()) return ReadTradeReview(reader, tags);
         }
 
         using var history = connection.CreateCommand();
@@ -4705,6 +4725,7 @@ public sealed partial class TradeFoundryDb
         var current = ReadTradeReviewOrHistoryRevision(connection, transaction, journalId, reviewKey);
         InsertTradeReviewHistory(connection, transaction, journalId, reviewKey, current.Revision + 1, "source_removed", SerializeReview(current), "{}", "Source import was undone; review annotations were removed.", DateTimeOffset.UtcNow);
 
+        TagExecute(connection, transaction, "DELETE FROM trade_review_tags WHERE journal_id = $journal AND review_key = $key", ("$journal", journalId), ("$key", reviewKey));
         using (var annotation = connection.CreateCommand())
         {
             annotation.Transaction = transaction;
@@ -4898,7 +4919,7 @@ public sealed partial class TradeFoundryDb
     {
         private PositionState(Fill fill, int direction, int quantity)
         {
-            Symbol = fill.Symbol; Instrument = string.IsNullOrWhiteSpace(fill.Instrument) ? InstrumentCatalog.ExtractRoot(fill.Symbol) : fill.Instrument; Account = fill.Account; Direction = direction > 0 ? "Long" : "Short"; PointValue = fill.PointValue > 0m ? fill.PointValue : InstrumentCatalog.Resolve(Instrument).PointValue; TickSize = fill.TickSize > 0m ? fill.TickSize : InstrumentCatalog.Resolve(Instrument).TickSize; ExchangeFeePerContract = fill.ExchangeFeePerContract; NfaFeePerContract = fill.NfaFeePerContract; ClearingFeePerContract = fill.ClearingFeePerContract; HasFeeBreakdown = fill.ExchangeFeePerContract.HasValue || fill.NfaFeePerContract.HasValue || fill.ClearingFeePerContract.HasValue; SignedQuantity = direction * quantity; OpenQuantity = quantity; MaxOpenQuantity = quantity; EntryCost = fill.Price * quantity; EntryUtc = fill.EventUtc; EntrySourceKey = fill.SourceKey; ImportBatchId = fill.ImportBatchId; SourceTimeframe = fill.SourceTimeframe; if (HasFeeBreakdown) AddBreakdownFees(fill, quantity); else Fees = fill.Fees; EntryReferences.Add(OrderReference.From(fill, quantity)); Notes.Add(fill.Note); AddExcursion(fill, fill.Price, direction);
+            Symbol = fill.Symbol; Instrument = string.IsNullOrWhiteSpace(fill.Instrument) ? InstrumentCatalog.ExtractRoot(fill.Symbol) : fill.Instrument; Account = fill.Account; Direction = direction > 0 ? "Long" : "Short"; PointValue = fill.PointValue > 0m ? fill.PointValue : InstrumentCatalog.Resolve(Instrument).PointValue; TickSize = fill.TickSize > 0m ? fill.TickSize : InstrumentCatalog.Resolve(Instrument).TickSize; ExchangeFeePerContract = fill.ExchangeFeePerContract; NfaFeePerContract = fill.NfaFeePerContract; ClearingFeePerContract = fill.ClearingFeePerContract; HasFeeBreakdown = fill.ExchangeFeePerContract.HasValue || fill.NfaFeePerContract.HasValue || fill.ClearingFeePerContract.HasValue; SignedQuantity = direction * quantity; OpenQuantity = quantity; MaxOpenQuantity = quantity; EntryCost = fill.Price * quantity; EntryUtc = fill.EventUtc; EntrySourceKey = fill.SourceKey; ImportBatchId = fill.ImportBatchId; SourceTimeframe = fill.SourceTimeframe; if (HasFeeBreakdown) AddBreakdownFees(fill, quantity); else Fees = fill.Fees; EntryReferences.Add(OrderReference.From(fill, quantity)); OpeningKeys.Add(fill.SourceKey.Trim()); Notes.Add(fill.Note); AddExcursion(fill, fill.Price, direction);
         }
 
         public string Symbol { get; }
@@ -4934,6 +4955,7 @@ public sealed partial class TradeFoundryDb
         public Guid? ImportBatchId { get; }
         public List<string> Notes { get; } = new();
         public List<Allocation> Allocations { get; } = new();
+        public List<string> OpeningKeys { get; } = new();
         public List<OrderReference> EntryReferences { get; } = new();
         public List<OrderReference> ExitReferences { get; } = new();
 
@@ -4949,6 +4971,7 @@ public sealed partial class TradeFoundryDb
             MaxOpenQuantity = Math.Max(MaxOpenQuantity, total);
             if (HasFeeBreakdown) AddBreakdownFees(fill, quantity); else Fees += fill.Fees;
             EntryReferences.Add(OrderReference.From(fill, quantity));
+            OpeningKeys.Add(fill.SourceKey.Trim());
             Notes.Add(fill.Note);
             AddExcursion(fill, EntryCost / Math.Max(1, OpenQuantity), Math.Sign(SignedQuantity));
         }

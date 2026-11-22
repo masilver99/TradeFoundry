@@ -330,6 +330,7 @@ public sealed partial class DayReviewBundleBuilder(IDayReviewImageResolver image
 
         text.Append("## Day summary (TradeFoundry calculations)\n");
         text.Append("- Completed trades: ").Append(summary.CompletedCount).Append("; open trades: ").Append(summary.OpenCount).Append('\n');
+        if (day.DailyTags.Tags.Count > 0) text.Append("- Trader's tags for the day: ").Append(string.Join(", ", day.DailyTags.Tags.Select(tag => OneLine(tag.Name)))).Append('\n');
         text.Append("- Realized net P&L: ").Append(Money(summary.RealizedNetPnl, currency)).Append('\n');
         text.Append("- Realized drawdown (peak to trough of closed-trade net P&L): ").Append(Money(summary.RealizedDrawdown, currency)).Append('\n');
         if (summary.WorstMae is { } worstMae)

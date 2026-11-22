@@ -15,6 +15,7 @@
     var activeReviewKey = Model.ActiveTrade?.Trade.ReviewKey ?? string.Empty;
     ViewData["UsesLightweightCharts"] = allTrades.Length > 0;
     ViewData["UsesLexical"] = true;
+    ViewData["UsesTags"] = true;
     ViewData["ReviewModel"] = Model;
     var dayRating = Model.Day.DailyRating;
     var ratingTone = !dayRating.IsRated ? "unrated" : dayRating.IsPoor ? "poor" : dayRating.IsExcellent ? "excellent" : "neutral";
@@ -121,6 +122,10 @@ else
         <form id="daily-journal-editor" method="post" asp-page-handler="SaveDailyJournal" asp-route-journalId="@Model.JournalId" asp-route-date="@dateText" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Url.Page("/Review", "AutosaveDailyJournal", new { journalId = Model.JournalId, date = dateText })">
             @Html.AntiForgeryToken()
             <input type="hidden" name="expectedRevision" value="@Model.Day.DailyJournal.Revision" />
+            <div class="tf-day-tags">
+                <label for="review-day-tags">Tags for this day</label>
+                @await Html.PartialAsync("_TagPicker", TradeFoundry.Pages.TagPickerViewModel.ForDay(Model.JournalId, "review-day-tags", selectedDate, Model.Day.DailyTags))
+            </div>
             <div class="tf-lexical-editor" data-lexical-editor data-max-length="64000" data-image-upload-url="/journal/@Model.JournalId/daily-journal?handler=UploadImage&amp;date=@dateText" hidden>
                 <div class="tf-lexical-toolbar" role="toolbar" aria-label="Daily journal formatting">
                     <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>

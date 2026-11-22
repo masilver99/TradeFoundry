@@ -37,6 +37,7 @@ public sealed class DailyJournalModel : PageModel
     public JournalFilterScope Filter { get; private set; } = JournalFilter.None.Scope(null);
     private IReadOnlyList<DailyTradeSummary> TradeDays { get; set; } = Array.Empty<DailyTradeSummary>();
     private IReadOnlyDictionary<DateOnly, DailyTradeSummary> TradeDaysByDate { get; set; } = new Dictionary<DateOnly, DailyTradeSummary>();
+    private IReadOnlyDictionary<DateOnly, DailyTagSet> TagSets { get; set; } = new Dictionary<DateOnly, DailyTagSet>();
 
     public IActionResult OnGet()
     {
@@ -206,6 +207,7 @@ public sealed class DailyJournalModel : PageModel
         Filter = JournalFilterRequest.Resolve(HttpContext, journal);
         TradeDays = DailyTradeAggregation.Build(Filter.Apply(_database.GetAllTrades(JournalId)), journal.TimeZone);
         TradeDaysByDate = TradeDays.ToDictionary(day => day.Date);
+        TagSets = _database.GetDailyTagSets(JournalId);
         return true;
     }
 
@@ -217,7 +219,14 @@ public sealed class DailyJournalModel : PageModel
             beforeDate = beforeDate.HasValue && beforeDate.Value < afterRange ? beforeDate : afterRange;
         }
         var journalPage = _database.GetDailyJournalEntries(JournalId, Today, beforeDate, PageSize + 1, Filter.From);
-        return DailyJournalFeedBuilder.Build(JournalId, Today, beforeDate, PageSize, TradeDays, journalPage.Entries);
+        var taggedDates = TagSets.Values.Where(set => set.Tags.Count > 0 && (!Filter.From.HasValue || set.Date >= Filter.From.Value)).Select(set => set.Date).ToArray();
+        var page = DailyJournalFeedBuilder.Build(JournalId, Today, beforeDate, PageSize, TradeDays, journalPage.Entries, taggedDates);
+        return new DailyJournalFeedPage
+        {
+            HasMore = page.HasMore,
+            // The feed only carries entries with text. A cleared entry still has a revision, which the editor needs to save.
+            Days = page.Days.Select(day => day.Entry.Revision > 0 ? day : new DailyJournalFeedDay { Entry = _database.GetDailyJournal(JournalId, day.Entry.Date), Trading = day.Trading }).ToArray()
+        };
     }
 
     private IReadOnlyList<DailyJournalCardViewModel> ToCards(IReadOnlyList<DailyJournalFeedDay> days, DateOnly? openDate = null) =>
@@ -235,6 +244,7 @@ public sealed class DailyJournalModel : PageModel
         {
             JournalId = JournalId,
             Entry = entry,
+            DayTags = TagSets.GetValueOrDefault(entry.Date) ?? DailyTagSet.Empty(entry.Date),
             IsToday = isToday,
             OpenInitially = openInitially,
             HasJournalText = !string.IsNullOrWhiteSpace(plainText),
@@ -254,6 +264,7 @@ public sealed class DailyJournalCardViewModel
 {
     public Guid JournalId { get; init; }
     public DailyJournalEntry Entry { get; init; } = new();
+    public DailyTagSet DayTags { get; init; } = DailyTagSet.Empty(default);
     public bool IsToday { get; init; }
     public bool OpenInitially { get; init; }
     public bool HasJournalText { get; init; }

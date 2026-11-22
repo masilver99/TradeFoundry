@@ -31,6 +31,11 @@ This is pre-alpha software and breaking changes are a constant refrain.
 - Daily Journal and Trade Review
   - Trade Review contains all your trades and allows you to edit or make changes
   - This is still in very heavy development and will probably change a fair amount
+- Tags for trades and days, per journal
+  - A new tag needs a confirmed name, a description, and when you know it (beforehand, during, or after); look-alike names must be confirmed as different
+  - Tags can be renamed, merged (with undo), archived, and browsed by trade or day
+  - The Tag Report ranks tags by the low end of their expectancy range and looks up the historical odds for up to three tags. Only tags known beforehand count as probabilities
+  - Upgrading converts old free-text tags to tags that need review, after saving the converted tables to `backups/tags-migration-*.db` in the data directory
 - Optional MCP Server for journal-scoped historical analysis and broker fee profile management
 
 ## Run locally

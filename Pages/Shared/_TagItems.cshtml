@@ -1,0 +1,64 @@
+@model TradeFoundry.Pages.TagsModel
+@using System.Globalization
+@using TradeFoundry.Core
+@using TradeFoundry.Services
+@{
+    string PnlClass(decimal value) => value > 0 ? "text-success" : value < 0 ? "text-danger" : string.Empty;
+    string TabUrl(string tab) => JournalFilterRequest.UrlWith(Model.Request, ("tab", tab), ("pageNumber", null), ("handler", null));
+}
+<section class="card tf-card tf-tag-items" aria-label="Tagged trades and days">
+    <nav class="card-header tf-tag-tabs" aria-label="Trades or days">
+        <a href="@TabUrl("trades")" aria-current="@(Model.ShowsDays ? null : "page")">Trades <span>@Model.TradeTotal</span></a>
+        <a href="@TabUrl("days")" aria-current="@(Model.ShowsDays ? "page" : null)">Days <span>@Model.DayTotal</span></a>
+    </nav>
+    @if ((Model.ShowsDays ? Model.DayTotal : Model.TradeTotal) == 0)
+    {
+        <div class="tf-empty m-3"><strong>Nothing here.</strong><span>@(Model.Filter.IsActive ? $"Nothing matches within the journal filter ({Model.Filter.Summary})." : "No matching items in this journal.")</span></div>
+    }
+    else if (Model.ShowsDays)
+    {
+        <div class="tf-table-wrap">
+            <table class="table table-vcenter tf-table tf-tag-items-table">
+                <thead><tr><th scope="col">Day</th><th scope="col" class="text-end">Trades</th><th scope="col" class="text-end">Net P&amp;L</th></tr></thead>
+                <tbody>
+                    @foreach (var day in Model.DayRows)
+                    {
+                        <tr>
+                            <td><a href="@Model.DayUrl(day.Date)">@day.Date.ToString("ddd, MMM d, yyyy", CultureInfo.CurrentCulture)</a></td>
+                            <td class="text-end">@day.TradeCount</td>
+                            <td class="text-end @PnlClass(day.NetPnl)">@day.NetPnl.ToString("C2", CultureInfo.CurrentCulture)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="tf-table-wrap">
+            <table class="table table-vcenter tf-table tf-tag-items-table">
+                <thead><tr><th scope="col">Entry</th><th scope="col">Instrument</th><th scope="col">Side</th><th scope="col" class="text-end">Net P&amp;L</th></tr></thead>
+                <tbody>
+                    @foreach (var trade in Model.TradeRows)
+                    {
+                        var closed = trade.Status.Equals("closed", StringComparison.OrdinalIgnoreCase);
+                        <tr>
+                            <td><a href="@Model.TradeUrl(trade)">@TimeZoneCatalog.Format(trade.EntryUtc, Model.Journal.TimeZone, "MMM d, yyyy HH:mm")</a></td>
+                            <td>@trade.Instrument</td>
+                            <td>@trade.Direction</td>
+                            <td class="text-end @(closed ? PnlClass(trade.NetPnl) : string.Empty)">@(closed ? trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture) : "Open")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    @if (Model.PageCount > 1)
+    {
+        <div class="card-footer tf-tag-pager">
+            @if (Model.PageNumber > 1) { <a href="@JournalFilterRequest.UrlWith(Model.Request, ("pageNumber", (Model.PageNumber - 1).ToString()))">← Newer</a> }
+            <span>Page @Model.PageNumber of @Model.PageCount</span>
+            @if (Model.PageNumber < Model.PageCount) { <a href="@JournalFilterRequest.UrlWith(Model.Request, ("pageNumber", (Model.PageNumber + 1).ToString()))">Older →</a> }
+        </div>
+    }
+</section>

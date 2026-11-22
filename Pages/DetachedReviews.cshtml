@@ -1,0 +1,83 @@
+@page "/journal/{journalId:guid}/detached-reviews"
+@model TradeFoundry.Pages.DetachedReviewsModel
+@using System.Globalization
+@using TradeFoundry.Core
+@{
+    ViewData["Title"] = "Detached reviews";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / TRADE";
+    ViewData["ActiveNav"] = "tags";
+    string Label(Trade trade) => $"{TimeZoneCatalog.Format(trade.EntryUtc, Model.Journal.TimeZone, "MMM d, yyyy HH:mm")} · {trade.Instrument} {trade.Direction} ×{trade.Quantity} · {trade.NetPnl.ToString("C2", CultureInfo.CurrentCulture)}";
+}
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert success" role="status" data-notification-toast>@Model.FlashMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="alert tf-alert error" role="alert" data-notification-toast>@Model.ErrorMessage</div>
+}
+<div class="tf-settings-intro">
+    <div>
+        <a href="@($"/journal/{Model.JournalId:D}/tags")" class="tf-tag-back">← Tags</a>
+        <h3 class="tf-settings-heading">Detached reviews</h3>
+        <p class="text-secondary mb-0">These reviews lost their trade when imports changed how it was identified. Attaching one fills that trade's blank fields and adds its tags and screenshots. A fee override changes that trade's net P&amp;L.</p>
+    </div>
+</div>
+@if (Model.Reviews.Count == 0)
+{
+    <div class="tf-empty"><strong>No detached reviews.</strong><span>Every review is attached to a trade.</span></div>
+}
+else
+{
+    var tradesByKey = Model.Trades.Where(trade => trade.ReviewKey.Length > 0).ToDictionary(trade => trade.ReviewKey);
+    @* One shared list: repeating every trade inside each review would grow very large. *@
+    <datalist id="detached-trades">
+        @foreach (var trade in tradesByKey.Values.OrderByDescending(trade => trade.EntryUtc))
+        {
+            <option value="@($"{Label(trade)} #{TradeFoundry.Pages.DetachedReviewsModel.ShortKey(trade.ReviewKey)}")"></option>
+        }
+    </datalist>
+    @foreach (var item in Model.Reviews)
+    {
+        var review = item.Review;
+        var note = LexicalPlainText.Extract(review.ReviewNote);
+        var fees = review.AllInCommission.HasValue || review.ExchangeFees.HasValue || review.NfaFees.HasValue || review.ClearingFees.HasValue;
+        var suggested = item.SuggestedKeys.Where(tradesByKey.ContainsKey).ToArray();
+        <section class="card tf-card" aria-label="Detached review">
+            <div class="card-body tf-detached">
+                <dl class="tf-definition-list">
+                    <dt>Last saved</dt><dd>@(review.UpdatedUtc is { } updated ? TimeZoneCatalog.Format(updated, Model.Journal.TimeZone, "MMM d, yyyy HH:mm") : "—")</dd>
+                    @if (review.Tags.Count > 0) { <dt>Tags</dt><dd>@string.Join(", ", review.Tags)</dd> }
+                    @if (!string.IsNullOrWhiteSpace(review.Setup)) { <dt>Setup</dt><dd>@review.Setup</dd> }
+                    @if (!string.IsNullOrWhiteSpace(note)) { <dt>Note</dt><dd>@(note.Length > 300 ? note[..300] + "…" : note)</dd> }
+                    @if (!string.IsNullOrWhiteSpace(review.Mistakes)) { <dt>Mistakes</dt><dd>@review.Mistakes</dd> }
+                    @if (!string.IsNullOrWhiteSpace(review.Lessons)) { <dt>Lessons</dt><dd>@review.Lessons</dd> }
+                    @if (fees) { <dt>Fee override</dt><dd>Yes. Attaching changes net P&amp;L.</dd> }
+                    @if (item.AttachmentCount > 0) { <dt>Screenshots</dt><dd>@item.AttachmentCount</dd> }
+                </dl>
+                <form method="post" action="@($"/journal/{Model.JournalId:D}/detached-reviews?handler=Attach")" class="tf-tag-inline">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="detachedKey" value="@review.ReviewKey" />
+                    @if (suggested.Length > 0)
+                    {
+                        <label class="tf-tag-field">Trade containing its opening fill
+                            <select class="form-select" name="targetKey" required>
+                                @foreach (var key in suggested)
+                                {
+                                    <option value="@key">@Label(tradesByKey[key])</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    else
+                    {
+                        <label class="tf-tag-field">No certain match. Search by date or instrument
+                            <input class="form-control" name="targetKey" list="detached-trades" autocomplete="off" required />
+                        </label>
+                    }
+                    <button class="btn btn-primary" type="submit">Attach</button>
+                </form>
+            </div>
+        </section>
+    }
+}

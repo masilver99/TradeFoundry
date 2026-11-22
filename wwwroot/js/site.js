@@ -904,6 +904,7 @@ function initializeDailyJournal() {
     if (!input) return;
     const state = { savedSnapshot: input.value, timer: null, savePromise: null };
     states.set(form, state);
+    window.tradeFoundryInitializeTagPickers?.(form);
 
     const save = () => {
       if (state.savePromise) return state.savePromise;
@@ -982,6 +983,7 @@ function initializeDailyJournal() {
   document.querySelectorAll("[data-daily-journal-form]").forEach(initializeForm);
 
   const flush = async () => {
+    if (window.tradeFoundryFlushTags && !await window.tradeFoundryFlushTags()) return false;
     const forms = [...document.querySelectorAll("[data-daily-journal-form]")];
     for (const form of forms) {
       initializeForm(form);
@@ -2447,7 +2449,7 @@ function initializeReviewWorkspace() {
     if (!form) return true;
     const state = stateFor(form);
     clearTimeout(state.timer);
-    if (state.savePromise) return await state.savePromise;
+    if (state.savePromise && !await state.savePromise) return false;
     return await saveReview(form);
   };
 
@@ -2509,6 +2511,7 @@ function initializeReviewWorkspace() {
       scheduleSave(form, true);
     });
     form.addEventListener("focusout", () => void scheduleSave(form, true));
+    form.addEventListener("tf-tags-change", () => void scheduleSave(form, true));
     const tabs = Array.from(editor.querySelectorAll("[data-review-tab]"));
     const selectTab = tab => {
       activeSection = tab.dataset.reviewTab || "review";

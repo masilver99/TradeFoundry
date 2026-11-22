@@ -1,0 +1,223 @@
+@page "/journal/{journalId:guid}/tags"
+@model TradeFoundry.Pages.TagsModel
+@using System.Globalization
+@using TradeFoundry.Core
+@{
+    ViewData["Title"] = "Tags";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / TRADE";
+    ViewData["ActiveNav"] = "tags";
+    ViewData["UsesTags"] = true;
+    var path = $"/journal/{Model.JournalId:D}/tags";
+}
+@Html.AntiForgeryToken()
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert success" role="status" data-notification-toast>@Model.FlashMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="alert tf-alert error" role="alert" data-notification-toast>@Model.ErrorMessage</div>
+}
+
+<div class="tf-settings-intro tf-tag-intro">
+    @if (Model.Selected is { } heading)
+    {
+        <div>
+            <a href="@path" class="tf-tag-back">← All tags</a>
+            <h3 class="tf-settings-heading tf-tag-title">@heading.Name
+                @if (heading.NeedsReview) { <span class="tf-tag-badge warning">Needs review</span> }
+                @if (heading.Archived) { <span class="tf-tag-badge">Archived</span> }
+            </h3>
+            <p class="text-secondary mb-0">@(string.IsNullOrWhiteSpace(heading.Description) ? "No description yet." : heading.Description)</p>
+        </div>
+        <a class="btn btn-outline-secondary" href="@($"/journal/{Model.JournalId:D}/tag-report")">Tag report</a>
+    }
+    else if (Model.ShowsUntagged)
+    {
+        <div>
+            <a href="@path" class="tf-tag-back">← All tags</a>
+            <h3 class="tf-settings-heading">Untagged</h3>
+            <p class="text-secondary mb-0">Trades and trading days with no tags. Open one to tag it.</p>
+        </div>
+    }
+    else
+    {
+        <div>
+            <h3 class="tf-settings-heading">Tags</h3>
+            <p class="text-secondary mb-0">Tags describe the circumstances of a trade or day. Setups define the play.</p>
+        </div>
+        <div class="tf-tag-actions">
+            <a class="btn btn-outline-secondary" href="@($"{path}?view=untagged")">Find untagged</a>
+            <button type="button" class="btn btn-primary" data-tag-new data-tags-url="@path">New tag</button>
+        </div>
+    }
+</div>
+
+@if (Model.DetachedCount > 0 && Model.Selected is null)
+{
+    <p class="tf-tag-notice" role="note">@Model.DetachedCount review@(Model.DetachedCount == 1 ? " is" : "s are") no longer attached to a trade. <a href="@($"/journal/{Model.JournalId:D}/detached-reviews")">Find their trades</a></p>
+}
+
+@if (Model.Selected is { } tag)
+{
+    <div class="tf-tag-detail">
+        <section class="card tf-card" aria-labelledby="tag-edit-heading">
+            <div class="card-header"><h3 class="tf-card-title" id="tag-edit-heading">Edit tag</h3></div>
+            <div class="card-body">
+                <form method="post" action="@($"{path}?handler=Update&tagId={tag.Id:D}")" class="tf-tag-edit">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@tag.Id" />
+                    <input type="hidden" name="revision" value="@tag.Revision" />
+                    <label class="tf-tag-field">Name<input class="form-control" name="name" maxlength="@Tag.NameMaxLength" value="@Model.Editing.Name" required /></label>
+                    @if (Model.SimilarToConfirm.Count > 0)
+                    {
+                        <div class="tf-tag-matches">
+                            <strong>Similar to @string.Join(", ", Model.SimilarToConfirm.Select(item => item.Name))</strong>
+                            @foreach (var item in Model.SimilarToConfirm)
+                            {
+                                <label class="tf-tag-confirm"><input type="checkbox" name="confirmedDifferent" value="@item.Id" required /> It is different from @item.Name</label>
+                            }
+                        </div>
+                    }
+                    <label class="tf-tag-field">Description<textarea class="form-control" name="description" rows="4" maxlength="@Tag.DescriptionMaxLength" required>@Model.Editing.Description</textarea></label>
+                    <fieldset class="tf-tag-choice">
+                        <legend>Applies to</legend>
+                        @foreach (var scope in Enum.GetValues<TagScope>())
+                        {
+                            <label><input type="radio" name="appliesTo" value="@scope" checked="@(Model.Editing.Scope == scope)" required /> @Tag.ScopeLabel(scope)</label>
+                        }
+                    </fieldset>
+                    <fieldset class="tf-tag-choice">
+                        <legend>When do you know it?</legend>
+                        @foreach (var known in new[] { TagKnown.Beforehand, TagKnown.During, TagKnown.After })
+                        {
+                            <label><input type="radio" name="known" value="@known" checked="@(Model.Editing.Known == known)" required /> @Tag.KnownLabel(known)</label>
+                        }
+                        <small>Only tags known beforehand count toward probabilities.</small>
+                    </fieldset>
+                    <button class="btn btn-primary" type="submit">Save tag</button>
+                </form>
+                @if (tag.Aliases.Count > 0)
+                {
+                    <p class="tf-tag-fineprint">Formerly: @string.Join(", ", tag.Aliases)</p>
+                }
+
+                <hr />
+                @if (Model.LikelyDuplicates.Count > 0)
+                {
+                    <p class="tf-tag-fineprint">Possible duplicates: @for (var index = 0; index < Model.LikelyDuplicates.Count; index++)
+                    {
+                        var duplicate = Model.LikelyDuplicates[index];
+                        <a class="me-2" href="@($"{path}?tagId={duplicate.Id:D}")">@duplicate.Name</a>
+                    }</p>
+                }
+                <form method="post" action="@($"{path}?handler=Merge&tagId={tag.Id:D}")" class="tf-tag-inline" data-confirm="Merge @tag.Name into the tag you chose? Its trades and days will count as that tag, with that tag's timing. You can undo this.">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@tag.Id" />
+                    <input type="hidden" name="revision" value="@tag.Revision" />
+                    <label class="tf-tag-field">Merge into
+                        <select class="form-select" name="targetId" required>
+                            <option value="">Choose a tag…</option>
+                            @foreach (var other in Model.Catalog.Current.Where(other => other.Id != tag.Id && !other.Archived).OrderByDescending(other => Model.LikelyDuplicates.Any(similar => similar.Id == other.Id)).ThenBy(other => other.Name))
+                            {
+                                <option value="@other.Id">@other.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <button class="btn btn-outline-secondary" type="submit">Merge</button>
+                </form>
+                <div class="tf-tag-actions mt-3">
+                    <form method="post" action="@($"{path}?handler=Archive&tagId={tag.Id:D}")">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@tag.Id" />
+                        <input type="hidden" name="revision" value="@tag.Revision" />
+                        <input type="hidden" name="archived" value="@((!tag.Archived).ToString().ToLowerInvariant())" />
+                        <button class="btn btn-outline-secondary" type="submit" title="Archived tags keep their history but can't be added">@(tag.Archived ? "Restore" : "Archive")</button>
+                    </form>
+                    @if (Model.CanDelete)
+                    {
+                        <form method="post" action="@($"{path}?handler=Delete&tagId={tag.Id:D}")" data-confirm="Delete the unused tag @tag.Name?">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="id" value="@tag.Id" />
+                            <input type="hidden" name="revision" value="@tag.Revision" />
+                            <button class="btn btn-outline-danger" type="submit">Delete</button>
+                        </form>
+                    }
+                </div>
+            </div>
+        </section>
+        <partial name="_TagItems" model="Model" />
+    </div>
+}
+else if (Model.ShowsUntagged)
+{
+    <partial name="_TagItems" model="Model" />
+}
+else
+{
+    <section class="card tf-card" aria-label="Tag list">
+        <div class="card-header tf-tag-list-header">
+            <h3 class="tf-card-title">@Model.Catalog.Current.Count tag@(Model.Catalog.Current.Count == 1 ? string.Empty : "s")</h3>
+            <input type="search" class="form-control form-control-sm" data-tag-filter placeholder="Search names and descriptions…" aria-label="Search tags" />
+        </div>
+        @if (Model.Catalog.Current.Count == 0)
+        {
+            <div class="tf-empty m-3"><strong>No tags yet.</strong><span>Create one here, or while reviewing a trade or writing a daily journal.</span></div>
+        }
+        else
+        {
+            <div class="tf-table-wrap">
+                <table class="table table-vcenter tf-table tf-tag-table">
+                    <thead><tr><th scope="col">Tag</th><th scope="col">Description</th><th scope="col">Known</th><th scope="col">Applies to</th><th scope="col" class="text-end">Trades</th><th scope="col" class="text-end">Days</th><th scope="col">Last used</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in Model.Catalog.Current.OrderBy(item => item.Archived).ThenByDescending(item => item.NeedsReview).ThenBy(item => item.Name))
+                        {
+                            var usage = Model.Usage.GetValueOrDefault(item.Id) ?? TradeFoundry.Pages.TagsModel.TagUsage.None;
+                            var names = string.Join(" | ", item.Aliases.Prepend(item.Name));
+                            var url = $"{path}?tagId={item.Id:D}";
+                            <tr data-tag-row data-names="@names" data-text="@($"{names} {item.Description}")">
+                                <td>
+                                    <a class="tf-tag-name" href="@url">@item.Name</a>
+                                    @if (item.NeedsReview) { <span class="tf-tag-badge warning">Needs review</span> }
+                                    @if (item.Archived) { <span class="tf-tag-badge">Archived</span> }
+                                    @if (item.NeedsReview && Model.Catalog.Similar(item.Name, item.Id) is { Count: > 0 } similar)
+                                    {
+                                        <small class="d-block text-secondary">Possible duplicate of @similar[0].Name</small>
+                                    }
+                                </td>
+                                <td class="tf-tag-description">@(string.IsNullOrWhiteSpace(item.Description) ? "—" : item.Description)</td>
+                                <td>@Tag.KnownLabel(item.Known)</td>
+                                <td>@Tag.ScopeLabel(item.Scope)</td>
+                                <td class="text-end"><a href="@($"{url}&tab=trades")">@usage.Trades</a></td>
+                                <td class="text-end"><a href="@($"{url}&tab=days")">@usage.Days</a></td>
+                                <td>@(usage.LastUsed?.ToString("MMM d, yyyy", CultureInfo.CurrentCulture) ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    var merged = Model.Catalog.All.Where(item => item.MergedIntoId.HasValue).OrderBy(item => item.Name).ToArray();
+    if (merged.Length > 0)
+    {
+        <section class="card tf-card" aria-labelledby="merged-tags-heading">
+            <div class="card-header"><h3 class="tf-card-title" id="merged-tags-heading">Merged tags</h3></div>
+            <ul class="tf-tag-merged">
+                @foreach (var item in merged)
+                {
+                    <li>
+                        <span>@item.Name → <strong>@Model.Catalog.Get(item.MergedIntoId!.Value)?.Name</strong></span>
+                        <form method="post" action="@($"{path}?handler=UndoMerge")">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="id" value="@item.Id" />
+                            <input type="hidden" name="revision" value="@item.Revision" />
+                            <button class="btn btn-sm btn-outline-secondary" type="submit">Undo merge</button>
+                        </form>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+}

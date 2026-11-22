@@ -22,6 +22,12 @@
                     }
                     <span id="daily-journal-heading-@dateId" class="tf-card-title" role="heading" aria-level="2"><time datetime="@dateKey">@Model.Entry.Date.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)</time></span>
                 </span>
+                <span class="tf-tag-summary" data-tag-summary hidden="@(Model.DayTags.Tags.Count == 0 ? "hidden" : null)">
+                    @foreach (var tag in Model.DayTags.Tags)
+                    {
+                        <span class="tf-tag-chip">@tag.Name</span>
+                    }
+                </span>
                 <span class="tf-daily-journal-day-stats">@Model.TradeCount.ToString("N0") @(Model.TradeCount == 1 ? "trade" : "trades") · @Model.RealizedNetPnl.ToString("C2", CultureInfo.CurrentCulture)</span>
             </span>
             <span class="tf-daily-journal-entry-meta">
@@ -40,6 +46,10 @@
     <form id="@formId" method="post" action="@Model.SaveUrl" class="tf-daily-journal-form" data-daily-journal-form data-autosave-url="@Model.AutosaveUrl" hidden="@(Model.OpenInitially ? null : "hidden")">
         @Html.AntiForgeryToken()
         <input type="hidden" name="expectedRevision" value="@Model.Entry.Revision" />
+        <div class="tf-day-tags">
+            <label for="day-tags-@dateId">Tags for this day</label>
+            @await Html.PartialAsync("_TagPicker", TradeFoundry.Pages.TagPickerViewModel.ForDay(Model.JournalId, $"day-tags-{dateId}", Model.Entry.Date, Model.DayTags))
+        </div>
         <div class="tf-lexical-editor" data-lexical-editor data-max-length="64000" data-image-upload-url="@Model.ImageUploadUrl" hidden>
             <div class="tf-lexical-toolbar" role="toolbar" aria-label="Daily journal formatting">
                 <button type="button" class="btn btn-sm btn-ghost-secondary" data-lexical-action="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>

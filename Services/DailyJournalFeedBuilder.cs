@@ -10,7 +10,8 @@ public static class DailyJournalFeedBuilder
         DateOnly? beforeDate,
         int limit,
         IReadOnlyList<DailyTradeSummary> tradeDays,
-        IReadOnlyList<DailyJournalEntry> journalEntries)
+        IReadOnlyList<DailyJournalEntry> journalEntries,
+        IReadOnlyCollection<DateOnly>? taggedDates = null)
     {
         var pageSize = Math.Clamp(limit, 1, 50);
         var tradeByDate = tradeDays
@@ -23,6 +24,7 @@ public static class DailyJournalFeedBuilder
 
         var dates = tradeByDate.Keys
             .Concat(journalByDate.Keys)
+            .Concat((taggedDates ?? Array.Empty<DateOnly>()).Where(date => IsInRange(date, excludedDate, beforeDate)))
             .Distinct()
             .OrderByDescending(date => date)
             .Take(pageSize + 1)

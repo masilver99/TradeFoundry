@@ -1,0 +1,26 @@
+@model TradeFoundry.Pages.TagPickerViewModel
+@using System.Globalization
+@using System.Text.Json
+@using TradeFoundry.Core
+@{
+    var target = Model.Target == TagTarget.Day ? "day" : "trade";
+    var selected = JsonSerializer.Serialize(Model.Selected, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+}
+@* Sits inside the review or journal form. The search box has no name, so typing is never submitted or autosaved. *@
+<div class="tf-tag-picker" data-tag-picker data-target="@target" data-tags-url="@($"/journal/{Model.JournalId:D}/tags")" data-selected="@selected" data-date="@Model.Date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" data-revision="@Model.Revision">
+    <div class="tf-tag-box">
+        <span class="tf-tag-chips" data-tag-chips>
+            @foreach (var tag in Model.Selected)
+            {
+                <span class="tf-tag-chip">@tag.Name</span>
+            }
+        </span>
+        <input id="@Model.InputId" type="text" class="tf-tag-search" data-tag-search autocomplete="off" spellcheck="false" maxlength="@Tag.NameMaxLength" placeholder="Find or create a tag…" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="@(Model.InputId)-options" />
+    </div>
+    <ul id="@(Model.InputId)-options" class="tf-tag-menu" role="listbox" aria-label="Tags" data-tag-menu hidden></ul>
+    <small class="tf-tag-status" data-tag-status role="status" aria-live="polite"></small>
+    @if (Model.Target == TagTarget.Trade)
+    {
+        <input type="hidden" name="Edit.TagIds" value="@string.Join(",", Model.Selected.Select(tag => tag.Id))" autocomplete="off" data-tag-ids />
+    }
+</div>

@@ -102,6 +102,7 @@ public sealed class TradeReviewService
             Date = date,
             DailyJournal = _database.GetDailyJournal(journalId, date),
             DailyRating = _database.GetDailyRating(journalId, date),
+            DailyTags = _database.GetDailyTagSet(journalId, date),
             CompletedTrades = completed.Select(Map).ToArray(),
             OpenTrades = open.Select(Map).ToArray(),
             HiddenTradeCount = hiddenCount,

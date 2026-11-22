@@ -19,6 +19,7 @@
     var usesPlotly = ViewData["UsesPlotly"] as bool? == true;
     var usesLightweightCharts = ViewData["UsesLightweightCharts"] as bool? == true;
     var usesLexical = ViewData["UsesLexical"] as bool? == true;
+    var usesTags = ViewData["UsesTags"] as bool? == true;
     var exportOwnerName = authenticated ? User.Identity?.Name ?? "Owner" : string.Empty;
     var exportJournalName = activeJournal?.Name ?? string.Empty;
     string JournalPath(string page) => activeJournal is null ? "/" : $"/journal/{activeJournal.Id:D}/{page}";
@@ -37,6 +38,7 @@
     <link rel="icon" type="image/svg+xml" href="~/favicon.svg" asp-append-version="true" />
     <link rel="stylesheet" href="~/lib/tabler/tabler.min.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/tags.css" asp-append-version="true" />
 </head>
 <body class="@(authenticated ? "tf-app" : "tf-public")" data-chart-export-owner-name="@exportOwnerName" data-chart-export-journal-name="@exportJournalName" data-notification-owner-name="@exportOwnerName" data-import-notifications-url="@(authenticated ? "/import-notifications" : string.Empty)" data-import-notifications-after="@(authenticated ? ImportNotifications.LatestSequence : 0)" data-command-journal-id="@(activeJournal?.Id.ToString("D") ?? string.Empty)" data-command-search-url="@(activeJournal is null ? string.Empty : $"/journal/{activeJournal.Id:D}/command-search")">
 @if (authenticated)
@@ -117,10 +119,12 @@
                         <li class="nav-item"><a class="nav-link @(activeNav == "review" ? "active" : string.Empty)" href="@JournalPath("review")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span class="nav-link-title">Trade Review</span></a></li>
                         <li class="nav-item"><a class="nav-link @(activeNav == "trades" ? "active" : string.Empty)" href="@JournalPath("trades")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19l4-4 3 3 6-7 3 3"/><path d="M15 8h5v5"/></svg><span class="nav-link-title">Trade Ledger</span></a></li>
                         <li class="nav-item"><a class="nav-link @(activeNav == "setups" ? "active" : string.Empty)" href="@JournalPath("setups")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/><path d="m17 15 2 2 4-4"/></svg><span class="nav-link-title">Setups</span></a></li>
+                        <li class="nav-item"><a class="nav-link @(activeNav == "tags" ? "active" : string.Empty)" href="@JournalPath("tags")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5v6.5l9.5 9.5 8-8L11 3.5H4.5A1.5 1.5 0 0 0 3 5z"/><circle cx="7.5" cy="8" r="1.2"/></svg><span class="nav-link-title">Tags</span></a></li>
                         <li class="nav-item tf-nav-heading mt-4">ANALYZE</li>
                         <li class="nav-item"><a class="nav-link @(activeNav == "analysis" ? "active" : string.Empty)" href="@JournalPath("analytics")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-7"/></svg><span class="nav-link-title">Analytics</span></a></li>
                         <li class="nav-item"><a class="nav-link @(activeNav == "indicators" ? "active" : string.Empty)" href="@JournalPath("indicators")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 15h5l2-7 3 11 2-6h4"/></svg><span class="nav-link-title">Indicators</span></a></li>
                         <li class="nav-item"><a class="nav-link @(activeNav == "market-regime" ? "active" : string.Empty)" href="@JournalPath("market-regime")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/><path d="M17 7h2v2"/></svg><span class="nav-link-title">Market Regime</span></a></li>
+                        <li class="nav-item"><a class="nav-link @(activeNav == "tag-report" ? "active" : string.Empty)" href="@JournalPath("tag-report")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="M8 8h8M8 12h11M8 16h5"/></svg><span class="nav-link-title">Tag Report</span></a></li>
                         <li class="nav-item tf-nav-heading mt-4">MONEY</li>
                         <li class="nav-item"><a class="nav-link @(activeNav == "account" ? "active" : string.Empty)" href="@JournalPath("account")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M7 15h3"/></svg><span class="nav-link-title">Account</span></a></li>
                         <li class="nav-item"><a class="nav-link @(activeNav == "expenses" ? "active" : string.Empty)" href="@JournalPath("expenses")"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 7h6M9 11h6M9 15h3"/></svg><span class="nav-link-title">Expenses</span></a></li>
@@ -189,6 +193,10 @@ else
     <script src="~/js/lexical-editor.bundle.js" asp-append-version="true"></script>
 }
 <script src="~/js/site.js" asp-append-version="true"></script>
+@if (usesTags)
+{
+    <script src="~/js/tags.js" asp-append-version="true"></script>
+}
 <script src="~/js/command-palette.js" asp-append-version="true"></script>
 @await RenderSectionAsync("Scripts", required: false)
 </body>

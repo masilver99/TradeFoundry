@@ -140,6 +140,9 @@ jobs:
       # Records each public stable release as a Forgejo release. The repository's Gotify webhook
       # listens for Release events, so this is what sends the phone notification. Prereleases get
       # no Forgejo release, so they stay quiet.
+      #
+      # The annotated tag's message becomes the changelog. The installer is public by this point and
+      # a re-run cannot upload it again, so a missing or unreadable message only warns.
       - name: Create Forgejo release
         if: startsWith(forgejo.ref, 'refs/tags/v') && !contains(forgejo.ref, '-')
         shell: bash
@@ -161,19 +164,88 @@ jobs:
             apt-get update -qq && apt-get install -y -qq "${missing[@]}" > /dev/null
           fi
 
+          repo_api="${API_URL%/}/repos/$REPOSITORY"
+          api_get() {
+            curl --fail --silent --show-error --retry 3 --max-time 30 \
+              --header "Authorization: token $TOKEN" "$repo_api/$1"
+          }
+
+          # Prints nothing for a lightweight tag. The refs API matches by prefix (v0.2.1 also returns
+          # v0.2.10), so the exact ref is selected.
+          read_tag_message() {
+            local refs sha tag_object
+            refs="$(api_get "git/refs/tags/$TAG")" || return 1
+            sha="$(jq -r --arg ref "refs/tags/$TAG" \
+              '[.] | flatten[] | select(.ref == $ref and .object.type == "tag") | .object.sha' <<< "$refs")" || return 1
+            [[ -n "$sha" ]] || return 0
+            tag_object="$(api_get "git/tags/$sha")" || return 1
+            jq -r '.message // ""' <<< "$tag_object"
+          }
+
+          # Drops the "TradeFoundry X.Y.Z: summary" title (using the summary if nothing follows it),
+          # trailers and signatures. Joins wrapped lines, because Forgejo shows each newline in
+          # release notes as a line break.
+          format_changelog() {
+            awk -v title="TradeFoundry $VERSION" '
+              function emit(line) {
+                if (printed && gap) print ""
+                print line; printed = 1; gap = 0
+              }
+              function flush() {
+                if (text != "") emit(text)
+                text = ""
+              }
+              { sub(/\r$/, "") }
+              NR == 1 && $0 == title { next }
+              NR == 1 && index($0, title ":") == 1 {
+                summary = substr($0, length(title) + 2); sub(/^[ \t]+/, "", summary)
+                next
+              }
+              /^[ \t]*(```|~~~)/ { flush(); emit($0); code = !code; next }
+              code { print; next }
+              /^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit }
+              tolower($0) ~ /^(co-authored-by|signed-off-by):/ { next }
+              /^[ \t]*$/ { flush(); gap = 1; next }
+              /^[ \t]*([-*+]|[0-9]+[.)])[ \t]/ { flush(); text = $0; next }
+              /^[ \t]*(#+([ \t]|$)|[|>]|---+$)/ { flush(); emit($0); next }
+              text == "" && /^(    |\t)/ { emit($0); next }
+              {
+                if (text == "") { text = $0; next }
+                sub(/^[ \t]+/, "")
+                text = text " " $0
+              }
+              END {
+                flush()
+                if (!printed && summary != "") print toupper(substr(summary, 1, 1)) substr(summary, 2)
+              }'
+          }
+
+          changelog=''
+          if tag_message="$(read_tag_message)" && changelog="$(format_changelog <<< "$tag_message")"; then
+            if [[ -z "$changelog" ]]; then
+              echo "::warning::$TAG has no annotated tag message to use; creating its release without a changelog."
+            fi
+          else
+            changelog=''
+            echo "::warning::Could not read the message of $TAG; creating its release without a changelog."
+          fi
+
           installer_url="$PACKAGE_URL/$VERSION/$(basename "$INSTALLER")"
           body="$(printf '%s\n' \
             "TradeFoundry $VERSION for Windows. Installed tray helpers are now offered this update." \
             '' \
             "- Installer: [$(basename "$INSTALLER")]($installer_url)" \
             "- SHA-256: \`$SHA256\`")"
+          if [[ -n "$changelog" ]]; then
+            body+=$'\n\n## Changelog\n\n'"$changelog"
+          fi
 
           status="$(jq -n --arg tag "$TAG" --arg name "TradeFoundry $VERSION" --arg body "$body" \
               '{tag_name: $tag, name: $name, body: $body, draft: false, prerelease: false}' \
             | curl --silent --show-error --output response.json --write-out '%{http_code}' \
                 --header "Authorization: token $TOKEN" \
                 --header 'Content-Type: application/json' \
-                --data-binary @- "${API_URL%/}/repos/$REPOSITORY/releases")"
+                --data-binary @- "$repo_api/releases")"
           case "$status" in
             201) echo "Created Forgejo release $TAG." ;;
             409) echo "A Forgejo release for $TAG already exists (re-run); leaving it as is." ;;

@@ -78,12 +78,12 @@ id=$(docker create tf-installer noop) && docker cp "$id:/TradeFoundry-Setup.exe"
 ~~~
 
 - **Branch pushes do not build an installer.** To try one before tagging, start the workflow manually (**Actions → Windows installer → Run workflow**). That builds a development installer (`0.0.0-dev.<sha>`) and keeps it as a workflow artifact for 30 days. Development builds never offer updates.
-- **Tag `vX.Y.Z`** (for example `git tag v1.2.0 && git push forgejo v1.2.0`) also uploads `TradeFoundry-Setup-X.Y.Z.exe` and its `.sha256` to the owner's public generic package `tradefoundry-windows`, then replaces `tradefoundry-windows/latest/latest.json`. Installed tray helpers read that manifest.
+- **Tag `vX.Y.Z`** (an annotated tag whose message is the changelog, [as shown below](#publishing-images-on-forgejo)) also uploads `TradeFoundry-Setup-X.Y.Z.exe` and its `.sha256` to the owner's public generic package `tradefoundry-windows`, then replaces `tradefoundry-windows/latest/latest.json`. Installed tray helpers read that manifest.
 - **Tag `vX.Y.Z-rc.N`** (or `alpha`/`beta`) uploads the installer but leaves `latest.json` alone, so no one is offered it.
 
 Publishing uses the same `REGISTRY_USERNAME` / `REGISTRY_TOKEN` secrets as the container workflow; the token needs `write:package`. Package files are public whenever the owner's profile is public, even though the repository is private. The source code stays private, but anyone with the link can download the installer.
 
-After a stable tag replaces `latest.json`, the workflow creates a Forgejo release for the tag, linking to the installer. Prereleases don't get one. The repository's Gotify webhook (**Settings → Webhooks**, set up the same way as michaelsilver.us's and limited to **Release** events) turns that into a phone notification. Re-running a tag's workflow leaves an existing release alone, so it won't notify twice.
+After a stable tag replaces `latest.json`, the workflow creates a Forgejo release for the tag, with the installer link and the tag message as its changelog. Prereleases don't get one. The repository's Gotify webhook (**Settings → Webhooks**, set up the same way as michaelsilver.us's and limited to **Release** events) turns that into a phone notification. Re-running a tag's workflow leaves an existing release alone, so it won't notify twice.
 
 ### Icons
 
@@ -154,9 +154,24 @@ Configure these prerequisites on git.shaa.one:
 Create a stable release from the desired commit on the default branch:
 
 ```bash
-git tag -a v0.1.0 -m "TradeFoundry 0.1.0"
+git tag -a v0.1.0 --cleanup=whitespace -m "TradeFoundry 0.1.0: short summary" -m "### Added
+
+- What changed, in words a user would recognize.
+
+### Fixed
+
+- What was broken and now works."
 git push forgejo v0.1.0
 ```
+
+The tag message becomes the **Changelog** of the Forgejo release:
+
+- The `TradeFoundry X.Y.Z: summary` title is left out. If nothing follows it, the summary becomes the changelog.
+- `Co-Authored-By` and `Signed-off-by` trailers and tag signatures are left out.
+- Wrapped lines are joined. Separate paragraphs with a blank line, or use list items.
+- Keep `--cleanup=whitespace`: without it, Git deletes every line starting with `#`, including headings.
+- A lightweight tag (`git tag v0.1.0`) or a message with only the version still gets a release, but without a changelog, and the workflow logs a warning.
+- The message is published as written and read only when the release is created. To correct it afterwards, edit the release in Forgejo rather than moving the tag.
 
 Use `vMAJOR.MINOR.PATCH`; prereleases may use `-alpha.N`, `-beta.N`, or `-rc.N`. Increment patch for fixes, minor for features, and major for breaking changes (during `0.x`, minor releases may break compatibility). Protect release tags against deletion or replacement. Publishing an older stable tag also moves `latest`, so publish stable releases in order. A Git tag triggers an image release; a Forgejo release page is optional.
 

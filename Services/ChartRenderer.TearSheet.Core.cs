@@ -189,7 +189,7 @@ public static partial class ChartRenderer
         IEnumerable<AccountBalanceEvent> balanceSource,
         decimal? startingEquity)
     {
-        var daily = DailyEquity(source, balanceSource, startingEquity);
+        var daily = DailyEquity(source, balanceSource, startingEquity, includeZeroStart: true);
         if (daily.Count == 0) return Empty("Drawdown appears after the first equity observation.");
 
         var peak = daily[0].AdjustedBalance;
@@ -224,7 +224,7 @@ public static partial class ChartRenderer
         IEnumerable<AccountBalanceEvent> balanceSource,
         decimal? startingEquity)
     {
-        var daily = DailyEquity(source, balanceSource, startingEquity);
+        var daily = DailyEquity(source, balanceSource, startingEquity, includeZeroStart: true);
         if (daily.Count < 2) return Empty("Worst drawdown periods need at least two equity observations.");
 
         var episodes = DrawdownEpisodes(daily).OrderBy(x => x.MaxDepth).Take(5).ToArray();
@@ -268,7 +268,7 @@ public static partial class ChartRenderer
         IEnumerable<AccountBalanceEvent> balanceSource,
         decimal? startingEquity)
     {
-        var episodes = DrawdownEpisodes(DailyEquity(source, balanceSource, startingEquity));
+        var episodes = DrawdownEpisodes(DailyEquity(source, balanceSource, startingEquity, includeZeroStart: true));
         if (episodes.Count == 0) return Empty("No drawdown episodes have been observed yet.");
 
         var labels = episodes.Select((_, index) => $"DD{index + 1}").ToArray();
@@ -559,7 +559,8 @@ public static partial class ChartRenderer
     private static IReadOnlyList<DailyEquityPoint> DailyEquity(
         IEnumerable<Trade> source,
         IEnumerable<AccountBalanceEvent> balanceSource,
-        decimal? startingEquity)
+        decimal? startingEquity,
+        bool includeZeroStart = false)
     {
         var trades = ClosedTrades(source);
         var pnlByDate = trades
@@ -574,7 +575,8 @@ public static partial class ChartRenderer
 
         decimal? initialBalance = startingEquity ?? rawByDate.OrderBy(x => x.Key).Select(x => (decimal?)x.Value).FirstOrDefault();
         var baseline = initialBalance ?? 0m;
-        if (baseline != 0m) dates.Insert(0, dates[0].AddDays(-1));
+        // Drawdown needs the zero start as its first peak. Return charts don't: they read the first point's raw balance as their base.
+        if (baseline != 0m || includeZeroStart) dates.Insert(0, dates[0].AddDays(-1));
 
         var cumulative = 0m;
         var result = new List<DailyEquityPoint>(dates.Count);

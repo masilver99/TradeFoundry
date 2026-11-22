@@ -105,7 +105,7 @@ public sealed class RiskDisciplineMetricsTests
             "UTC",
             "USD");
 
-        Assert.Equal(20, indicators.RiskStability.Count);
+        Assert.Equal(19, indicators.RiskStability.Count);
         Assert.Equal("Max Drawdown", indicators.RiskStability[0].Label);
         Assert.Equal("% Time at Highs", indicators.RiskStability[^1].Label);
         Assert.DoesNotContain(indicators.Groups, group => group.Id is "indicators-risk" or "indicators-risk-discipline");

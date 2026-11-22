@@ -566,7 +566,7 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-scale-sortino { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 20%, var(--tf-gold) 40%, #8bc34a 60%, var(--tf-green) 80%, #56e07f 100%); }
 .tf-scale-omega { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 20%, var(--tf-gold) 30%, #8bc34a 50%, var(--tf-green) 80%, #56e07f 100%); }
 .tf-scale-upside-potential { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 13%, var(--tf-gold) 25%, #8bc34a 50%, var(--tf-green) 75%, #56e07f 100%); }
-.tf-scale-sterling, .tf-scale-calmar { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-gold) 17%, var(--tf-green) 50%, #56e07f 83%); }
+.tf-scale-sterling { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-gold) 17%, var(--tf-green) 50%, #56e07f 83%); }
 .tf-scale-v2 { background: linear-gradient(to right, var(--tf-red) 0%, var(--tf-red) 20%, var(--tf-gold) 40%, #8bc34a 60%, var(--tf-green) 80%, #56e07f 100%); }
 .tf-scale-ulcer { background: linear-gradient(to right, var(--tf-green) 0%, var(--tf-gold) 50%, var(--tf-red) 100%); }
 .tf-scale-cvar { background: linear-gradient(to right, var(--tf-green) 0%, #8bc34a 25%, var(--tf-gold) 50%, var(--tf-red) 75%, var(--tf-red) 100%); }

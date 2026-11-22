@@ -156,9 +156,6 @@ public static class TearSheetMetrics
             ["Sterling"] = new(
                 "Annualized return relative to drawdown risk, using maximum drawdown plus a conservative buffer.",
                 value => Gauge("tf-scale-sterling", value, 0m, 6m, current => current < 0m ? "Negative" : current < .5m ? "Poor" : current < 1m ? "Below Average" : current < 3m ? "Good" : current < 5m ? "Excellent" : "Exceptional")),
-            ["Calmar"] = new(
-                "Annualized return relative to maximum drawdown. Higher values indicate more return for the worst equity decline experienced.",
-                value => Gauge("tf-scale-calmar", value, 0m, 6m, current => current < .5m ? "Poor" : current < 1m ? "Marginal" : current < 3m ? "Good" : current < 5m ? "Excellent" : "Exceptional")),
             ["V2 Ratio"] = new(
                 "Annualized return relative to ulcer-adjusted drawdown risk. Higher values indicate a smoother return path.",
                 value => Gauge("tf-scale-v2", value, -1m, 4m, current => current < 0m ? "Negative" : current < 1m ? "Suboptimal" : current < 2m ? "Good" : current < 3m ? "Very Good" : "Excellent")),
@@ -284,7 +281,6 @@ public static class TearSheetMetrics
             Ratio("Upside Potential", stats.UpsidePotential, "Upside relative to downside deviation"),
             Money("CVaR 95%", stats.Cvar95, "Average of the worst 5% daily gross results", currency),
             Percent("CVaR 95% of equity", stats.CvarPercent, "Tail loss ÷ starting balance"),
-            Ratio("Calmar", stats.Calmar, "Net P&L ÷ max drawdown"),
             Ratio("Sterling", stats.Sterling, "Annualized return ÷ drawdown buffer"),
             Ratio("V2 Ratio", stats.V2, "Annualized return ÷ ulcer-adjusted risk"),
             Ratio("Recovery Factor", stats.RecoveryFactor, "Net P&L ÷ max drawdown"),
@@ -1080,7 +1076,6 @@ public static class TearSheetMetrics
             UpsidePotential = UpsidePotential(dailyGross),
             Cvar95 = Cvar(dailyGross),
             CvarPercent = baseline is > 0m && Cvar(dailyGross) is { } cvar ? Math.Abs(cvar) / baseline.Value : null,
-            Calmar = maxDrawdown.MaxDepth is { } maxDepth && maxDepth > 0m ? SafeDivide(net.Sum(), maxDepth) : null,
             Sterling = baseline is > 0m && maxDrawdown.MaxDepthPercent is { } ddPct && annualizedReturn is { } annual ? SafeDivide(annual, ddPct + .10m) : null,
             V2 = baseline is > 0m && annualizedReturn is { } annualized && maxDrawdown.UlcerIndex is { } ulcer ? SafeDivide(annualized, ulcer + 1m) : null,
             RecoveryFactor = maxDrawdown.MaxDepth is { } recoveryDepth && recoveryDepth > 0m ? SafeDivide(net.Sum(), recoveryDepth) : null,
@@ -1245,7 +1240,8 @@ public static class TearSheetMetrics
         if (dates.Count == 0) return Array.Empty<EquitySnapshot>();
 
         var starting = baseline ?? 0m;
-        if (baseline is not null && starting != 0m) dates.Insert(0, dates[0].AddDays(-1));
+        // Open on the starting balance, even a zero one, so a first-day loss counts as drawdown.
+        dates.Insert(0, dates[0].AddDays(-1));
         var cumulative = 0m;
         var result = new List<EquitySnapshot>(dates.Count);
         foreach (var date in dates)
@@ -1696,7 +1692,6 @@ public static class TearSheetMetrics
         public decimal? UpsidePotential { get; init; }
         public decimal? Cvar95 { get; init; }
         public decimal? CvarPercent { get; init; }
-        public decimal? Calmar { get; init; }
         public decimal? Sterling { get; init; }
         public decimal? V2 { get; init; }
         public decimal? RecoveryFactor { get; init; }

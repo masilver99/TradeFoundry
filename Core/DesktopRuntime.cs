@@ -196,6 +196,9 @@ public static class DesktopRuntime
     public static string DefaultDataDirectory =>
         Path.Combine(UserConfigurationDirectory, "Data");
 
+    public static string DefaultBackupDirectory =>
+        Path.Combine(UserConfigurationDirectory, "Backups");
+
     public static bool TryOpenBrowser(string url)
     {
         try

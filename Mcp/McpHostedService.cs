@@ -9,6 +9,7 @@ using ModelContextProtocol.Protocol;
 using TradeFoundry.Core;
 using TradeFoundry.Data;
 using TradeFoundry.Services;
+using TradeFoundry.Services.Backup;
 
 namespace TradeFoundry.Mcp;
 
@@ -18,8 +19,12 @@ public sealed class McpHostedService(
     JournalAnalysisService analysis,
     MarketProbabilityService marketProbability,
     McpTokenService tokens,
-    ILoggerFactory loggerFactory) : IHostedService
+    ILoggerFactory loggerFactory,
+    AppActivityGate? gate = null) : IHostedService
 {
+    /// <summary>How long an MCP request waits for a backup to finish before it gets 503.</summary>
+    private static readonly TimeSpan MaintenanceHoldLimit = TimeSpan.FromSeconds(60);
+
     private WebApplication? _application;
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -109,7 +114,33 @@ public sealed class McpHostedService(
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
             }
-            await next();
+            if (gate is null)
+            {
+                await next();
+                return;
+            }
+
+            // Token checks record their use in the database, so even reads wait for a backup.
+            if (!gate.TryEnter(out var lease))
+            {
+                using var hold = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+                hold.CancelAfter(MaintenanceHoldLimit);
+                try
+                {
+                    lease = await gate.EnterAsync(longRunning: false, hold.Token);
+                }
+                catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
+                {
+                    context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                    context.Response.Headers.RetryAfter = "10";
+                    return;
+                }
+            }
+
+            using (lease)
+            {
+                await next();
+            }
         });
         app.UseAuthentication();
         app.UseRateLimiter();

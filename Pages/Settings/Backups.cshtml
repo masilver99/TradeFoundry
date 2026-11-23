@@ -1,0 +1,142 @@
+@page "/journal/{journalId:guid}/settings/backups"
+@model TradeFoundry.Pages.Settings.BackupsModel
+@using System.Globalization
+@using TradeFoundry.Core
+@{
+    ViewData["Title"] = "Backups";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / DATA / SETTINGS / BACKUPS";
+    ViewData["ActiveNav"] = "settings";
+    ViewData["SettingsSection"] = "backups";
+    var lastGood = Model.Runs.FirstOrDefault(run => run.Status is BackupRunStatus.Completed or BackupRunStatus.CompletedWithWarnings);
+    string Local(DateTimeOffset value) => value.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    var journalPath = $"/journal/{Model.JournalId:D}/settings/backups";
+}
+
+@await Html.PartialAsync("_SettingsNav", Model.JournalId)
+
+@if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
+{
+    <div class="alert tf-alert @(Model.FlashKind == "error" ? "error" : string.Empty)" role="status">@Model.FlashMessage</div>
+}
+
+<div class="tf-settings-intro">
+    <div>
+        <div class="tf-kicker">INSTANCE-WIDE</div>
+        <h3 class="tf-settings-heading">Backups</h3>
+        <p class="text-secondary mb-0">A backup holds every journal in this instance: the database, images, receipts and image settings. The site pauses for a few seconds while the journal is copied; edits made meanwhile are saved when it resumes.</p>
+    </div>
+</div>
+
+<section class="row row-cards">
+    <div class="col-xl-6">
+        <div class="card tf-card" data-backup-status data-status-url="/backup-status" data-running="@(Model.Progress.Running ? "true" : "false")">
+            <div class="card-header"><div><div class="tf-kicker">BACK UP</div><h3 class="tf-card-title">Back up now</h3></div></div>
+            <div class="card-body">
+                <dl class="tf-definition-list">
+                    <dt>Last backup</dt>
+                    <dd>@(lastGood is null ? "Never" : $"{Local(lastGood.StartedUtc)} · {(lastGood.ArchiveSize is { } size ? BackupsModel.FormatBytes(size) : "")}")</dd>
+                    <dt>Folder</dt>
+                    <dd class="text-break">@Model.Folder</dd>
+                </dl>
+                <div class="tf-backup-progress" data-backup-progress hidden="@(Model.Progress.Running ? null : "hidden")">
+                    <div class="d-flex justify-content-between small"><span data-backup-stage>@Model.Progress.Stage</span><span data-backup-percent></span></div>
+                    <div class="progress progress-sm mt-1"><div class="progress-bar" data-backup-bar style="width: @((int)Math.Round((Model.Progress.Fraction ?? 0) * 100))%"></div></div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <form method="post" action="@($"{journalPath}?handler=BackUpNow")" data-backup-start-form hidden="@(Model.Progress.Running ? "hidden" : null)">
+                        @Html.AntiForgeryToken()
+                        <button class="btn btn-primary" type="submit">Back up now</button>
+                    </form>
+                    <form method="post" action="@($"{journalPath}?handler=Cancel")" data-backup-cancel-form hidden="@(Model.Progress.Running ? null : "hidden")">
+                        @Html.AntiForgeryToken()
+                        <button class="btn btn-outline-secondary" type="submit">Cancel backup</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-6">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">DESTINATION</div><h3 class="tf-card-title">Backup folder</h3></div></div>
+            <div class="card-body">
+                @if (Model.FolderSharesDrive)
+                {
+                    <div class="alert alert-warning small" role="note">This folder is on the same drive as the journal. A drive failure would lose both. Choose a folder on another drive or a synced folder.</div>
+                }
+                <form method="post" action="@($"{journalPath}?handler=Folder")" autocomplete="off">
+                    @Html.AntiForgeryToken()
+                    <label class="form-label" for="backup-folder">Folder</label>
+                    <input class="form-control" id="backup-folder" name="NewFolder" value="@(Model.UsesDefaultFolder ? string.Empty : Model.Folder)" placeholder="@Model.DefaultFolder" />
+                    <div class="form-hint">Leave empty to use the default folder. It must be outside the data directory.</div>
+                    <label class="form-label mt-3" for="backup-folder-password">Owner password</label>
+                    <input class="form-control" id="backup-folder-password" name="CurrentPassword" type="password" autocomplete="current-password" />
+                    <div class="form-hint">Required, because backups contain every journal.</div>
+                    <button class="btn btn-outline-primary mt-3" type="submit">Save folder</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">THIS FOLDER</div><h3 class="tf-card-title">Backups</h3></div></div>
+            @if (Model.Backups.Count == 0)
+            {
+                <div class="card-body text-secondary">No backups in this folder yet.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-vcenter card-table">
+                        <thead><tr><th>Created</th><th>Size</th><th>Journals</th><th>Trades</th><th>Images</th><th>Version</th><th>File</th></tr></thead>
+                        <tbody>
+                            @foreach (var backup in Model.Backups)
+                            {
+                                var sidecar = backup.Sidecar;
+                                <tr>
+                                    <td>@Local(sidecar.CreatedUtc)@(sidecar.Trigger == BackupTrigger.Manual ? " · manual" : string.Empty)@(backup.FromThisInstallation ? string.Empty : " · other installation")</td>
+                                    <td>@BackupsModel.FormatBytes(sidecar.Size)</td>
+                                    <td>@sidecar.Counts.GetValueOrDefault("journals")</td>
+                                    <td>@sidecar.Counts.GetValueOrDefault("trades").ToString("N0", CultureInfo.InvariantCulture)</td>
+                                    <td>@sidecar.Counts.GetValueOrDefault("images").ToString("N0", CultureInfo.InvariantCulture)</td>
+                                    <td>@sidecar.AppVersion</td>
+                                    <td class="text-break small">@sidecar.Archive@if (sidecar.Warnings.Count > 0) {<div class="text-warning">@string.Join(" ", sidecar.Warnings)</div>}</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">HISTORY</div><h3 class="tf-card-title">Recent runs</h3></div></div>
+            @if (Model.Runs.Count == 0)
+            {
+                <div class="card-body text-secondary">No backups have run yet.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-vcenter card-table">
+                        <thead><tr><th>Started</th><th>Result</th><th>Paused</th><th>Details</th></tr></thead>
+                        <tbody>
+                            @foreach (var run in Model.Runs)
+                            {
+                                <tr>
+                                    <td>@Local(run.StartedUtc)</td>
+                                    <td class="@BackupsModel.StatusClass(run.Status)">@BackupsModel.StatusLabel(run.Status)</td>
+                                    <td>@(run.MaintenanceMilliseconds is { } ms ? $"{ms / 1000d:0.0} s" : "–")</td>
+                                    <td class="small text-break">@run.Message@foreach (var warning in run.Warnings) {<div class="text-warning">@warning</div>}</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</section>

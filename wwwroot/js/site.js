@@ -30,6 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeSidebarVisibility();
   initializeImportDropzones();
   initializeBusyForms();
+  initializeBackupStatus();
   const journalFeed = document.querySelector("[data-daily-journal-feed]");
   if (journalFeed) {
     journalFeed.querySelectorAll("[data-daily-journal-form]:not([hidden])").forEach(form => {
@@ -648,6 +649,37 @@ function initializeReviewAttachmentPaste() {
       fileInput.click();
     });
   });
+}
+
+// Follows a running backup on the Backups page. /backup-status keeps answering during maintenance,
+// so progress stays visible while the rest of the site is paused; the page reloads when it ends.
+function initializeBackupStatus() {
+  const card = document.querySelector("[data-backup-status]");
+  if (!card || card.dataset.running !== "true") return;
+  const stage = card.querySelector("[data-backup-stage]");
+  const percent = card.querySelector("[data-backup-percent]");
+  const bar = card.querySelector("[data-backup-bar]");
+  const poll = async () => {
+    try {
+      const response = await fetch(card.dataset.statusUrl, { credentials: "same-origin", headers: { Accept: "application/json" }, redirect: "error" });
+      if (response.ok) {
+        const status = await response.json();
+        if (!status.running) {
+          window.location.reload();
+          return;
+        }
+        if (stage) stage.textContent = status.maintenance ? `${status.stage} · site paused` : status.stage;
+        const value = typeof status.fraction === "number" ? Math.round(status.fraction * 100) : null;
+        if (percent) percent.textContent = value === null ? "" : `${value}%`;
+        if (bar) bar.style.width = `${value ?? 100}%`;
+        bar?.classList.toggle("progress-bar-indeterminate", value === null);
+      }
+    } catch {
+      // Keep polling: the server may be restarting.
+    }
+    window.setTimeout(poll, 1000);
+  };
+  void poll();
 }
 
 // Posts an autosave so that it survives a backup's maintenance window, a restart or a dropped

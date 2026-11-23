@@ -10,8 +10,11 @@ public sealed partial class TradeFoundryDb
     /// older build refuses a database it does not understand instead of running against it, and so a
     /// backup can record which app versions are able to restore it.
     /// </summary>
-    /// <remarks>Version 1 is the schema as of trade and day tags. Builds before it never stamped.</remarks>
-    public const int SchemaVersion = 1;
+    /// <remarks>
+    /// 1: the schema as of trade and day tags. Builds before it never stamped.
+    /// 2: backup_runs.
+    /// </remarks>
+    public const int SchemaVersion = 2;
 
     /// <summary>Throws when the database was written by a newer TradeFoundry than this one.</summary>
     private void EnsureSchemaNotNewer(SqliteConnection connection)

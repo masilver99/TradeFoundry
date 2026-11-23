@@ -27,7 +27,8 @@ ENV DOTNET_RUNNING_IN_CONTAINER=true
 ENV Storage__DataDirectory=/app/data
 ENV DataProtection__KeysDirectory=/app/data/keys
 ENV Mcp__Enabled=false
+ENV Backup__DefaultFolder=/app/backups
 COPY --from=build /app/publish .
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/backups
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "TradeFoundry.dll"]

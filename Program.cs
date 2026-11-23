@@ -5,6 +5,7 @@ using TradeFoundry.Data;
 using TradeFoundry.Mcp;
 using TradeFoundry.Services;
 using TradeFoundry.Services.Ai;
+using TradeFoundry.Services.Backup;
 
 var desktopMode = DesktopRuntime.IsDesktopMode(args);
 var embeddedMode = DesktopRuntime.IsEmbeddedMode(args);
@@ -39,7 +40,8 @@ if (desktopMode)
 {
     builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
     {
-        ["Storage:DataDirectory"] = DesktopRuntime.DefaultDataDirectory
+        ["Storage:DataDirectory"] = DesktopRuntime.DefaultDataDirectory,
+        ["Backup:DefaultFolder"] = DesktopRuntime.DefaultBackupDirectory
     });
     builder.Configuration.AddJsonFile(DesktopRuntime.UserConfigurationPath, optional: true, reloadOnChange: false);
     builder.Configuration.AddEnvironmentVariables();
@@ -64,7 +66,11 @@ builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Sto
 builder.Services.Configure<BenchmarkOptions>(builder.Configuration.GetSection("Benchmark"));
 builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection("Ai"));
+builder.Services.Configure<BackupOptions>(builder.Configuration.GetSection("Backup"));
 builder.Services.AddSingleton<TradeFoundryDb>();
+builder.Services.AddSingleton<AppActivityGate>();
+builder.Services.AddSingleton<BackupService>();
+builder.Services.AddHostedService(services => services.GetRequiredService<BackupService>());
 builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<ImportNotificationFeed>();
 builder.Services.AddSingleton<ImportFolderMonitor>();
@@ -141,16 +147,33 @@ if (!app.Environment.IsDevelopment())
 app.UseStatusCodePagesWithReExecute("/Error/{0}");
 
 app.UseStaticFiles();
+app.UseMiddleware<MaintenanceMiddleware>();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapRazorPages();
-app.MapGet(DesktopRuntime.HealthPath, (HttpContext context) =>
+app.MapGet(DesktopRuntime.HealthPath, (HttpContext context, AppActivityGate gate) =>
 {
     context.Response.Headers.CacheControl = "no-store";
-    return Results.Json(new { status = "ready" });
+    return Results.Json(new { status = gate.InMaintenance ? "maintenance" : "ready" });
 }).AllowAnonymous();
+// Exempt from maintenance and reads only memory, so the Backups page can follow a backup through it.
+app.MapGet(MaintenanceMiddleware.StatusPath, (HttpContext context, BackupService backups) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    var progress = backups.Progress;
+    return Results.Json(new
+    {
+        running = progress.Running,
+        runId = progress.RunId,
+        stage = progress.Stage,
+        fraction = progress.Fraction,
+        maintenance = progress.Maintenance,
+        lastStatus = progress.LastStatus,
+        lastMessage = progress.LastMessage
+    });
+}).RequireAuthorization();
 app.MapGet("/publication-assets/{name}", (string name) => TradeFoundry.Publishing.PublicationAssets.Script(name) is { } script
     ? Results.Content(script, "text/javascript") : Results.NotFound());
 // Open pages poll this for automatic imports that finished in the background (see site.js).

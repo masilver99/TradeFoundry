@@ -62,6 +62,7 @@ public static class CommandPaletteCatalog
         Page("Publishing", "/publishing", "Public journal", "Website", "Export snapshot");
         Page("Imports", "/imports", "Import data", "Import history");
         Page("Settings", "/settings", "Configuration", "Preferences");
+        Page("Backups", "/settings/backups", "Back up now", "Backup folder", "Restore");
 
         Section("SC Trade Statistics", "/analytics", "sc-trade-statistics", "Sierra Chart", "Trade statistics");
         Section("History", "/analytics", "history", "Calendar", "Period summary");

@@ -96,8 +96,8 @@ Add a singleton `AppActivityGate`. Normal work takes a shared lease and backup t
 | Other fetches and polls | 503 with `Retry-After` |
 | `/health` (new) and static assets | Always served. `/health` returns only ready/maintenance. |
 | MCP | Separate Kestrel app, so it needs its own middleware over the same gate |
-| `ImportFolderMonitor` | Takes a lease per work item. Events stay queued. |
-| AI review and ChatGPT sign-in tasks | Hold a lease until their final write. Backup waits or postpones. |
+| `ImportFolderMonitor` | Takes a lease per work item. Events stay queued. Importing a file is long work. |
+| AI review and ChatGPT sign-in tasks | Not gated. The snapshot is one read transaction, so their writes land wholly before or after it, and they touch no data files. Holding a lease across a 4-minute review or a 5-minute sign-in would block backups for nothing. |
 
 Three traps in the current code:
 
@@ -286,6 +286,14 @@ page with Back up now.
 
 *Done when:* a 3 GB backup has under 40 s of maintenance, an edit made during it is saved afterwards,
 cancellation at each step leaves the site open, and disk-full leaves no listed partial backup.
+
+*Result (2026-11-23):* on a scratch copy of the 3.36 GB journal the site paused for 20.8 s and the whole
+backup took 55 s (0.75 GB archive). An autosave sent during the pause waited 20.8 s and saved. Every table
+and all 175 files matched the source, apart from that autosave. Right after copying 3.3 GB onto the same
+disk, the pause grew to 100 s: held writes then get 503 after 90 s and autosave retries them.
+The folder is stored in `app_settings` and runs in `backup_runs`; destinations get their own table in
+Phase 4. The Docker default folder and volumes from Phase 5 were added here, so container backups are
+never written inside the container.
 
 ### 2. Restore (large)
 Validation, staged migration, host restart loop and marker, post-restore pause, start clean and put back.

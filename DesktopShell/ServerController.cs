@@ -228,7 +228,9 @@ internal sealed class ServerController : IDisposable
     {
         try
         {
-            using var response = await _httpClient.GetAsync(Url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            // /health answers 200 during maintenance too, so a backup never looks like a stopped
+            // server. An older external server without /health answers 404, which still counts.
+            using var response = await _httpClient.GetAsync(Url.TrimEnd('/') + DesktopRuntime.HealthPath, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             return (int)response.StatusCode < 500;
         }
         catch (HttpRequestException)

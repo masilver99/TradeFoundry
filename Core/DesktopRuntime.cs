@@ -29,6 +29,35 @@ public static class DesktopRuntime
     public const string ShutdownCommand = "stop";
     public const string UserConfigurationFileName = "appsettings.user.json";
 
+    /// <summary>
+    /// Anonymous readiness probe used by the tray helper. It reports only whether the server is
+    /// ready or in maintenance, and keeps answering 200 while a backup holds the site.
+    /// </summary>
+    public const string HealthPath = "/health";
+
+    /// <summary>
+    /// Host names desktop mode accepts. Desktop mode binds only to loopback, but a browser sends
+    /// whatever name the page was loaded from, so a malicious site could otherwise point its own
+    /// name at 127.0.0.1 (DNS rebinding) and talk to the journal as same-origin.
+    /// </summary>
+    public const string DesktopAllowedHosts = "localhost;127.0.0.1;[::1]";
+
+    /// <summary>
+    /// <see cref="DesktopAllowedHosts"/> plus the host of <paramref name="url"/>, which can be another
+    /// loopback address when a test or development run overrides the desktop URL.
+    /// </summary>
+    public static string AllowedHostsFor(string url)
+    {
+        var hosts = DesktopAllowedHosts.Split(';').ToList();
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.IsLoopback &&
+            !hosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase))
+        {
+            hosts.Add(uri.Host);
+        }
+
+        return string.Join(';', hosts);
+    }
+
     public static bool IsDesktopMode(IEnumerable<string> args) =>
         args.Any(argument => string.Equals(argument, DesktopSwitch, StringComparison.OrdinalIgnoreCase));
 

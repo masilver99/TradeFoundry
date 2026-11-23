@@ -85,6 +85,7 @@ public sealed partial class TradeFoundryDb
     {
         using (var connection = OpenConnection())
         {
+        EnsureSchemaNotNewer(connection);
         var statements = new[]
         {
             "CREATE TABLE IF NOT EXISTS app_users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, created_utc TEXT NOT NULL)",
@@ -277,6 +278,12 @@ public sealed partial class TradeFoundryDb
         // Repair normalized values from immutable raw_records at startup, then
         // rebuild the derived trades that depend on them.
         RepairSierraPriceScales();
+
+        // Stamp only after every upgrade above has finished, so an interrupted start retries them.
+        using (var connection = OpenConnection())
+        {
+            StampSchemaVersion(connection);
+        }
     }
 
     private static void SeedInstrumentConfiguration(SqliteConnection connection)

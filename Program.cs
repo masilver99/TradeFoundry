@@ -44,6 +44,11 @@ if (desktopMode)
     builder.Configuration.AddJsonFile(DesktopRuntime.UserConfigurationPath, optional: true, reloadOnChange: false);
     builder.Configuration.AddEnvironmentVariables();
     builder.Configuration.AddCommandLine(applicationArgs);
+    // Added last so no user setting can widen it: desktop mode answers only to loopback names.
+    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["AllowedHosts"] = DesktopRuntime.AllowedHostsFor(desktopUrl)
+    });
     builder.WebHost.UseUrls(desktopUrl);
 }
 
@@ -141,6 +146,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapRazorPages();
+app.MapGet(DesktopRuntime.HealthPath, (HttpContext context) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Json(new { status = "ready" });
+}).AllowAnonymous();
 app.MapGet("/publication-assets/{name}", (string name) => TradeFoundry.Publishing.PublicationAssets.Script(name) is { } script
     ? Results.Content(script, "text/javascript") : Results.NotFound());
 // Open pages poll this for automatic imports that finished in the background (see site.js).

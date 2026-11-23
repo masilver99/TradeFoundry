@@ -11,7 +11,7 @@ public sealed class DailyJournalImageService
     public DailyJournalImageService(TradeFoundryDb database)
     {
         _database = database;
-        _files = new JournalImageFileStore(Path.Combine(Path.GetDirectoryName(database.DatabasePath) ?? AppContext.BaseDirectory, "daily-journal-images"));
+        _files = new JournalImageFileStore(Path.Combine(Path.GetDirectoryName(database.DatabasePath) ?? AppContext.BaseDirectory, TradeFoundry.Core.DataDirectoryLayout.DailyJournalImages));
     }
 
     public async Task<DailyJournalImage> SaveAsync(Guid journalId, DateOnly date, Stream content, string originalFileName, string contentType, long length, CancellationToken cancellationToken = default)

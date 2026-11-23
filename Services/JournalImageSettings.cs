@@ -68,7 +68,7 @@ public sealed class JournalImageSettings
         image.Settings.SetDefine(MagickFormat.WebP, name, value);
 
     private static string SettingsPath(string root, Guid journalId) =>
-        Path.Combine(root, "image-settings", $"{journalId:D}.json");
+        Path.Combine(root, TradeFoundry.Core.DataDirectoryLayout.ImageSettings, $"{journalId:D}.json");
 
     public static JournalImageSettings Load(string root, Guid journalId)
     {

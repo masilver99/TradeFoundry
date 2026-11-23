@@ -79,7 +79,7 @@ public sealed partial class TradeFoundryDb
     // would outlast the desktop shell's startup timeout.
     private void BackUpReviewTables(SqliteConnection connection)
     {
-        var directory = Path.Combine(Path.GetDirectoryName(_databasePath) ?? AppContext.BaseDirectory, "backups");
+        var directory = Path.Combine(Path.GetDirectoryName(_databasePath) ?? AppContext.BaseDirectory, TradeFoundry.Core.DataDirectoryLayout.MigrationBackups);
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, $"tags-migration-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}.db");
         TagExecute(connection, null, "ATTACH DATABASE $path AS tag_backup", ("$path", path));

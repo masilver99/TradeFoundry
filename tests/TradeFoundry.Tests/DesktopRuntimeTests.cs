@@ -30,6 +30,15 @@ public sealed class DesktopRuntimeTests
     }
 
     [Fact]
+    public void DesktopHostFilterAllowsOnlyLoopbackNames()
+    {
+        Assert.Equal("localhost;127.0.0.1;[::1]", DesktopRuntime.AllowedHostsFor(DesktopRuntime.DefaultUrl));
+        Assert.Equal("localhost;127.0.0.1;[::1];127.0.0.2", DesktopRuntime.AllowedHostsFor("http://127.0.0.2:5090"));
+        Assert.Equal("localhost;127.0.0.1;[::1]", DesktopRuntime.AllowedHostsFor("http://example.com:5090"));
+        Assert.Equal("/health", DesktopRuntime.HealthPath);
+    }
+
+    [Fact]
     public void InstalledRuntimeUsesAStableLoopbackContract()
     {
         Assert.Equal("http://127.0.0.1:5080", DesktopRuntime.DefaultUrl);

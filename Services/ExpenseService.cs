@@ -8,7 +8,7 @@ namespace TradeFoundry.Services;
 public sealed class ExpenseService(TradeFoundryDb database)
 {
     public const long MaxReceiptLength = 10 * 1024 * 1024;
-    private readonly string _root = Path.Combine(Path.GetDirectoryName(database.DatabasePath)!, "expense-receipts");
+    private readonly string _root = Path.Combine(Path.GetDirectoryName(database.DatabasePath)!, TradeFoundry.Core.DataDirectoryLayout.ExpenseReceipts);
 
     public string? GetReceiptPath(Guid journalId, Guid expenseId, Guid receiptId)
     {

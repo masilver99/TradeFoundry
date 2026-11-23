@@ -22,7 +22,7 @@ public sealed class TradeReviewService
     {
         _database = database;
         _setups = setups;
-        _imageFiles = new JournalImageFileStore(Path.Combine(Path.GetDirectoryName(database.DatabasePath) ?? AppContext.BaseDirectory, "review-attachments"));
+        _imageFiles = new JournalImageFileStore(Path.Combine(Path.GetDirectoryName(database.DatabasePath) ?? AppContext.BaseDirectory, TradeFoundry.Core.DataDirectoryLayout.ReviewAttachments));
     }
 
     public DateOnly GetDefaultDate(Guid journalId) => GetDefaultDate(journalId, null);

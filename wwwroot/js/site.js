@@ -650,6 +650,48 @@ function initializeReviewAttachmentPaste() {
   });
 }
 
+// Posts an autosave so that it survives a backup's maintenance window, a restart or a dropped
+// connection: network errors and 502/503/504 are retried with backoff (honouring Retry-After) for
+// up to five minutes. Only a JSON response counts as a reply. A redirect (an expired sign-in) or a
+// successful status with any other body is an error, so an edit is never reported as saved when
+// it was not. Resolves to { response, payload }; callers still check response.ok.
+async function postAutosave(url, body, onWaiting) {
+  const limitMs = 5 * 60 * 1000;
+  const started = Date.now();
+  for (let attempt = 0; ; attempt++) {
+    let response = null;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        body,
+        credentials: "same-origin",
+        redirect: "manual",
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+    }
+
+    if (response?.type === "opaqueredirect") throw new Error("Signed out · reload the page to sign in, then save again");
+    if (response && ![502, 503, 504].includes(response.status)) {
+      let payload = null;
+      if ((response.headers.get("Content-Type") || "").includes("json")) {
+        try { payload = await response.json(); } catch { payload = null; }
+      }
+      if (response.ok && payload === null) throw new Error("Unexpected reply from the server · not saved");
+      return { response, payload: payload ?? {} };
+    }
+
+    const retryAfter = Number(response?.headers.get("Retry-After"));
+    const delay = Math.min(30000, retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** Math.min(attempt, 5));
+    if (Date.now() - started + delay > limitMs) {
+      throw new Error(response ? "The server is unavailable · not saved" : "Connection lost · not saved");
+    }
+    onWaiting?.(response ? "Server busy · retrying…" : "Connection lost · retrying…");
+    await new Promise(resolve => window.setTimeout(resolve, delay));
+  }
+}
+
 function initializeReviewAttachmentCaptions() {
   const flushers = [];
   const forms = [];
@@ -691,14 +733,7 @@ function initializeReviewAttachmentCaptions() {
       payload.set("caption", value);
       setStatus("Saving…", "is-saving");
       let failed = false;
-      inFlight = fetch(url, {
-        method: "POST",
-        body: payload,
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-      }).then(async response => {
-        let result = {};
-        try { result = await response.json(); } catch { /* The status below is enough for a malformed response. */ }
+      inFlight = postAutosave(url, payload, text => setStatus(text, "is-saving")).then(({ response, payload: result }) => {
         if (!response.ok || !result.saved) throw new Error(result.message || "Could not save caption.");
         savedValue = String(result.caption ?? value);
         if (input.value === value) {
@@ -913,14 +948,7 @@ function initializeDailyJournal() {
         while (input.value !== state.savedSnapshot) {
           const sentSnapshot = input.value;
           setStatus(form, "Saving…", "saving");
-          const response = await fetch(form.dataset.autosaveUrl, {
-            method: "POST",
-            body: new FormData(form),
-            credentials: "same-origin",
-            headers: { "X-Requested-With": "XMLHttpRequest" }
-          });
-          let payload = {};
-          try { payload = await response.json(); } catch { /* fall through to the generic error */ }
+          const { response, payload } = await postAutosave(form.dataset.autosaveUrl, new FormData(form), text => setStatus(form, text, "saving"));
           if (!response.ok) {
             if (response.status === 409 || payload.conflict) {
               setStatus(form, "Conflict · reload latest values", "error");
@@ -2397,14 +2425,7 @@ function initializeReviewWorkspace() {
     const sentSnapshot = reviewFormSnapshot(form);
     state.savePromise = (async () => {
       setStatus(form, "Saving…", "saving");
-      const response = await fetch(form.dataset.autosaveUrl, {
-        method: "POST",
-        body: new FormData(form),
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-      });
-      let payload = {};
-      try { payload = await response.json(); } catch { /* fall through to the generic error */ }
+      const { response, payload } = await postAutosave(form.dataset.autosaveUrl, new FormData(form), text => setStatus(form, text, "saving"));
       if (!response.ok) {
         if (response.status === 409 || payload.conflict) {
           setStatus(form, "Conflict · reload latest values", "error");

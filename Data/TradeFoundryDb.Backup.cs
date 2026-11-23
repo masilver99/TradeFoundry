@@ -123,6 +123,43 @@ public sealed partial class TradeFoundryDb
         return command.ExecuteNonQuery();
     }
 
+    private const string ScheduleKey = "backup_schedule";
+    private const string LastScheduledSlotKey = "backup_last_scheduled_slot";
+
+    /// <summary>The backup schedule, or the default (daily at 02:00, keep 7/4/3) when none is saved.</summary>
+    public BackupSchedule GetBackupSchedule()
+    {
+        if (GetSetting(ScheduleKey) is not { } json) return BackupSchedule.Default;
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<BackupSchedule>(json) ?? BackupSchedule.Default;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return BackupSchedule.Default;
+        }
+    }
+
+    public void SetBackupSchedule(BackupSchedule schedule) => SetSetting(ScheduleKey, System.Text.Json.JsonSerializer.Serialize(schedule));
+
+    /// <summary>The scheduled instant most recently handled: backed up, or given up on after retries.</summary>
+    public DateTimeOffset? GetLastScheduledSlot() =>
+        GetSetting(LastScheduledSlotKey) is { } value && DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var slot) ? slot : null;
+
+    public void SetLastScheduledSlot(DateTimeOffset slot) => SetSetting(LastScheduledSlotKey, slot.ToString("O", CultureInfo.InvariantCulture));
+
+    public BackupRun? GetBackupRun(Guid id) => GetBackupRuns(int.MaxValue).FirstOrDefault(run => run.Id == id);
+
+    private void SetSetting(string key, string value)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO app_settings (settings_key, settings_value) VALUES ($key, $value) ON CONFLICT(settings_key) DO UPDATE SET settings_value = excluded.settings_value";
+        command.Parameters.AddWithValue("$key", key);
+        command.Parameters.AddWithValue("$value", value);
+        command.ExecuteNonQuery();
+    }
+
     private const string IntegrationsPausedKey = "integrations_paused";
     private const string RestoredFromKey = "restored_from";
     private const string SessionEpochKey = "session_epoch";

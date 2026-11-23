@@ -75,6 +75,53 @@ public sealed record BackupSidecar(
     IReadOnlyDictionary<string, long> Counts,
     IReadOnlyList<string> Warnings);
 
+public static class BackupFrequency
+{
+    public const string Daily = "daily";
+    public const string Weekly = "weekly";
+}
+
+/// <summary>
+/// When scheduled backups run and how many are kept. Retention keeps the newest backup of each of the
+/// last <see cref="KeepDaily"/> days, <see cref="KeepWeekly"/> ISO weeks and <see cref="KeepMonthly"/>
+/// months, counted in <see cref="TimeZoneId"/>.
+/// </summary>
+public sealed record BackupSchedule(
+    bool Enabled,
+    string Frequency,
+    TimeOnly Time,
+    DayOfWeek Day,
+    string TimeZoneId,
+    int KeepDaily,
+    int KeepWeekly,
+    int KeepMonthly)
+{
+    public static BackupSchedule Default { get; } = new(true, BackupFrequency.Daily, new TimeOnly(2, 0), DayOfWeek.Sunday, LocalTimeZoneId(), 7, 4, 3);
+
+    public TimeSpan Interval => Frequency == BackupFrequency.Weekly ? TimeSpan.FromDays(7) : TimeSpan.FromDays(1);
+
+    /// <summary>The zone the schedule uses, falling back to UTC when the stored id is unknown here.</summary>
+    public TimeZoneInfo ResolveTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.Utc;
+        }
+    }
+
+    /// <summary>The machine's zone as an IANA id where possible, so it reads the same in Docker and on Windows.</summary>
+    public static string LocalTimeZoneId()
+    {
+        var local = TimeZoneInfo.Local;
+        if (local.HasIanaId) return local.Id;
+        return TimeZoneInfo.TryConvertWindowsIdToIanaId(local.Id, out var iana) ? iana : local.Id;
+    }
+}
+
 /// <summary>Where a restored installation came from, shown on the post-restore checklist.</summary>
 public sealed record RestoredFrom(Guid BackupId, DateTimeOffset BackupCreatedUtc, string AppVersion, DateTimeOffset RestoredUtc);
 

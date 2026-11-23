@@ -152,6 +152,12 @@ public static class DesktopRuntime
     /// <summary>Tray → server: a newer release is available (followed by its version).</summary>
     public const string UpdateAvailableCommand = "update-available";
 
+    /// <summary>Tray → server: start a manual backup now.</summary>
+    public const string BackupNowCommand = "backup-now";
+
+    /// <summary>Signed-in page that opens Settings &gt; Backups for the first journal.</summary>
+    public const string BackupsPath = "/backups";
+
     /// <summary>Tray → server: no update is pending.</summary>
     public const string NoUpdateCommand = "update-none";
 

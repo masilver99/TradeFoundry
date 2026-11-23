@@ -325,6 +325,21 @@ Scheduler, catch-up, retention, stale warnings, tray commands.
 *Done when:* fake-clock tests cover DST, sleep and missed runs, retention can never delete the last good backup,
 and Quit or update during a backup is clean.
 
+*Result (2026-11-23):* fake-clock tests cover skipped and repeated local times, missed runs after start and
+after sleep, the 5/30/120-minute retries and staleness. Retention tests cover 120 days of backups,
+manual and other-installation backups and a lone backup. With a real host started as the tray starts it,
+`backup-now` over stdin started a backup, and `stop` during the copy and during compression exited in under
+0.5 s with no partial files, no staging and the run recorded as cancelled. The tray menu itself was built but
+not clicked through.
+
+As built:
+- Scheduled backups are on by default (daily 02:00 in the machine's time zone, keep 7/4/3), so an existing
+  installation makes its first backup five minutes after it starts on this version.
+- An installation with no journals is never backed up on schedule, so empty backups after start clean cannot
+  push real ones out of retention.
+- `/health` adds `backup`: `ok`, `running` or `attention`, never the reason. The tray polls it every 30 s and
+  links to `/backups`, which opens Settings > Backups.
+
 ### 4. Encryption and Backblaze B2 (medium)
 B2 and age spikes, encryption, portable publishing tokens, B2 destination, restore from B2.
 

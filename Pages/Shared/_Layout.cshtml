@@ -4,6 +4,7 @@
 @inject TradeFoundryDb Database
 @inject DesktopUpdateNotice UpdateNotice
 @inject ImportNotificationFeed ImportNotifications
+@inject TradeFoundry.Services.Backup.BackupScheduler BackupSchedule
 @{
     var authenticated = User.Identity?.IsAuthenticated == true;
     var journals = authenticated ? Database.GetJournals() : Array.Empty<Journal>();
@@ -170,7 +171,7 @@
                 </div>
             </div>
             }
-            <div class="page-body"><div class="container-xl">@if (UpdateNotice.AvailableVersion is { } availableUpdate){<div class="alert alert-info" data-notification-ephemeral data-notification-key="desktop-update:@availableUpdate">TradeFoundry @availableUpdate is available. To install it, right-click the TradeFoundry tray icon and choose Install update @availableUpdate and restart.</div>}@foreach (var importNotice in ImportNotifications.Since(0)){<div class="alert @(importNotice.Severity switch { "success" => "alert-success", "error" => "alert-danger", _ => "alert-info" })" data-notification-key="auto-import:@importNotice.Key.ToString("D")" data-notification-href="/journal/@importNotice.JournalId.ToString("D")/imports">@importNotice.Message</div>}@if (filterContext is not null){<partial name="_JournalFilterBar" model="filterContext" />}@RenderBody()</div></div>
+            <div class="page-body"><div class="container-xl">@if (UpdateNotice.AvailableVersion is { } availableUpdate){<div class="alert alert-info" data-notification-ephemeral data-notification-key="desktop-update:@availableUpdate">TradeFoundry @availableUpdate is available. To install it, right-click the TradeFoundry tray icon and choose Install update @availableUpdate and restart.</div>}@if (authenticated && BackupSchedule.Warning is { } backupWarning){<div class="alert alert-warning" data-notification-key="@backupWarning.Key" data-notification-href="/backups">@backupWarning.Message</div>}@foreach (var importNotice in ImportNotifications.Since(0)){<div class="alert @(importNotice.Severity switch { "success" => "alert-success", "error" => "alert-danger", _ => "alert-info" })" data-notification-key="auto-import:@importNotice.Key.ToString("D")" data-notification-href="/journal/@importNotice.JournalId.ToString("D")/imports">@importNotice.Message</div>}@if (filterContext is not null){<partial name="_JournalFilterBar" model="filterContext" />}@RenderBody()</div></div>
         </div>
     </div>
 }

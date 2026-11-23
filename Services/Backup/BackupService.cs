@@ -140,6 +140,31 @@ public sealed class BackupService : IHostedService
         return listings.OrderByDescending(listing => listing.Sidecar.CreatedUtc).ToList();
     }
 
+    /// <summary>
+    /// Deletes backups chosen by retention. The sidecar goes first, so an interrupted delete leaves an
+    /// unlisted archive rather than a listed backup with no archive.
+    /// </summary>
+    public int Prune(IReadOnlyList<BackupListing> listings)
+    {
+        var deleted = 0;
+        foreach (var listing in listings)
+        {
+            try
+            {
+                File.Delete(Path.ChangeExtension(listing.ArchivePath, ".json"));
+                File.Delete(listing.ArchivePath);
+                deleted++;
+                _logger.LogInformation("Retention deleted backup {Archive}.", listing.Sidecar.Archive);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Could not delete backup {Archive}.", listing.Sidecar.Archive);
+            }
+        }
+
+        return deleted;
+    }
+
     /// <summary>Returns why <paramref name="folder"/> cannot hold backups, or null when it can.</summary>
     public string? ValidateFolder(string folder)
     {

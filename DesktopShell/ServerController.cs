@@ -413,6 +413,47 @@ internal sealed class ServerController : IDisposable
         }
     }
 
+    /// <summary>Asks the server this helper started to back up now. False when there is no such server.</summary>
+    public bool RequestBackup()
+    {
+        Process? process;
+        lock (_gate)
+        {
+            process = State == ServerState.Running ? _process : null;
+        }
+
+        if (process is null)
+        {
+            return false;
+        }
+
+        SendCommand(process, DesktopRuntime.BackupNowCommand);
+        return true;
+    }
+
+    /// <summary>
+    /// The backup state from /health: "ok", "running" or "attention"; null when the server does not
+    /// answer or predates backups.
+    /// </summary>
+    public async Task<string?> GetBackupStateAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _httpClient.GetAsync(Url.TrimEnd('/') + DesktopRuntime.HealthPath, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            using var document = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            return document.RootElement.TryGetProperty("backup", out var backup) ? backup.GetString() : null;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     private void SendCommand(Process process, string command)
     {
         lock (_inputGate)

@@ -33,6 +33,11 @@ internal sealed class App : Application
     private WindowIcon? _updateIcon;
     private bool _openBrowserWhenReady;
     private bool _quitting;
+    private NativeMenuItem? _backupItem;
+    private NativeMenuItem? _backupStatusItem;
+    private DispatcherTimer? _backupTimer;
+    private string? _backupState;
+    private static readonly TimeSpan BackupCheckInterval = TimeSpan.FromSeconds(30);
 
     private enum UpdatePhase
     {
@@ -67,6 +72,7 @@ internal sealed class App : Application
             desktop.Exit += (_, _) =>
             {
                 _updateTimer?.Stop();
+                _backupTimer?.Stop();
                 _server.Dispose();
                 _updater.Dispose();
             };
@@ -97,11 +103,19 @@ internal sealed class App : Application
         var openData = new NativeMenuItem("Open data folder");
         openData.Click += (_, _) => OpenDataFolder();
 
+        _backupItem = new NativeMenuItem("Back up now") { IsEnabled = false };
+        _backupItem.Click += (_, _) => BackUpNow();
+        _backupStatusItem = new NativeMenuItem("Backup needs attention…") { IsVisible = false };
+        _backupStatusItem.Click += (_, _) => DesktopRuntime.TryOpenBrowser(_server!.Url.TrimEnd('/') + DesktopRuntime.BackupsPath);
+
         var menu = new NativeMenu();
         menu.Items.Add(open);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(_statusItem);
         menu.Items.Add(_toggleServerItem);
+        menu.Items.Add(new NativeMenuItemSeparator());
+        menu.Items.Add(_backupItem);
+        menu.Items.Add(_backupStatusItem);
         menu.Items.Add(new NativeMenuItemSeparator());
 
         if (StartupRegistration.IsSupported)
@@ -138,7 +152,50 @@ internal sealed class App : Application
 
         _updateIcon = LoadIcon("TradeFoundry-update.ico");
         TrayIcon.SetIcons(this, [_trayIcon]);
+        _backupTimer = new DispatcherTimer { Interval = BackupCheckInterval };
+        _backupTimer.Tick += (_, _) => _ = RefreshBackupStateAsync();
+        _backupTimer.Start();
         OnServerStateChanged();
+    }
+
+    private void BackUpNow()
+    {
+        if (_server?.RequestBackup() == true)
+        {
+            _backupState = "running";
+            RefreshBackupItems();
+            // Follow the backup closely for a moment so the menu reflects it starting and ending.
+            DispatcherTimer.RunOnce(() => _ = RefreshBackupStateAsync(), TimeSpan.FromSeconds(3));
+        }
+    }
+
+    private async Task RefreshBackupStateAsync()
+    {
+        if (_server is null || _server.State is not (ServerState.Running or ServerState.External))
+        {
+            _backupState = null;
+        }
+        else
+        {
+            _backupState = await _server.GetBackupStateAsync(CancellationToken.None);
+        }
+
+        RefreshBackupItems();
+    }
+
+    private void RefreshBackupItems()
+    {
+        if (_backupItem is null || _backupStatusItem is null || _server is null)
+        {
+            return;
+        }
+
+        var running = _backupState == "running";
+        _backupItem.Header = running ? "Backing up…" : "Back up now";
+        // Only a server this helper started can take commands; one started elsewhere shows status only.
+        _backupItem.IsEnabled = !running && !_quitting && _server.State == ServerState.Running && _backupState is not null;
+        _backupStatusItem.IsVisible = _backupState == "attention";
+        RefreshToolTip();
     }
 
     private void OnServerStateChanged()
@@ -163,6 +220,7 @@ internal sealed class App : Application
         _toggleServerItem.Header = toggle;
         _toggleServerItem.IsEnabled = canToggle && !_quitting;
         RefreshToolTip(status);
+        _ = RefreshBackupStateAsync();
 
         if (state is ServerState.Running or ServerState.External && _openBrowserWhenReady)
         {
@@ -186,9 +244,13 @@ internal sealed class App : Application
         status ??= _statusItem?.Header ?? string.Empty;
         // A status such as "Update failed" wins over "Update X available", so failures show on hover.
         var updateLine = _updateStatus ?? (_availableUpdate is { } update ? $"Update {update.Version} available" : null);
-        _trayIcon.ToolTipText = updateLine is null
-            ? $"TradeFoundry: {status}"
-            : $"TradeFoundry: {status}\n{updateLine}";
+        var backupLine = _backupState switch
+        {
+            "running" => "Backing up",
+            "attention" => "Backup needs attention",
+            _ => null
+        };
+        _trayIcon.ToolTipText = string.Join('\n', new[] { $"TradeFoundry: {status}", updateLine, backupLine }.Where(line => line is not null));
     }
 
     private void StartUpdateChecks()

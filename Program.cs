@@ -42,6 +42,12 @@ if (embeddedMode)
     // outlives each host, so a restart after a restore keeps listening.
     _ = DesktopRuntime.ReadParentCommandsAsync(Console.In, command =>
         {
+            if (string.Equals(command, DesktopRuntime.BackupNowCommand, StringComparison.OrdinalIgnoreCase))
+            {
+                currentApp?.Services.GetRequiredService<BackupService>().TryStart(BackupTrigger.Manual, out _, out _);
+                return;
+            }
+
             lastParentCommand = command;
             currentApp?.Services.GetRequiredService<DesktopUpdateNotice>().Apply(command);
         })
@@ -130,6 +136,9 @@ WebApplication BuildApplication(bool firstStart)
     builder.Services.AddSingleton(runtimeInfo);
     builder.Services.AddSingleton(new HostInstance(Guid.NewGuid().ToString("N")));
     builder.Services.AddSingleton<SessionEpoch>();
+    builder.Services.AddSingleton(TimeProvider.System);
+    builder.Services.AddSingleton<BackupScheduler>();
+    builder.Services.AddHostedService(services => services.GetRequiredService<BackupScheduler>());
     builder.Services.AddSingleton<RestoreService>();
     builder.Services.AddHostedService(services => services.GetRequiredService<RestoreService>());
     builder.Services.AddSingleton<ImportService>();
@@ -224,11 +233,17 @@ WebApplication BuildApplication(bool firstStart)
     app.UseAuthorization();
 
     app.MapRazorPages();
-    app.MapGet(DesktopRuntime.HealthPath, (HttpContext context, AppActivityGate gate, HostInstance instance) =>
+    // Anonymous, so it says only whether backups need attention, never why.
+    app.MapGet(DesktopRuntime.HealthPath, (HttpContext context, AppActivityGate gate, HostInstance instance, BackupService backups, BackupScheduler scheduler) =>
     {
         context.Response.Headers.CacheControl = "no-store";
-        return Results.Json(new { status = gate.InMaintenance ? "maintenance" : "ready", instance = instance.Id });
+        var backup = backups.Progress.Running ? "running" : scheduler.Warning is null ? "ok" : "attention";
+        return Results.Json(new { status = gate.InMaintenance ? "maintenance" : "ready", instance = instance.Id, backup });
     }).AllowAnonymous();
+    app.MapGet(DesktopRuntime.BackupsPath, (TradeFoundryDb database) =>
+        database.GetJournals().FirstOrDefault() is { } journal
+            ? Results.Redirect($"/journal/{journal.Id:D}/settings/backups")
+            : Results.Redirect("/restore")).RequireAuthorization();
     // Exempt from maintenance and reads only memory, so the Backups page can follow a backup through it.
     app.MapGet(MaintenanceMiddleware.StatusPath, (HttpContext context, BackupService backups) =>
     {

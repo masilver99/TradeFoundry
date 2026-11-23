@@ -93,7 +93,7 @@ public sealed class MaintenanceMiddleware(RequestDelegate next, AppActivityGate 
                request.Headers.Accept.ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase);
     }
 
-    // Self-contained: the normal layout reads the database, which is exactly what is unavailable.
+    // Self-contained: the normal layout reads the database.
     private const string MaintenancePage = """
         <!doctype html>
         <html lang="en">

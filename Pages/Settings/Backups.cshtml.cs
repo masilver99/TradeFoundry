@@ -17,12 +17,66 @@ public class BackupsModel : PageModel
     private readonly RestoreService _restore;
     private readonly ImportFolderMonitor _monitor;
 
-    public BackupsModel(TradeFoundryDb database, BackupService backups, RestoreService restore, ImportFolderMonitor monitor)
+    private readonly BackupScheduler _scheduler;
+
+    public BackupsModel(TradeFoundryDb database, BackupService backups, RestoreService restore, ImportFolderMonitor monitor, BackupScheduler scheduler)
     {
         _database = database;
         _backups = backups;
         _restore = restore;
         _monitor = monitor;
+        _scheduler = scheduler;
+    }
+
+    public BackupSchedule Schedule { get; private set; } = BackupSchedule.Default;
+    public DateTimeOffset? NextRun => _scheduler.NextRun;
+    public BackupWarning? Warning => _scheduler.Warning;
+
+    /// <summary>IANA zone ids offered in the time zone field.</summary>
+    public static IReadOnlyList<string> TimeZoneIds { get; } = TimeZoneInfo.GetSystemTimeZones()
+        .Select(zone => zone.HasIanaId ? zone.Id : TimeZoneInfo.TryConvertWindowsIdToIanaId(zone.Id, out var iana) ? iana : null)
+        .OfType<string>()
+        .Distinct(StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal)
+        .ToList();
+
+    public IActionResult OnPostSchedule(bool enabled, string? frequency, string? time, DayOfWeek day, string? timeZone, int keepDaily, int keepWeekly, int keepMonthly)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        if (!TimeOnly.TryParse(time, System.Globalization.CultureInfo.InvariantCulture, out var at))
+        {
+            Flash("Enter the time as hours and minutes, such as 02:00.", "error");
+            return Redirect(PagePath);
+        }
+
+        var zoneId = string.IsNullOrWhiteSpace(timeZone) ? BackupSchedule.LocalTimeZoneId() : timeZone.Trim();
+        try
+        {
+            TimeZoneInfo.FindSystemTimeZoneById(zoneId);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            Flash($"{zoneId} is not a time zone this machine knows. Use an id such as Europe/London or America/New_York.", "error");
+            return Redirect(PagePath);
+        }
+
+        if (keepDaily is < 1 or > 90 || keepWeekly is < 0 or > 52 || keepMonthly is < 0 or > 60)
+        {
+            Flash("Keep between 1 and 90 daily, 0 and 52 weekly, and 0 and 60 monthly backups.", "error");
+            return Redirect(PagePath);
+        }
+
+        _database.SetBackupSchedule(new BackupSchedule(
+            enabled,
+            frequency == BackupFrequency.Weekly ? BackupFrequency.Weekly : BackupFrequency.Daily,
+            new TimeOnly(at.Hour, at.Minute),
+            day,
+            zoneId,
+            keepDaily,
+            keepWeekly,
+            keepMonthly));
+        Flash(enabled ? "Backup schedule saved." : "Scheduled backups are off. Manual backups still work.", "success");
+        return Redirect(PagePath);
     }
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
@@ -174,6 +228,7 @@ public class BackupsModel : PageModel
         Backups = _backups.ListBackups();
         Runs = _database.GetBackupRuns(HistoryLength);
         IntegrationsPaused = _database.AreIntegrationsPaused();
+        Schedule = _database.GetBackupSchedule();
         RestoredFrom = null;
         if (_database.GetRestoredFrom() is { } restored)
         {

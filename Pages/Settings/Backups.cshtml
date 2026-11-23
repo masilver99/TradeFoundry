@@ -35,6 +35,11 @@
     return;
 }
 
+@if (Model.Warning is { } backupWarning)
+{
+    <div class="alert alert-warning" role="status">@backupWarning.Message</div>
+}
+
 @if (Model.RestoredFrom is { } restored)
 {
     <div class="card tf-card border-warning mb-3">
@@ -132,6 +137,42 @@
         </div>
     </div>
 
+    <div class="col-12">
+        <div class="card tf-card">
+            <div class="card-header"><div><div class="tf-kicker">SCHEDULE</div><h3 class="tf-card-title">Scheduled backups</h3></div></div>
+            <div class="card-body">
+                <p class="text-secondary small">@(Model.Schedule.Enabled && Model.NextRun is { } next ? $"Next backup: {Local(next)}." : Model.Schedule.Enabled ? "The next backup time is being worked out." : "Scheduled backups are off.") A backup missed while the computer was off or asleep runs once, five minutes after TradeFoundry starts or wakes. Failed backups are retried after 5, 30 and 120 minutes.</p>
+                <form method="post" action="@($"{journalPath}?handler=Schedule")" class="row g-3">
+                    @Html.AntiForgeryToken()
+                    <div class="col-12"><label class="form-check form-switch"><input class="form-check-input" type="checkbox" name="enabled" value="true" checked="@Model.Schedule.Enabled" /><span class="form-check-label">Back up on a schedule</span></label></div>
+                    <div class="col-sm-6 col-lg-3">
+                        <label class="form-label" for="schedule-frequency">How often</label>
+                        <select class="form-select" id="schedule-frequency" name="frequency">
+                            <option value="daily" selected="@(Model.Schedule.Frequency == BackupFrequency.Daily)">Every day</option>
+                            <option value="weekly" selected="@(Model.Schedule.Frequency == BackupFrequency.Weekly)">Every week</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-6 col-lg-3">
+                        <label class="form-label" for="schedule-day">Day (weekly)</label>
+                        <select class="form-select" id="schedule-day" name="day">
+                            @foreach (var day in Enum.GetValues<DayOfWeek>())
+                            {
+                                <option value="@day" selected="@(Model.Schedule.Day == day)">@day</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-sm-6 col-lg-2"><label class="form-label" for="schedule-time">Time</label><input class="form-control" id="schedule-time" name="time" type="time" value="@Model.Schedule.Time.ToString("HH:mm", CultureInfo.InvariantCulture)" required /></div>
+                    <div class="col-sm-6 col-lg-4"><label class="form-label" for="schedule-zone">Time zone</label><input class="form-control" id="schedule-zone" name="timeZone" list="schedule-zones" value="@Model.Schedule.TimeZoneId" /><datalist id="schedule-zones">@foreach (var zone in BackupsModel.TimeZoneIds){<option value="@zone"></option>}</datalist></div>
+                    <div class="col-12"><div class="form-label mb-1">Keep the newest backup of each of the last</div></div>
+                    <div class="col-4 col-lg-2"><label class="form-label small" for="keep-daily">Days</label><input class="form-control" id="keep-daily" name="keepDaily" type="number" min="1" max="90" value="@Model.Schedule.KeepDaily" /></div>
+                    <div class="col-4 col-lg-2"><label class="form-label small" for="keep-weekly">Weeks</label><input class="form-control" id="keep-weekly" name="keepWeekly" type="number" min="0" max="52" value="@Model.Schedule.KeepWeekly" /></div>
+                    <div class="col-4 col-lg-2"><label class="form-label small" for="keep-monthly">Months</label><input class="form-control" id="keep-monthly" name="keepMonthly" type="number" min="0" max="60" value="@Model.Schedule.KeepMonthly" /></div>
+                    <div class="col-12 form-hint">Only this installation's scheduled backups are deleted. Manual backups, backups from other installations and the newest backup are always kept.</div>
+                    <div class="col-12"><button class="btn btn-outline-primary" type="submit">Save schedule</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
     <div class="col-12">
         <div class="card tf-card">
             <div class="card-header"><div><div class="tf-kicker">THIS FOLDER</div><h3 class="tf-card-title">Backups</h3></div></div>

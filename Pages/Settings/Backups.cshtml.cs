@@ -14,11 +14,15 @@ public class BackupsModel : PageModel
     private const int HistoryLength = 15;
     private readonly TradeFoundryDb _database;
     private readonly BackupService _backups;
+    private readonly RestoreService _restore;
+    private readonly ImportFolderMonitor _monitor;
 
-    public BackupsModel(TradeFoundryDb database, BackupService backups)
+    public BackupsModel(TradeFoundryDb database, BackupService backups, RestoreService restore, ImportFolderMonitor monitor)
     {
         _database = database;
         _backups = backups;
+        _restore = restore;
+        _monitor = monitor;
     }
 
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
@@ -35,6 +39,11 @@ public class BackupsModel : PageModel
     public IReadOnlyList<BackupRun> Runs { get; private set; } = [];
     public string? FlashMessage { get; private set; }
     public string? FlashKind { get; private set; }
+    public RestoredFrom? RestoredFrom { get; private set; }
+    public bool IntegrationsPaused { get; private set; }
+    public IReadOnlyList<Journal> WatchedJournals { get; private set; } = [];
+    public bool Restarting { get; private set; }
+    public const string StartCleanPhrase = "start clean";
     private string PagePath => $"/journal/{JournalId:D}/settings/backups";
 
     public IActionResult OnGet()
@@ -89,6 +98,50 @@ public class BackupsModel : PageModel
         return Redirect(PagePath);
     }
 
+    public IActionResult OnPostStartClean(string? confirmation)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        var hash = _database.GetOwnerPasswordHash();
+        if (hash is null || !PasswordService.Verify(CurrentPassword, hash))
+        {
+            Flash("The password is incorrect. Nothing was moved.", "error");
+            return Redirect(PagePath);
+        }
+
+        if (!string.Equals(confirmation?.Trim(), StartCleanPhrase, StringComparison.OrdinalIgnoreCase))
+        {
+            Flash($"Type \"{StartCleanPhrase}\" to confirm. Nothing was moved.", "error");
+            return Redirect(PagePath);
+        }
+
+        if (_backups.Progress.Running)
+        {
+            Flash("Wait for the running backup to finish first.", "error");
+            return Redirect(PagePath);
+        }
+
+        _restore.StartClean();
+        Load();
+        Restarting = true;
+        return Page();
+    }
+
+    public IActionResult OnPostResumeIntegrations()
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        _database.ResumeIntegrations();
+        _monitor.NotifyConfigurationChanged();
+        Flash("Watched imports resumed.", "success");
+        return Redirect(PagePath);
+    }
+
+    public IActionResult OnPostDismissRestore()
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        _database.DismissRestoredFrom();
+        return Redirect(PagePath);
+    }
+
     public static string FormatBytes(long bytes) => BackupService.FormatBytes(bytes);
 
     public static string StatusLabel(string status) => status switch
@@ -120,6 +173,22 @@ public class BackupsModel : PageModel
         FolderSharesDrive = _backups.FolderSharesDriveWithData();
         Backups = _backups.ListBackups();
         Runs = _database.GetBackupRuns(HistoryLength);
+        IntegrationsPaused = _database.AreIntegrationsPaused();
+        RestoredFrom = null;
+        if (_database.GetRestoredFrom() is { } restored)
+        {
+            try
+            {
+                RestoredFrom = System.Text.Json.JsonSerializer.Deserialize<RestoredFrom>(restored);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+            }
+        }
+
+        WatchedJournals = _database.GetJournals()
+            .Where(journal => !string.IsNullOrWhiteSpace(journal.ImportWatchDirectory) || journal.ImportWatchFileEnabled)
+            .ToList();
         return true;
     }
 

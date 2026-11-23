@@ -75,5 +75,11 @@ public sealed record BackupSidecar(
     IReadOnlyDictionary<string, long> Counts,
     IReadOnlyList<string> Warnings);
 
+/// <summary>Where a restored installation came from, shown on the post-restore checklist.</summary>
+public sealed record RestoredFrom(Guid BackupId, DateTimeOffset BackupCreatedUtc, string AppVersion, DateTimeOffset RestoredUtc);
+
+/// <summary>The owner account and settings carried from a database into the fresh one "start clean" creates.</summary>
+public sealed record StartCleanOwner(string Id, string DisplayName, string PasswordHash, string CreatedUtc, IReadOnlyDictionary<string, string> Settings);
+
 /// <summary>A backup found in a destination, as listed from its sidecar.</summary>
 public sealed record BackupListing(BackupSidecar Sidecar, string ArchivePath, bool FromThisInstallation);

@@ -123,6 +123,145 @@ public sealed partial class TradeFoundryDb
         return command.ExecuteNonQuery();
     }
 
+    private const string IntegrationsPausedKey = "integrations_paused";
+    private const string RestoredFromKey = "restored_from";
+    private const string SessionEpochKey = "session_epoch";
+
+    /// <summary>
+    /// Clean means no journals at all, archived ones included. Only a clean installation may be restored
+    /// into, so a restore can never silently replace someone's data.
+    /// </summary>
+    public bool IsClean()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM journals";
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) == 0;
+    }
+
+    /// <summary>
+    /// True after a restore until the owner confirms: watched import folders are not watched, because
+    /// saved absolute paths may point somewhere else on this machine.
+    /// </summary>
+    public bool AreIntegrationsPaused() => GetSetting(IntegrationsPausedKey) == "1";
+
+    public void ResumeIntegrations() => DeleteSetting(IntegrationsPausedKey);
+
+    /// <summary>JSON describing the backup this installation was restored from, until the owner dismisses it.</summary>
+    public string? GetRestoredFrom() => GetSetting(RestoredFromKey);
+
+    public void DismissRestoredFrom() => DeleteSetting(RestoredFromKey);
+
+    /// <summary>
+    /// Changes when a restore replaces the owner account, so sign-ins from before it stop working.
+    /// Null until the first restore or start clean.
+    /// </summary>
+    public string? GetSessionEpoch() => GetSetting(SessionEpochKey);
+
+    private string? GetSetting(string key)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT settings_value FROM app_settings WHERE settings_key = $key";
+        command.Parameters.AddWithValue("$key", key);
+        return command.ExecuteScalar() as string;
+    }
+
+    private void DeleteSetting(string key)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM app_settings WHERE settings_key = $key";
+        command.Parameters.AddWithValue("$key", key);
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Prepares a staged, migrated copy for use as this installation: revokes MCP tokens, pauses watched
+    /// imports, drops this machine's backup folder and installation id, records where it came from and
+    /// starts a new sign-in epoch. Works on a plain connection to the staged file.
+    /// </summary>
+    internal static void PrepareRestoredDatabase(SqliteConnection connection, BackupManifest manifest, DateTimeOffset restoredUtc)
+    {
+        var now = restoredUtc.ToString("O", CultureInfo.InvariantCulture);
+        using var transaction = connection.BeginTransaction();
+        void Execute(string sql, params (string Name, object Value)[] parameters)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = sql;
+            foreach (var (name, value) in parameters) command.Parameters.AddWithValue(name, value);
+            command.ExecuteNonQuery();
+        }
+
+        void Set(string key, string value) => Execute(
+            "INSERT INTO app_settings (settings_key, settings_value) VALUES ($key, $value) ON CONFLICT(settings_key) DO UPDATE SET settings_value = excluded.settings_value",
+            ("$key", key), ("$value", value));
+
+        Execute("UPDATE mcp_access_tokens SET revoked_utc = $now WHERE revoked_utc IS NULL", ("$now", now));
+        Execute("DELETE FROM app_settings WHERE settings_key IN ($installation, $folder)", ("$installation", InstallationIdKey), ("$folder", BackupFolderKey));
+        Set(IntegrationsPausedKey, "1");
+        Set(SessionEpochKey, Guid.NewGuid().ToString("N"));
+        Set(RestoredFromKey, System.Text.Json.JsonSerializer.Serialize(new RestoredFrom(manifest.BackupId, manifest.CreatedUtc, manifest.AppVersion, restoredUtc)));
+        // The backup was taken while its own run was still in progress; that run evidently finished.
+        Execute("UPDATE backup_runs SET status = $status, finished_utc = $now, message = 'Restored from this backup.' WHERE id = $id AND status = $running",
+            ("$status", BackupRunStatus.Completed), ("$now", now), ("$id", manifest.BackupId.ToString("D")), ("$running", BackupRunStatus.Running));
+        transaction.Commit();
+    }
+
+    /// <summary>Creates the owner account in a fresh database, keeping its id, name and password, plus this installation's backup settings.</summary>
+    internal void SeedFreshDatabase(StartCleanOwner owner)
+    {
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using (var user = connection.CreateCommand())
+        {
+            user.Transaction = transaction;
+            user.CommandText = "INSERT INTO app_users (id, display_name, password_hash, created_utc) VALUES ($id, $name, $hash, $created)";
+            user.Parameters.AddWithValue("$id", owner.Id);
+            user.Parameters.AddWithValue("$name", owner.DisplayName);
+            user.Parameters.AddWithValue("$hash", owner.PasswordHash);
+            user.Parameters.AddWithValue("$created", owner.CreatedUtc);
+            user.ExecuteNonQuery();
+        }
+
+        foreach (var (key, value) in owner.Settings)
+        {
+            using var setting = connection.CreateCommand();
+            setting.Transaction = transaction;
+            setting.CommandText = "INSERT OR REPLACE INTO app_settings (settings_key, settings_value) VALUES ($key, $value)";
+            setting.Parameters.AddWithValue("$key", key);
+            setting.Parameters.AddWithValue("$value", value);
+            setting.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    /// <summary>The owner account and the settings "start clean" carries into the fresh database.</summary>
+    internal StartCleanOwner GetStartCleanOwner()
+    {
+        using var connection = OpenConnection();
+        StartCleanOwner owner;
+        using (var user = connection.CreateCommand())
+        {
+            user.CommandText = "SELECT id, display_name, password_hash, created_utc FROM app_users ORDER BY created_utc LIMIT 1";
+            using var reader = user.ExecuteReader();
+            if (!reader.Read()) throw new InvalidOperationException("This installation has no owner account.");
+            owner = new StartCleanOwner(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), new Dictionary<string, string>());
+        }
+
+        using var settings = connection.CreateCommand();
+        settings.CommandText = "SELECT settings_key, settings_value FROM app_settings WHERE settings_key IN ($installation, $folder, $epoch)";
+        settings.Parameters.AddWithValue("$installation", InstallationIdKey);
+        settings.Parameters.AddWithValue("$folder", BackupFolderKey);
+        settings.Parameters.AddWithValue("$epoch", SessionEpochKey);
+        using var rows = settings.ExecuteReader();
+        var values = new Dictionary<string, string>();
+        while (rows.Read()) values[rows.GetString(0)] = rows.GetString(1);
+        return owner with { Settings = values };
+    }
+
     private static void AddBackupRunParameters(SqliteCommand command, BackupRun run)
     {
         command.Parameters.AddWithValue("$id", run.Id.ToString("D"));

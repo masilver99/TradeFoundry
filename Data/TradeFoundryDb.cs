@@ -46,9 +46,9 @@ public sealed partial class TradeFoundryDb
     public TradeFoundryDb(IOptions<StorageOptions> options)
     {
         var storage = options.Value;
-        var directory = Path.GetFullPath(string.IsNullOrWhiteSpace(storage.DataDirectory) ? "data" : storage.DataDirectory);
+        var directory = ResolveDataDirectory(storage);
         Directory.CreateDirectory(directory);
-        var fileName = string.IsNullOrWhiteSpace(storage.DatabaseFileName) ? "journal.db" : storage.DatabaseFileName;
+        var fileName = ResolveDatabaseFileName(storage);
         _databasePath = Path.Combine(directory, fileName);
         _connectionString = new SqliteConnectionStringBuilder
         {
@@ -58,6 +58,12 @@ public sealed partial class TradeFoundryDb
         }.ToString();
         Initialize();
     }
+
+    public static string ResolveDataDirectory(StorageOptions storage) =>
+        Path.GetFullPath(string.IsNullOrWhiteSpace(storage.DataDirectory) ? "data" : storage.DataDirectory);
+
+    public static string ResolveDatabaseFileName(StorageOptions storage) =>
+        string.IsNullOrWhiteSpace(storage.DatabaseFileName) ? "journal.db" : storage.DatabaseFileName;
 
     private SqliteConnection OpenConnection()
     {

@@ -28,6 +28,8 @@ public class IndexModel : PageModel
     public bool ShowDailyEquity { get; set; }
 
     public IReadOnlyList<Journal> Journals { get; private set; } = Array.Empty<Journal>();
+    public bool IsClean { get; private set; }
+    public bool IntegrationsPaused { get; private set; }
     public JournalOverview? Overview { get; private set; }
     public JournalFilterScope? Filter { get; private set; }
     public AccountSummary? Account { get; private set; }
@@ -115,6 +117,8 @@ public class IndexModel : PageModel
     private void Load()
     {
         Journals = _database.GetJournals();
+        IsClean = Journals.Count == 0 && _database.IsClean();
+        IntegrationsPaused = Journals.Count > 0 && _database.AreIntegrationsPaused();
         var selected = JournalId.HasValue && Journals.Any(x => x.Id == JournalId.Value) ? JournalId.Value : Journals.FirstOrDefault()?.Id;
         if (selected.HasValue)
         {

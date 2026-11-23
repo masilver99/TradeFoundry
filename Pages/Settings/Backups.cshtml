@@ -2,6 +2,8 @@
 @model TradeFoundry.Pages.Settings.BackupsModel
 @using System.Globalization
 @using TradeFoundry.Core
+@using TradeFoundry.Services.Backup
+@inject HostInstance Instance
 @{
     ViewData["Title"] = "Backups";
     ViewData["PageKicker"] = "TRADEFOUNDRY / DATA / SETTINGS / BACKUPS";
@@ -26,6 +28,58 @@
         <p class="text-secondary mb-0">A backup holds every journal in this instance: the database, images, receipts and image settings. The site pauses for a few seconds while the journal is copied; edits made meanwhile are saved when it resumes.</p>
     </div>
 </div>
+
+@if (Model.Restarting)
+{
+    <div class="alert tf-alert" role="status" data-restart-wait data-instance="@Instance.Id">The current data is being moved aside. TradeFoundry restarts with an empty journal and continues to sign-in when it is ready.</div>
+    return;
+}
+
+@if (Model.RestoredFrom is { } restored)
+{
+    <div class="card tf-card border-warning mb-3">
+        <div class="card-header"><div><div class="tf-kicker text-warning">AFTER RESTORE</div><h3 class="tf-card-title">Restored from the backup of @Local(restored.BackupCreatedUtc)</h3></div></div>
+        <div class="card-body">
+            <ul class="mb-3">
+                @if (Model.IntegrationsPaused)
+                {
+                    <li>
+                        Watched imports are paused. Check that these paths are right on this machine, then resume:
+                        @if (Model.WatchedJournals.Count == 0)
+                        {
+                            <span class="text-secondary">no journal watches a folder or file.</span>
+                        }
+                        else
+                        {
+                            <ul>
+                                @foreach (var journal in Model.WatchedJournals)
+                                {
+                                    <li><strong>@journal.Name</strong>: <span class="text-break">@(string.IsNullOrWhiteSpace(journal.ImportWatchDirectory) ? journal.ImportWatchFile : journal.ImportWatchDirectory)</span></li>
+                                }
+                            </ul>
+                        }
+                    </li>
+                }
+                <li>MCP access tokens were revoked. Create new ones in Settings &gt; Access.</li>
+                <li>ChatGPT and publishing were not restored. Sign in to ChatGPT and enter publishing tokens again where you use them.</li>
+                <li>Backups go to the default folder until you choose another below.</li>
+            </ul>
+            <div class="d-flex flex-wrap gap-2">
+                @if (Model.IntegrationsPaused)
+                {
+                    <form method="post" action="@($"{journalPath}?handler=ResumeIntegrations")">
+                        @Html.AntiForgeryToken()
+                        <button class="btn btn-primary" type="submit">Resume watched imports</button>
+                    </form>
+                }
+                <form method="post" action="@($"{journalPath}?handler=DismissRestore")">
+                    @Html.AntiForgeryToken()
+                    <button class="btn btn-outline-secondary" type="submit">Done</button>
+                </form>
+            </div>
+        </div>
+    </div>
+}
 
 <section class="row row-cards">
     <div class="col-xl-6">
@@ -139,4 +193,18 @@
             }
         </div>
     </div>
-</section>
+    <div class="col-12">
+        <div class="card tf-card border-danger">
+            <div class="card-header"><div><div class="tf-kicker text-danger">START CLEAN</div><h3 class="tf-card-title">Move current data aside and start clean</h3></div></div>
+            <div class="card-body">
+                <p class="text-secondary small">Moves the database, images, receipts and image settings into a set-aside folder inside the data directory, then restarts with an empty installation that keeps your owner account. Use it before restoring a backup over this installation. Nothing is deleted: while no journal exists, the restore page offers to put the data back.</p>
+                <form method="post" action="@($"{journalPath}?handler=StartClean")" class="row g-3" autocomplete="off">
+                    @Html.AntiForgeryToken()
+                    <div class="col-md-4"><label class="form-label" for="start-clean-password">Owner password</label><input class="form-control" id="start-clean-password" name="CurrentPassword" type="password" autocomplete="current-password" /></div>
+                    <div class="col-md-4"><label class="form-label" for="start-clean-confirm">Type "@BackupsModel.StartCleanPhrase"</label><input class="form-control" id="start-clean-confirm" name="confirmation" /></div>
+                    <div class="col-md-4 d-flex align-items-end"><button class="btn btn-outline-danger" type="submit" onclick="return confirm('Move all journals aside and restart with an empty installation?');">Start clean</button></div>
+                </form>
+                <p class="text-secondary small mt-3 mb-0">Consider backing up first, so the data is also somewhere outside this machine's data directory.</p>
+            </div>
+        </div>
+    </div></section>

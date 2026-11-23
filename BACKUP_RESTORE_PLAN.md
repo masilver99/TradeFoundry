@@ -302,6 +302,23 @@ Validation, staged migration, host restart loop and marker, post-restore pause, 
 non-clean installations are refused, start clean followed by put back loses nothing, hostile and truncated archives are refused, killing the process at each
 commit step recovers, and Windows to Docker works in both directions.
 
+*Result (2026-11-23):* a 0.75 GB backup of the 3.36 GB journal was restored through the UI into a fresh
+server-mode installation, using the one-time code from the log. Checking, unpacking and upgrading took 35–50 s
+with the site running, and the restart into the restored data took 2 s. Every table, all 1,794 trades and all
+175 files matched the source, apart from the documented changes. Start clean and put back then ran through the
+UI on the same installation, staying signed in. Interrupted and failed commits are covered by tests, not by
+killing a real process. Docker was not available, so Windows to Docker is still untested.
+
+As built:
+- The staged copy is upgraded before the preview, so the preview shows what will be restored. The backup
+  owner's password is checked at commit.
+- Restore and put back also move the replaced (empty) installation to `set-aside/`, as `-before-restore` and
+  `-replaced`. Only copies holding journals are offered for put back.
+- Cookies carry a sign-in epoch that a restore changes, because every installation signs the owner in under the
+  same name. Start clean keeps the epoch, so the owner stays signed in.
+- The host restarts in the same process. `/health` reports a per-host instance id, so pages can tell when the
+  restart has finished.
+
 ### 3. Schedule, retention and tray (medium)
 Scheduler, catch-up, retention, stale warnings, tray commands.
 

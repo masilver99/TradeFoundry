@@ -131,6 +131,16 @@ public sealed class ImportFolderMonitor : BackgroundService
         IReadOnlyList<Journal> journals;
         try
         {
+            // After a restore, saved folders may point somewhere else on this machine; watch nothing
+            // until the owner has checked them.
+            if (_database.AreIntegrationsPaused())
+            {
+                foreach (var watcher in _watchers.Values.Concat(_fileWatchers.Values)) watcher.Dispose();
+                _watchers.Clear();
+                _fileWatchers.Clear();
+                return;
+            }
+
             journals = _database.GetJournals();
         }
         catch (Exception ex)

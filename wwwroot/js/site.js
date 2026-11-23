@@ -31,6 +31,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeImportDropzones();
   initializeBusyForms();
   initializeBackupStatus();
+  initializeRestorePage();
   const journalFeed = document.querySelector("[data-daily-journal-feed]");
   if (journalFeed) {
     journalFeed.querySelectorAll("[data-daily-journal-form]:not([hidden])").forEach(form => {
@@ -680,6 +681,91 @@ function initializeBackupStatus() {
     window.setTimeout(poll, 1000);
   };
   void poll();
+}
+
+// Restore page: uploads a backup with progress, follows its checks, and after a restore, start clean
+// or put back waits for the restarted host (a new /health instance id) before going to sign-in.
+function initializeRestorePage() {
+  const upload = document.querySelector("[data-restore-upload]");
+  if (upload) {
+    const status = upload.querySelector("[data-restore-upload-status]");
+    upload.addEventListener("submit", event => {
+      event.preventDefault();
+      const file = upload.querySelector("input[type=file]")?.files?.[0];
+      if (!file) return;
+      const button = upload.querySelector("button[type=submit]");
+      if (button) button.disabled = true;
+      const request = new XMLHttpRequest();
+      request.open("POST", upload.dataset.uploadUrl);
+      request.setRequestHeader("RequestVerificationToken", upload.querySelector("input[name=__RequestVerificationToken]")?.value || "");
+      request.setRequestHeader("X-Restore-Code", upload.querySelector("input[name=Code]")?.value || "");
+      request.setRequestHeader("Content-Type", "application/octet-stream");
+      request.upload.addEventListener("progress", progress => {
+        if (status && progress.lengthComputable) status.textContent = `Uploading… ${Math.round(progress.loaded / progress.total * 100)}%`;
+      });
+      request.addEventListener("load", () => {
+        let reply = {};
+        try { reply = JSON.parse(request.responseText); } catch { /* keep the generic message */ }
+        if (request.status === 200) {
+          window.location.reload();
+          return;
+        }
+        if (status) status.textContent = reply.message || "The upload failed.";
+        if (button) button.disabled = false;
+      });
+      request.addEventListener("error", () => {
+        if (status) status.textContent = "The upload failed. Check the connection and try again.";
+        if (button) button.disabled = false;
+      });
+      if (status) status.textContent = "Uploading…";
+      request.send(file);
+    });
+  }
+
+  const progress = document.querySelector("[data-restore-progress]");
+  if (progress) {
+    const stage = progress.querySelector("[data-restore-stage]");
+    const bar = progress.querySelector("[data-restore-bar]");
+    const poll = async () => {
+      try {
+        const response = await fetch("/restore?handler=Status", { credentials: "same-origin", headers: { Accept: "application/json" } });
+        if (response.ok) {
+          const job = await response.json();
+          if (job.state !== "staging") {
+            window.location.reload();
+            return;
+          }
+          if (stage) stage.textContent = job.stage;
+          if (bar) bar.style.width = `${typeof job.fraction === "number" ? Math.round(job.fraction * 100) : 100}%`;
+        }
+      } catch {
+        // Keep polling.
+      }
+      window.setTimeout(poll, 1000);
+    };
+    void poll();
+  }
+
+  const restart = document.querySelector("[data-restart-wait]");
+  if (restart) {
+    const previous = restart.dataset.instance;
+    const poll = async () => {
+      try {
+        const response = await fetch("/health", { cache: "no-store" });
+        if (response.ok) {
+          const health = await response.json();
+          if (health.instance && health.instance !== previous && health.status === "ready") {
+            window.location.href = "/Login";
+            return;
+          }
+        }
+      } catch {
+        // The server is restarting.
+      }
+      window.setTimeout(poll, 1000);
+    };
+    window.setTimeout(poll, 1000);
+  }
 }
 
 // Posts an autosave so that it survives a backup's maintenance window, a restart or a dropped

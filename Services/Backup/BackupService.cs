@@ -31,7 +31,7 @@ public sealed record BackupProgress(
 /// </summary>
 public sealed class BackupService : IHostedService
 {
-    public const string StagingDirectoryName = ".backup-staging";
+    public const string StagingDirectoryName = DataDirectoryLayout.BackupStaging;
     public const string PartialSuffix = ".partial";
     public const string ArchivePrefix = "tradefoundry-";
 
@@ -113,9 +113,10 @@ public sealed class BackupService : IHostedService
     /// <summary>Waits for the running backup, if any, to finish. For tests and shutdown.</summary>
     public Task WaitAsync() { lock (_sync) return _running; }
 
-    public IReadOnlyList<BackupListing> ListBackups()
+    /// <summary>Backups in <paramref name="folder"/> (the backup folder by default), listed from their sidecars, newest first.</summary>
+    public IReadOnlyList<BackupListing> ListBackups(string? folder = null)
     {
-        var folder = Folder;
+        folder ??= Folder;
         if (!Directory.Exists(folder)) return [];
         var installationId = _database.GetOrCreateInstallationId();
         var listings = new List<BackupListing>();

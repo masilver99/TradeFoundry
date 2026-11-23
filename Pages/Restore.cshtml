@@ -1,0 +1,183 @@
+@page "/restore"
+@model TradeFoundry.Pages.RestoreModel
+@using System.Globalization
+@using TradeFoundry.Core
+@using TradeFoundry.Services.Backup
+@inject HostInstance Instance
+@{
+    ViewData["Title"] = "Restore";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / RESTORE";
+    string Local(DateTimeOffset value) => value.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    var job = Model.Job;
+    var restarting = job?.State == RestoreJob.Committing || Model.PutBackStarted;
+}
+
+<div class="row justify-content-center">
+    <div class="col-xl-9">
+        <section class="card tf-card tf-auth-card">
+            <div class="card-body p-4 p-md-5">
+                <div class="tf-kicker">RESTORE</div>
+                <h1 class="tf-hero-title">Restore from a backup</h1>
+
+                @if (!string.IsNullOrWhiteSpace(Model.LastOperationError))
+                {
+                    <div class="alert alert-danger" role="alert">@Model.LastOperationError</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+                {
+                    <div class="alert alert-danger" role="alert">@Model.ErrorMessage</div>
+                }
+
+                @if (restarting)
+                {
+                    <div data-restart-wait data-instance="@Instance.Id" role="status">
+                        <p class="tf-lede">TradeFoundry is restarting to put the data in place. This page continues to sign-in when it is ready.</p>
+                        <div class="progress progress-sm"><div class="progress-bar progress-bar-indeterminate"></div></div>
+                    </div>
+                }
+                else if (Model.Access == RestoreAccess.NotClean)
+                {
+                    <p class="tf-lede">This installation already has journals. A backup can only be restored into an installation with none, so that nothing is replaced by accident.</p>
+                    <p class="text-secondary">To restore anyway, first move the current data aside in Settings &gt; Backups &gt; Start clean. It can be put back while no new journal exists.</p>
+                }
+                else if (Model.Access == RestoreAccess.NeedsCode)
+                {
+                    <p class="tf-lede">Before setup, restoring needs the one-time code TradeFoundry wrote to its server log, to prove you run this server.</p>
+                    <form method="post" action="/restore?handler=List" class="row g-3" autocomplete="off">
+                        @Html.AntiForgeryToken()
+                        <div class="col-md-6"><label class="form-label" for="restore-code">One-time code</label><input class="form-control" id="restore-code" name="Code" placeholder="ABCD-EFGH" required /></div>
+                        <div class="col-12"><button class="btn btn-primary" type="submit">Continue</button></div>
+                    </form>
+                }
+                else if (job?.State == RestoreJob.Staging)
+                {
+                    <div data-restore-progress role="status">
+                        <p class="tf-lede mb-2" data-restore-stage>@job.Stage</p>
+                        <div class="progress progress-sm"><div class="progress-bar" data-restore-bar style="width: @((int)Math.Round((job.Fraction ?? 0) * 100))%"></div></div>
+                        <p class="text-secondary small mt-2">Nothing in this installation changes until you confirm.</p>
+                    </div>
+                }
+                else if (job?.State == RestoreJob.Ready && job.Preview is { } preview)
+                {
+                    var manifest = preview.Manifest;
+                    <p class="tf-lede">The backup checked out. Confirm to replace this empty installation with it.</p>
+                    <dl class="tf-definition-list">
+                        <dt>Made</dt><dd>@Local(manifest.CreatedUtc) with TradeFoundry @manifest.AppVersion</dd>
+                        <dt>Journals</dt><dd>@string.Join(", ", preview.Journals)</dd>
+                        <dt>Trades</dt><dd>@manifest.Counts.GetValueOrDefault("trades").ToString("N0", CultureInfo.InvariantCulture)</dd>
+                        <dt>Images and receipts</dt><dd>@((manifest.Counts.GetValueOrDefault("images") + manifest.Counts.GetValueOrDefault("receipts")).ToString("N0", CultureInfo.InvariantCulture))</dd>
+                        <dt>Owner account</dt><dd>@preview.OwnerName</dd>
+                    </dl>
+                    @foreach (var warning in preview.Warnings)
+                    {
+                        <div class="alert alert-warning small">@warning</div>
+                    }
+                    <ul class="text-secondary small">
+                        <li>You will sign in with the backup's owner password@(Model.HasOwner ? ", not this installation's" : string.Empty).</li>
+                        <li>Watched import folders stay paused until you check them. MCP tokens are revoked. ChatGPT and publishing need signing in again.</li>
+                        <li>TradeFoundry restarts once; it takes about as long as a normal start.</li>
+                    </ul>
+                    <form method="post" action="/restore?handler=Commit" class="row g-3" autocomplete="off">
+                        @Html.AntiForgeryToken()
+                        <div class="col-md-6"><label class="form-label" for="restore-password">Backup owner password</label><input class="form-control" id="restore-password" name="password" type="password" autocomplete="off" /><div class="form-hint">Leave empty if the backup's owner had no password.</div></div>
+                        <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="confirm" value="true" /> <span class="form-check-label">Restore this backup</span></label></div>
+                        <div class="col-12 d-flex gap-2"><button class="btn btn-primary" type="submit">Restore</button></div>
+                    </form>
+                    <form method="post" action="/restore?handler=Discard" class="mt-2">
+                        @Html.AntiForgeryToken()
+                        <button class="btn btn-link px-0" type="submit">Choose another backup</button>
+                    </form>
+                }
+                else
+                {
+                    @if (job?.State == RestoreJob.Failed)
+                    {
+                        <div class="alert alert-danger" role="alert">@job.Message</div>
+                    }
+                    <p class="tf-lede">Choose a backup made by TradeFoundry. It is checked in full before anything changes.</p>
+
+                    <h3 class="tf-card-title mt-4">From a folder</h3>
+                    <form method="post" action="/restore?handler=List" class="row g-2 align-items-end" autocomplete="off">
+                        @Html.AntiForgeryToken()
+                        <div class="col"><label class="form-label" for="restore-folder">Folder</label><input class="form-control" id="restore-folder" name="Folder" value="@Model.Folder" /></div>
+                        <div class="col-auto"><button class="btn btn-outline-primary" type="submit">List backups</button></div>
+                    </form>
+                    @if (Model.Backups is { } backups)
+                    {
+                        @if (backups.Count == 0)
+                        {
+                            <p class="text-secondary mt-3">No TradeFoundry backups in that folder.</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive mt-3">
+                                <table class="table table-vcenter">
+                                    <thead><tr><th>Made</th><th>Size</th><th>Journals</th><th>Trades</th><th>Version</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach (var backup in backups)
+                                        {
+                                            var sidecar = backup.Sidecar;
+                                            <tr>
+                                                <td>@Local(sidecar.CreatedUtc)</td>
+                                                <td>@RestoreModel.FormatBytes(sidecar.Size)</td>
+                                                <td>@sidecar.Counts.GetValueOrDefault("journals")</td>
+                                                <td>@sidecar.Counts.GetValueOrDefault("trades").ToString("N0", CultureInfo.InvariantCulture)</td>
+                                                <td>@sidecar.AppVersion</td>
+                                                <td class="text-end">
+                                                    <form method="post" action="/restore?handler=Stage">
+                                                        @Html.AntiForgeryToken()
+                                                        <input type="hidden" name="Folder" value="@Model.Folder" />
+                                                        <input type="hidden" name="archive" value="@sidecar.Archive" />
+                                                        <button class="btn btn-sm btn-primary" type="submit">Check and restore</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    }
+
+                    <h3 class="tf-card-title mt-4">From a file</h3>
+                    <form class="row g-2 align-items-end" data-restore-upload data-upload-url="/restore/upload">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="Code" value="@Model.VerifiedCode" />
+                        <div class="col"><label class="form-label" for="restore-file">Backup file (.tfbackup)</label><input class="form-control" id="restore-file" type="file" accept=".tfbackup" required /></div>
+                        <div class="col-auto"><button class="btn btn-outline-primary" type="submit">Upload and check</button></div>
+                        <div class="col-12 small text-secondary" data-restore-upload-status aria-live="polite"></div>
+                    </form>
+
+                    @if (Model.SetAside.Count > 0)
+                    {
+                        <h3 class="tf-card-title mt-5">Put back data you set aside</h3>
+                        <p class="text-secondary small">Start clean moved these aside. Putting one back replaces this empty installation with it.</p>
+                        <div class="table-responsive">
+                            <table class="table table-vcenter">
+                                <thead><tr><th>Moved aside</th><th>Journals</th><th>Trades</th><th>Size</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var copy in Model.SetAside)
+                                    {
+                                        <tr>
+                                            <td>@Local(copy.MovedUtc)</td>
+                                            <td>@copy.Journals</td>
+                                            <td>@copy.Trades.ToString("N0", CultureInfo.InvariantCulture)</td>
+                                            <td>@RestoreModel.FormatBytes(copy.Bytes)</td>
+                                            <td class="text-end">
+                                                <form method="post" action="/restore?handler=PutBack" onsubmit="return confirm('Put this data back? TradeFoundry restarts.');">
+                                                    @Html.AntiForgeryToken()
+                                                    <input type="hidden" name="name" value="@copy.Name" />
+                                                    <button class="btn btn-sm btn-outline-primary" type="submit">Put back</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+            </div>
+        </section>
+    </div>
+</div>

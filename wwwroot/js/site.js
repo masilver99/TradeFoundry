@@ -20,6 +20,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeDailyJournalDisclosure();
   initializeDailyJournalFeed();
   initializeDailyJournalChartDialog();
+  initializeDayStats(document);
+  initializeDayStatsDialog();
   initializeReviewWorkspace();
   initializeSetupEvaluationControls();
   initializeSetupCriteriaEditors();
@@ -4251,3 +4253,92 @@ function initializeDayRatingDialog() {
   updateCount();
   if (dialog.dataset.reopen === "true") open();
 }
+
+function dayStatsChartsKey(details) {
+  return `tf.dayStats.chartsOpen.${details.dataset.dayStatsContext || "day"}`;
+}
+
+function readDayStatsChartsOpen(details) {
+  try {
+    const value = window.localStorage.getItem(dayStatsChartsKey(details));
+    return value === null ? null : value === "true";
+  } catch {
+    return null;
+  }
+}
+
+function initializeDayStats(root) {
+  root.querySelectorAll("[data-day-stats-charts]").forEach(details => {
+    if (details.dataset.dayStatsReady === "true") return;
+    details.dataset.dayStatsReady = "true";
+    const stored = readDayStatsChartsOpen(details);
+    if (stored !== null) details.open = stored;
+    details.addEventListener("toggle", () => {
+      try {
+        window.localStorage.setItem(dayStatsChartsKey(details), details.open ? "true" : "false");
+      } catch {
+        // Remembering the choice is a convenience only.
+      }
+      if (!details.open) return;
+      details.querySelectorAll("[data-plotly-chart]").forEach(node => {
+        if (node.dataset.plotlyInitialized === "true") {
+          window.Plotly?.Plots?.resize(node);
+        } else {
+          renderPlotlyChart(node);
+        }
+      });
+    });
+  });
+}
+
+function initializeDayStatsDialog() {
+  const dialog = document.querySelector("[data-day-stats-dialog]");
+  const host = dialog?.querySelector("[data-day-stats-host]");
+  const status = dialog?.querySelector("[data-day-stats-status]");
+  const dateLabel = dialog?.querySelector("[data-day-stats-date]");
+  if (!dialog || !host || !status || !dateLabel) return;
+
+  let requestVersion = 0;
+  const purge = () => {
+    host.querySelectorAll('[data-plotly-initialized="true"]').forEach(node => window.Plotly?.purge?.(node));
+    host.replaceChildren();
+  };
+
+  dialog.querySelector("[data-day-stats-close]")?.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", event => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("close", () => {
+    requestVersion++;
+    purge();
+  });
+
+  document.addEventListener("click", async event => {
+    const button = event.target.closest("[data-day-stats-open]");
+    if (!button) return;
+    event.preventDefault();
+    const date = button.closest("[data-daily-journal-entry]")?.dataset.entryDate || "";
+    const version = ++requestVersion;
+    purge();
+    dateLabel.textContent = date ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }) : "";
+    status.textContent = "Loading day stats…";
+    if (!dialog.open) dialog.showModal();
+
+    try {
+      const response = await fetch(button.dataset.dayStatsUrl, { headers: { "X-Requested-With": "XMLHttpRequest" }, credentials: "same-origin" });
+      if (!response.ok) throw new Error(response.status === 404 ? "This day has no completed trades." : `Day stats could not be loaded (${response.status}).`);
+      const html = await response.text();
+      if (version !== requestVersion) return;
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      host.replaceChildren(template.content);
+      status.textContent = "";
+      initializeDayStats(host);
+      host.querySelectorAll("details[data-day-stats-charts][open] [data-plotly-chart]").forEach(node => renderPlotlyChart(node));
+    } catch (error) {
+      if (version !== requestVersion) return;
+      status.textContent = error instanceof Error ? error.message : "Day stats could not be loaded.";
+    }
+  });
+}
+

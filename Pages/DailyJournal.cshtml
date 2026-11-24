@@ -8,6 +8,7 @@
     ViewData["UsesLexical"] = true;
     ViewData["UsesTags"] = true;
     ViewData["UsesLightweightCharts"] = true;
+    ViewData["UsesPlotly"] = true;
     var todayText = Model.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 }
 
@@ -76,5 +77,19 @@
         </div>
         <div class="tf-daily-journal-chart-status" data-daily-journal-chart-status role="status" aria-live="polite">Choose a day to load its chart.</div>
         <div class="tf-daily-journal-chart-host" data-daily-journal-chart-host></div>
+    </div>
+</dialog>
+
+<dialog class="tf-day-stats-dialog" data-day-stats-dialog aria-labelledby="day-stats-dialog-title">
+    <div class="tf-day-stats-dialog-content">
+        <header class="tf-daily-journal-chart-dialog-header">
+            <div>
+                <h2 id="day-stats-dialog-title" class="tf-card-title">Day stats</h2>
+                <p class="text-secondary mb-0" data-day-stats-date></p>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-day-stats-close>Close</button>
+        </header>
+        <div class="tf-daily-journal-chart-status" data-day-stats-status role="status" aria-live="polite"></div>
+        <div data-day-stats-host></div>
     </div>
 </dialog>

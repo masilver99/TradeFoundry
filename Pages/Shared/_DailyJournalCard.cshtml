@@ -35,6 +35,10 @@
                 <span class="tf-daily-journal-toggle-icon" aria-hidden="true"></span>
             </span>
         </button>
+        @if (Model.CompletedTradeCount > 0)
+        {
+            <button type="button" class="btn btn-sm btn-outline-secondary tf-daily-journal-chart-trigger" data-day-stats-open data-day-stats-url="@Model.StatsUrl" aria-haspopup="dialog" aria-label="Open day stats for @Model.Entry.Date.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)">Stats</button>
+        }
         @if (Model.TradeCount > 0)
         {
             <button type="button" class="btn btn-sm btn-outline-secondary tf-daily-journal-chart-trigger" data-daily-journal-chart data-daily-journal-chart-url="@Model.ChartUrl" aria-haspopup="dialog" aria-label="Open chart for @Model.Entry.Date.ToString("dddd, MMMM d, yyyy", CultureInfo.CurrentCulture)">Chart</button>

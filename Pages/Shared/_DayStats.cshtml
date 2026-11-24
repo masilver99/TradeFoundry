@@ -1,0 +1,93 @@
+@model TradeFoundry.Pages.DayStatsViewModel
+@using TradeFoundry.Services
+@using System.Globalization
+@{
+    var report = Model.Report;
+    var card = report.Scorecard;
+    var green = report.GreenDays;
+    var prefix = Model.IdPrefix;
+    string Money(decimal? value) => value?.ToString("C2", CultureInfo.CurrentCulture) ?? "—";
+    string Tone(decimal? value) => value is > 0m ? "is-positive" : value is < 0m ? "is-negative" : string.Empty;
+    string Percent(decimal? value) => value.HasValue ? value.Value.ToString("0", CultureInfo.CurrentCulture) + "%" : "—";
+    string Ratio(decimal? value) => value?.ToString("0.00", CultureInfo.CurrentCulture) ?? "—";
+    string Duration(TimeSpan value) => value.TotalHours >= 1 ? $"{(int)value.TotalHours}h {value.Minutes:00}m" : $"{value.Minutes}m {value.Seconds:00}s";
+    var streakText = green.StreakAtDate switch
+    {
+        > 0 => $"{green.StreakAtDate} green {(green.StreakAtDate == 1 ? "day" : "days")}",
+        < 0 => $"{-green.StreakAtDate} red {(green.StreakAtDate == -1 ? "day" : "days")}",
+        _ => "—"
+    };
+}
+<section class="tf-day-stats" data-day-stats aria-labelledby="@prefix-heading">
+    <div class="tf-day-stats-heading">
+        <h2 id="@prefix-heading" class="tf-card-title">Day stats</h2>
+        <span class="text-secondary">completed trades@(Model.FilterActive ? " · comparisons use the journal filter" : string.Empty)</span>
+    </div>
+
+    <div class="tf-day-stats-grid" role="list" aria-label="Day numbers">
+        <div role="listitem"><span>Net P&amp;L</span><strong class="@Tone(card.NetPnl)">@Money(card.NetPnl)</strong><small>gross @Money(card.GrossPnl)</small></div>
+        <div role="listitem"><span>Total R</span><strong class="@Tone(card.TotalR)">@(card.TotalR?.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture) ?? "—")</strong><small>@(card.RCoverage == 0 ? "no R recorded" : card.RCoverage == card.TradeCount ? "all trades" : $"{card.RCoverage}/{card.TradeCount} trades have R")</small></div>
+        <div role="listitem"><span>Trades</span><strong>@card.TradeCount.ToString("N0", CultureInfo.CurrentCulture)</strong><small>@card.Wins W · @card.Losses L@(card.OpenTradeCount > 0 ? $" · {card.OpenTradeCount} open" : string.Empty)</small></div>
+        <div role="listitem"><span>Win rate</span><strong>@Percent(card.WinRate)</strong><small>profit factor @(card.ProfitFactor.HasValue ? Ratio(card.ProfitFactor) : card.Wins > 0 ? "∞" : "—")</small></div>
+        <div role="listitem"><span>Avg win / loss</span><strong><span class="is-positive">@Money(card.AverageWin)</span> / <span class="is-negative">@Money(card.AverageLoss)</span></strong><small>@(card.AverageWin.HasValue && card.AverageLoss is < 0m ? $"payoff {Ratio(card.AverageWin / -card.AverageLoss)}" : "payoff —")</small></div>
+        <div role="listitem"><span>Largest win / loss</span><strong><span class="is-positive">@Money(card.LargestWin)</span> / <span class="is-negative">@Money(card.LargestLoss)</span></strong></div>
+        <div role="listitem"><span>Fees</span><strong>@Money(card.Fees)</strong><small>@(card.FeesPercentOfGross.HasValue ? $"{card.FeesPercentOfGross.Value.ToString("0.#", CultureInfo.CurrentCulture)}% of gross" : "—")</small></div>
+        <div role="listitem"><span>Give-back</span><strong class="@(report.GiveBack > 0m ? "is-negative" : string.Empty)">@Money(report.GiveBack)</strong><small>@(report.Peak <= 0m ? "never above flat" : report.GiveBack == report.Peak && card.NetPnl < 0m ? $"all of a {Money(report.Peak)} high at {report.PeakLocalTime:HH:mm}" : $"from a {Money(report.Peak)} high at {report.PeakLocalTime:HH:mm}")</small></div>
+        <div role="listitem" title="The lowest running P&amp;L including open-trade MAE"><span>Intraday low</span><strong class="@(report.Heat is { WorstPoint: < 0m } ? "is-negative" : string.Empty)">@Money(report.Heat?.WorstPoint)</strong><small>@(report.Heat is null ? "no MAE recorded" : report.Heat.HasCompleteMae ? "with trade MAE" : $"MAE on {report.Heat.MaeObservedTradeCount}/{report.Heat.TradeCount} trades")</small></div>
+        <div role="listitem"><span>Session</span><strong>@(card.FirstEntryLocal?.ToString("HH:mm", CultureInfo.CurrentCulture) ?? "—")–@(card.LastExitLocal?.ToString("HH:mm", CultureInfo.CurrentCulture) ?? "—")</strong><small>@Duration(card.TimeInMarket) in market</small></div>
+    </div>
+
+    <div class="tf-day-stats-row">
+        <div class="tf-day-stats-block" aria-labelledby="@prefix-normal">
+            <h3 id="@prefix-normal" class="tf-day-stats-subheading">Compared with your earlier days</h3>
+            @if (report.Comparisons.Count == 0)
+            {
+                <p class="text-secondary mb-0">Comparisons appear after @DayStatistics.MinimumComparisonDays earlier trading days@(report.ComparisonDayCount > 0 ? $" ({report.ComparisonDayCount} so far)" : string.Empty).</p>
+            }
+            else
+            {
+                <ul class="tf-day-stats-badges">
+                    @foreach (var item in report.Comparisons)
+                    {
+                        <li class="tf-day-stats-badge" data-tone="@item.Tone" data-comparison="@item.Key"><span>@item.Label</span><strong>@item.Value</strong><small>@item.Detail</small></li>
+                    }
+                </ul>
+            }
+        </div>
+        <div class="tf-day-stats-block" aria-labelledby="@prefix-flags">
+            <h3 id="@prefix-flags" class="tf-day-stats-subheading">Behavior</h3>
+            <ul class="tf-day-stats-flags">
+                @foreach (var flag in report.Flags)
+                {
+                    <li data-tone="@flag.Tone" data-flag="@flag.Key"><span class="tf-day-stats-flag-mark" aria-hidden="true">@(flag.Tone == "warn" ? "!" : flag.Tone == "ok" ? "✓" : "i")</span><span><strong>@flag.Title</strong><small>@flag.Detail</small></span></li>
+                }
+            </ul>
+            @if (report.Limits.MaxDailyLoss is null && report.Limits.DailyProfitGoal is null)
+            {
+                <p class="tf-day-stats-hint mb-0">Set a max daily loss and daily goal in <a href="@($"/journal/{Model.JournalId:D}/settings/journal#daily-limits")">journal settings</a> to check them here.</p>
+            }
+        </div>
+        <div class="tf-day-stats-block" aria-labelledby="@prefix-green">
+            <h3 id="@prefix-green" class="tf-day-stats-subheading">Green days</h3>
+            <dl class="tf-day-stats-pairs">
+                <div><dt>Green days</dt><dd>@Percent(green.GreenRate) <small>@green.GreenDays of @green.DayCount</small></dd></div>
+                <div><dt>Avg green ÷ avg red</dt><dd>@Ratio(green.PayoffRatio) <small>@Money(green.AverageGreen) / @Money(green.AverageRed)</small></dd></div>
+                <div><dt>Worst red day</dt><dd class="is-negative">@Money(green.WorstRed) <small>@(green.WorstRedInGreenDays.HasValue ? $"= {green.WorstRedInGreenDays.Value.ToString("0.0", CultureInfo.CurrentCulture)} avg green days" : string.Empty)</small></dd></div>
+                <div><dt>Streak to this day</dt><dd class="@(green.StreakAtDate > 0 ? "is-positive" : green.StreakAtDate < 0 ? "is-negative" : string.Empty)">@streakText</dd></div>
+            </dl>
+        </div>
+    </div>
+
+    <details class="tf-day-stats-charts" data-day-stats-charts data-day-stats-context="@Model.Context" open="@(Model.ChartsOpen ? "open" : null)">
+        <summary>Day charts</summary>
+        <div class="tf-day-stats-chart-grid">
+            <article class="card tf-card tf-day-stats-chart is-wide"><div class="card-header"><h4 class="tf-card-title">Intraday equity</h4><span class="text-secondary">realized net P&amp;L by exit · high and give-back</span></div><div class="card-body">@Html.Raw(Model.IntradayEquityChart)</div></article>
+            <article class="card tf-card tf-day-stats-chart is-wide"><div class="card-header"><h4 class="tf-card-title">Daily P&amp;L and intraday low</h4><span class="text-secondary">body = net P&amp;L · wick = worst point · this day outlined</span></div><div class="card-body">@Html.Raw(Model.HeatWindowChart)</div></article>
+            <article class="card tf-card tf-day-stats-chart"><div class="card-header"><h4 class="tf-card-title">P&amp;L by trade number</h4><span class="text-secondary">all days · ◆ this day</span></div><div class="card-body">@Html.Raw(Model.TradeNumberChart)</div></article>
+            <article class="card tf-card tf-day-stats-chart"><div class="card-header"><h4 class="tf-card-title">Average P&amp;L through the session</h4><span class="text-secondary">by exit time · this day in gold</span></div><div class="card-body">@Html.Raw(Model.SessionChart)</div></article>
+            <article class="card tf-card tf-day-stats-chart"><div class="card-header"><h4 class="tf-card-title">Green days</h4><span class="text-secondary">trailing @DayStatistics.GreenDayWindow trading days</span></div><div class="card-body">@Html.Raw(Model.GreenRateChart)</div></article>
+            <article class="card tf-card tf-day-stats-chart"><div class="card-header"><h4 class="tf-card-title">Trade count vs daily P&amp;L</h4><span class="text-secondary">one dot per day · ◆ this day</span></div><div class="card-body">@Html.Raw(Model.TradeCountChart)</div></article>
+            <article class="card tf-card tf-day-stats-chart"><div class="card-header"><h4 class="tf-card-title">Day rating vs daily P&amp;L</h4><span class="text-secondary">rated days · bar = average</span></div><div class="card-body">@Html.Raw(Model.RatingChart)</div></article>
+        </div>
+    </details>
+</section>

@@ -82,7 +82,7 @@ public static class DailyHeatMetrics
         return new DailyHeatSummary(days, BuildRolling(days));
     }
 
-    private static DailyHeatDay BuildDay(DailyTradeSummary summary)
+    public static DailyHeatDay BuildDay(DailyTradeSummary summary)
     {
         // CompletedTrades arrive ordered by entry.
         var trades = summary.CompletedTrades;

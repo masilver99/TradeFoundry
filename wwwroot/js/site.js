@@ -30,6 +30,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeSidebarVisibility();
   initializeImportDropzones();
   initializeBusyForms();
+  initializeBackupStatus();
+  initializeRestorePage();
   const journalFeed = document.querySelector("[data-daily-journal-feed]");
   if (journalFeed) {
     journalFeed.querySelectorAll("[data-daily-journal-form]:not([hidden])").forEach(form => {
@@ -650,6 +652,164 @@ function initializeReviewAttachmentPaste() {
   });
 }
 
+// Follows a running backup on the Backups page. /backup-status keeps answering during maintenance,
+// so progress stays visible while the rest of the site is paused; the page reloads when it ends.
+function initializeBackupStatus() {
+  const card = document.querySelector("[data-backup-status]");
+  if (!card || card.dataset.running !== "true") return;
+  const stage = card.querySelector("[data-backup-stage]");
+  const percent = card.querySelector("[data-backup-percent]");
+  const bar = card.querySelector("[data-backup-bar]");
+  const poll = async () => {
+    try {
+      const response = await fetch(card.dataset.statusUrl, { credentials: "same-origin", headers: { Accept: "application/json" }, redirect: "error" });
+      if (response.ok) {
+        const status = await response.json();
+        if (!status.running) {
+          window.location.reload();
+          return;
+        }
+        if (stage) stage.textContent = status.maintenance ? `${status.stage} · site paused` : status.stage;
+        const value = typeof status.fraction === "number" ? Math.round(status.fraction * 100) : null;
+        if (percent) percent.textContent = value === null ? "" : `${value}%`;
+        if (bar) bar.style.width = `${value ?? 100}%`;
+        bar?.classList.toggle("progress-bar-indeterminate", value === null);
+      }
+    } catch {
+      // Keep polling: the server may be restarting.
+    }
+    window.setTimeout(poll, 1000);
+  };
+  void poll();
+}
+
+// Restore page: uploads a backup with progress, follows its checks, and after a restore, start clean
+// or put back waits for the restarted host (a new /health instance id) before going to sign-in.
+function initializeRestorePage() {
+  const upload = document.querySelector("[data-restore-upload]");
+  if (upload) {
+    const status = upload.querySelector("[data-restore-upload-status]");
+    upload.addEventListener("submit", event => {
+      event.preventDefault();
+      const file = upload.querySelector("input[type=file]")?.files?.[0];
+      if (!file) return;
+      const button = upload.querySelector("button[type=submit]");
+      if (button) button.disabled = true;
+      const request = new XMLHttpRequest();
+      request.open("POST", upload.dataset.uploadUrl);
+      request.setRequestHeader("RequestVerificationToken", upload.querySelector("input[name=__RequestVerificationToken]")?.value || "");
+      request.setRequestHeader("X-Restore-Code", upload.querySelector("input[name=Code]")?.value || "");
+      request.setRequestHeader("Content-Type", "application/octet-stream");
+      request.upload.addEventListener("progress", progress => {
+        if (status && progress.lengthComputable) status.textContent = `Uploading… ${Math.round(progress.loaded / progress.total * 100)}%`;
+      });
+      request.addEventListener("load", () => {
+        let reply = {};
+        try { reply = JSON.parse(request.responseText); } catch { /* keep the generic message */ }
+        if (request.status === 200) {
+          window.location.reload();
+          return;
+        }
+        if (status) status.textContent = reply.message || "The upload failed.";
+        if (button) button.disabled = false;
+      });
+      request.addEventListener("error", () => {
+        if (status) status.textContent = "The upload failed. Check the connection and try again.";
+        if (button) button.disabled = false;
+      });
+      if (status) status.textContent = "Uploading…";
+      request.send(file);
+    });
+  }
+
+  const progress = document.querySelector("[data-restore-progress]");
+  if (progress) {
+    const stage = progress.querySelector("[data-restore-stage]");
+    const bar = progress.querySelector("[data-restore-bar]");
+    const poll = async () => {
+      try {
+        const response = await fetch("/restore?handler=Status", { credentials: "same-origin", headers: { Accept: "application/json" } });
+        if (response.ok) {
+          const job = await response.json();
+          if (job.state !== "staging") {
+            window.location.reload();
+            return;
+          }
+          if (stage) stage.textContent = job.stage;
+          if (bar) bar.style.width = `${typeof job.fraction === "number" ? Math.round(job.fraction * 100) : 100}%`;
+        }
+      } catch {
+        // Keep polling.
+      }
+      window.setTimeout(poll, 1000);
+    };
+    void poll();
+  }
+
+  const restart = document.querySelector("[data-restart-wait]");
+  if (restart) {
+    const previous = restart.dataset.instance;
+    const poll = async () => {
+      try {
+        const response = await fetch("/health", { cache: "no-store" });
+        if (response.ok) {
+          const health = await response.json();
+          if (health.instance && health.instance !== previous && health.status === "ready") {
+            window.location.href = "/Login";
+            return;
+          }
+        }
+      } catch {
+        // The server is restarting.
+      }
+      window.setTimeout(poll, 1000);
+    };
+    window.setTimeout(poll, 1000);
+  }
+}
+
+// Posts an autosave so that it survives a backup's maintenance window, a restart or a dropped
+// connection: network errors and 502/503/504 are retried with backoff (honouring Retry-After) for
+// up to five minutes. Only a JSON response counts as a reply. A redirect (an expired sign-in) or a
+// successful status with any other body is an error, so an edit is never reported as saved when
+// it was not. Resolves to { response, payload }; callers still check response.ok.
+async function postAutosave(url, body, onWaiting) {
+  const limitMs = 5 * 60 * 1000;
+  const started = Date.now();
+  for (let attempt = 0; ; attempt++) {
+    let response = null;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        body,
+        credentials: "same-origin",
+        redirect: "manual",
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+    }
+
+    if (response?.type === "opaqueredirect") throw new Error("Signed out · reload the page to sign in, then save again");
+    if (response && ![502, 503, 504].includes(response.status)) {
+      let payload = null;
+      if ((response.headers.get("Content-Type") || "").includes("json")) {
+        try { payload = await response.json(); } catch { payload = null; }
+      }
+      if (response.ok && payload === null) throw new Error("Unexpected reply from the server · not saved");
+      return { response, payload: payload ?? {} };
+    }
+
+    const retryAfter = Number(response?.headers.get("Retry-After"));
+    const delay = Math.min(30000, retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** Math.min(attempt, 5));
+    if (Date.now() - started + delay > limitMs) {
+      throw new Error(response ? "The server is unavailable · not saved" : "Connection lost · not saved");
+    }
+    onWaiting?.(response ? "Server busy · retrying…" : "Connection lost · retrying…");
+    await new Promise(resolve => window.setTimeout(resolve, delay));
+  }
+}
+
 function initializeReviewAttachmentCaptions() {
   const flushers = [];
   const forms = [];
@@ -691,14 +851,7 @@ function initializeReviewAttachmentCaptions() {
       payload.set("caption", value);
       setStatus("Saving…", "is-saving");
       let failed = false;
-      inFlight = fetch(url, {
-        method: "POST",
-        body: payload,
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-      }).then(async response => {
-        let result = {};
-        try { result = await response.json(); } catch { /* The status below is enough for a malformed response. */ }
+      inFlight = postAutosave(url, payload, text => setStatus(text, "is-saving")).then(({ response, payload: result }) => {
         if (!response.ok || !result.saved) throw new Error(result.message || "Could not save caption.");
         savedValue = String(result.caption ?? value);
         if (input.value === value) {
@@ -913,14 +1066,7 @@ function initializeDailyJournal() {
         while (input.value !== state.savedSnapshot) {
           const sentSnapshot = input.value;
           setStatus(form, "Saving…", "saving");
-          const response = await fetch(form.dataset.autosaveUrl, {
-            method: "POST",
-            body: new FormData(form),
-            credentials: "same-origin",
-            headers: { "X-Requested-With": "XMLHttpRequest" }
-          });
-          let payload = {};
-          try { payload = await response.json(); } catch { /* fall through to the generic error */ }
+          const { response, payload } = await postAutosave(form.dataset.autosaveUrl, new FormData(form), text => setStatus(form, text, "saving"));
           if (!response.ok) {
             if (response.status === 409 || payload.conflict) {
               setStatus(form, "Conflict · reload latest values", "error");
@@ -2397,14 +2543,7 @@ function initializeReviewWorkspace() {
     const sentSnapshot = reviewFormSnapshot(form);
     state.savePromise = (async () => {
       setStatus(form, "Saving…", "saving");
-      const response = await fetch(form.dataset.autosaveUrl, {
-        method: "POST",
-        body: new FormData(form),
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-      });
-      let payload = {};
-      try { payload = await response.json(); } catch { /* fall through to the generic error */ }
+      const { response, payload } = await postAutosave(form.dataset.autosaveUrl, new FormData(form), text => setStatus(form, text, "saving"));
       if (!response.ok) {
         if (response.status === 409 || payload.conflict) {
           setStatus(form, "Conflict · reload latest values", "error");

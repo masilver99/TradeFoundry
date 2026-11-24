@@ -46,9 +46,9 @@ public sealed partial class TradeFoundryDb
     public TradeFoundryDb(IOptions<StorageOptions> options)
     {
         var storage = options.Value;
-        var directory = Path.GetFullPath(string.IsNullOrWhiteSpace(storage.DataDirectory) ? "data" : storage.DataDirectory);
+        var directory = ResolveDataDirectory(storage);
         Directory.CreateDirectory(directory);
-        var fileName = string.IsNullOrWhiteSpace(storage.DatabaseFileName) ? "journal.db" : storage.DatabaseFileName;
+        var fileName = ResolveDatabaseFileName(storage);
         _databasePath = Path.Combine(directory, fileName);
         _connectionString = new SqliteConnectionStringBuilder
         {
@@ -58,6 +58,12 @@ public sealed partial class TradeFoundryDb
         }.ToString();
         Initialize();
     }
+
+    public static string ResolveDataDirectory(StorageOptions storage) =>
+        Path.GetFullPath(string.IsNullOrWhiteSpace(storage.DataDirectory) ? "data" : storage.DataDirectory);
+
+    public static string ResolveDatabaseFileName(StorageOptions storage) =>
+        string.IsNullOrWhiteSpace(storage.DatabaseFileName) ? "journal.db" : storage.DatabaseFileName;
 
     private SqliteConnection OpenConnection()
     {
@@ -85,6 +91,7 @@ public sealed partial class TradeFoundryDb
     {
         using (var connection = OpenConnection())
         {
+        EnsureSchemaNotNewer(connection);
         var statements = new[]
         {
             "CREATE TABLE IF NOT EXISTS app_users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, created_utc TEXT NOT NULL)",
@@ -178,6 +185,7 @@ public sealed partial class TradeFoundryDb
         InitializeAi(connection);
         InitializeAiReviews(connection);
         InitializeAiPrompts(connection);
+        InitializeBackup(connection);
 
         // The application started without migrations, so keep schema upgrades
         // additive and idempotent for existing local SQLite files.
@@ -277,6 +285,12 @@ public sealed partial class TradeFoundryDb
         // Repair normalized values from immutable raw_records at startup, then
         // rebuild the derived trades that depend on them.
         RepairSierraPriceScales();
+
+        // Stamp only after every upgrade above has finished, so an interrupted start retries them.
+        using (var connection = OpenConnection())
+        {
+            StampSchemaVersion(connection);
+        }
     }
 
     private static void SeedInstrumentConfiguration(SqliteConnection connection)

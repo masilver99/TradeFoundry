@@ -228,7 +228,9 @@ internal sealed class ServerController : IDisposable
     {
         try
         {
-            using var response = await _httpClient.GetAsync(Url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            // /health answers 200 during maintenance too, so a backup never looks like a stopped
+            // server. An older external server without /health answers 404, which still counts.
+            using var response = await _httpClient.GetAsync(Url.TrimEnd('/') + DesktopRuntime.HealthPath, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             return (int)response.StatusCode < 500;
         }
         catch (HttpRequestException)
@@ -408,6 +410,47 @@ internal sealed class ServerController : IDisposable
         if (process is not null)
         {
             SendCommand(process, DesktopRuntime.FormatUpdateCommand(version));
+        }
+    }
+
+    /// <summary>Asks the server this helper started to back up now. False when there is no such server.</summary>
+    public bool RequestBackup()
+    {
+        Process? process;
+        lock (_gate)
+        {
+            process = State == ServerState.Running ? _process : null;
+        }
+
+        if (process is null)
+        {
+            return false;
+        }
+
+        SendCommand(process, DesktopRuntime.BackupNowCommand);
+        return true;
+    }
+
+    /// <summary>
+    /// The backup state from /health: "ok", "running" or "attention"; null when the server does not
+    /// answer or predates backups.
+    /// </summary>
+    public async Task<string?> GetBackupStateAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _httpClient.GetAsync(Url.TrimEnd('/') + DesktopRuntime.HealthPath, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            using var document = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            return document.RootElement.TryGetProperty("backup", out var backup) ? backup.GetString() : null;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            return null;
         }
     }
 

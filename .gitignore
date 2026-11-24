@@ -21,3 +21,4 @@ output/playwright/
 *.suo
 PublicJournal/.env
 .tradefoundry-data
+.tradefoundry-data-backups/

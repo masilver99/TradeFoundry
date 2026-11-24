@@ -14,7 +14,13 @@ public class LoginModel : PageModel
 {
     private readonly TradeFoundryDb _database;
 
-    public LoginModel(TradeFoundryDb database) => _database = database;
+    private readonly TradeFoundry.Services.Backup.SessionEpoch _epoch;
+
+    public LoginModel(TradeFoundryDb database, TradeFoundry.Services.Backup.SessionEpoch epoch)
+    {
+        _database = database;
+        _epoch = epoch;
+    }
 
     [BindProperty] public string Password { get; set; } = string.Empty;
     [BindProperty(SupportsGet = true)] public string? ReturnUrl { get; set; }
@@ -40,7 +46,8 @@ public class LoginModel : PageModel
             return Page();
         }
         var owner = _database.GetOwner();
-        var claims = new[] { new Claim(ClaimTypes.NameIdentifier, "owner"), new Claim(ClaimTypes.Name, owner?.DisplayName ?? "Owner") };
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, "owner"), new(ClaimTypes.Name, owner?.DisplayName ?? "Owner") };
+        if (_epoch.Current is { } epoch) claims.Add(new Claim(TradeFoundry.Services.Backup.SessionEpoch.ClaimType, epoch));
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)));
         return LocalRedirect(IsLocalUrl(ReturnUrl) ? ReturnUrl! : "/");
     }

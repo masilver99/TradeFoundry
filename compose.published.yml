@@ -8,9 +8,12 @@ services:
       Storage__DataDirectory: /app/data
       DataProtection__KeysDirectory: /app/data/keys
       Mcp__Enabled: "false"
+      Backup__DefaultFolder: /app/backups
     volumes:
       - tradefoundry-data:/app/data
+      - tradefoundry-backups:/app/backups
     restart: unless-stopped
 
 volumes:
   tradefoundry-data:
+  tradefoundry-backups:

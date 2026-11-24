@@ -19,13 +19,15 @@ public sealed class ImportFolderMonitor : BackgroundService
     private readonly ImportService _imports;
     private readonly ILogger<ImportFolderMonitor> _logger;
     private readonly ImportNotificationFeed? _notifications;
+    private readonly Backup.AppActivityGate? _gate;
     private readonly Channel<MonitorWork> _work = Channel.CreateUnbounded<MonitorWork>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly Dictionary<Guid, WatchBinding> _watchers = new();
     private readonly Dictionary<Guid, WatchBinding> _fileWatchers = new();
     private readonly Dictionary<Guid, long> _polledLengths = new();
 
-    public ImportFolderMonitor(TradeFoundryDb database, ImportService imports, ILogger<ImportFolderMonitor> logger, ImportNotificationFeed? notifications = null)
+    public ImportFolderMonitor(TradeFoundryDb database, ImportService imports, ILogger<ImportFolderMonitor> logger, ImportNotificationFeed? notifications = null, Backup.AppActivityGate? gate = null)
     {
+        _gate = gate;
         _database = database;
         _imports = imports;
         _logger = logger;
@@ -44,6 +46,9 @@ public sealed class ImportFolderMonitor : BackgroundService
         {
             await foreach (var work in _work.Reader.ReadAllAsync(stoppingToken))
             {
+                // Work waits while a backup holds the site; queued events are kept until it ends.
+                // Importing a file is long work, which a backup waits for instead of interrupting.
+                using var lease = _gate is null ? null : await _gate.EnterAsync(longRunning: work.JournalId.HasValue, stoppingToken);
                 if (work.ReconcileAll)
                     await ReconcileAndScanAsync(stoppingToken);
                 else if (work.PollWatchedFiles)
@@ -126,6 +131,16 @@ public sealed class ImportFolderMonitor : BackgroundService
         IReadOnlyList<Journal> journals;
         try
         {
+            // After a restore, saved folders may point somewhere else on this machine; watch nothing
+            // until the owner has checked them.
+            if (_database.AreIntegrationsPaused())
+            {
+                foreach (var watcher in _watchers.Values.Concat(_fileWatchers.Values)) watcher.Dispose();
+                _watchers.Clear();
+                _fileWatchers.Clear();
+                return;
+            }
+
             journals = _database.GetJournals();
         }
         catch (Exception ex)

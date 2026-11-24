@@ -190,7 +190,9 @@ begin
     wpSelectDir,
     'Journal data directory',
     'Choose where TradeFoundry should store its database and review attachments.',
-    'Existing journal data in this directory will be used in place. The installer will not delete or overwrite it.',
+    'Existing journal data in this directory will be used in place. The installer will not delete or overwrite it.' + #13#10#13#10 +
+    'Backups are saved to ' + ExpandConstant('{localappdata}\TradeFoundry\Backups') + ' every day at 02:00. ' +
+    'Choose a folder on another drive, encryption and Backblaze B2 in Settings > Backups.',
     False,
     'TradeFoundry data');
   DataDirectoryPage.Add('');
@@ -244,6 +246,19 @@ begin
     '  }' + #13#10 +
     '}' + #13#10;
   SaveStringToFile(DataDirectoryConfigPath, ConfigJson, False);
+end;
+
+{ Uninstall never deletes journals or backups, so say where they are. }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep <> usPostUninstall) or UninstallSilent then
+    Exit;
+  MsgBox(
+    'TradeFoundry was removed. Your journal data and backups were kept:' + #13#10#13#10 +
+    '- Journal data: the folder chosen during setup (by default ' + ExpandConstant('{localappdata}\TradeFoundry\Data') + ')' + #13#10 +
+    '- Backups: ' + ExpandConstant('{localappdata}\TradeFoundry\Backups') + ', or the folder chosen in Settings > Backups' + #13#10#13#10 +
+    'Delete them yourself if you no longer need them. To move to another computer, install TradeFoundry there and use Restore from a backup.',
+    mbInformation, MB_OK);
 end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);

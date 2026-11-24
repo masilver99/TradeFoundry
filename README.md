@@ -71,7 +71,7 @@ pwsh -File scripts\publish-windows.ps1 -CompileInstaller
 
 The script searches both standard Program Files locations. For a custom installation, pass the compiler path explicitly with `-InnoSetupPath C:\path\to\ISCC.exe`. Pass `-Version 1.2.0` to stamp a version; local builds default to `0.0.0-dev`.
 
-The installer is per-user and does not remove the selected data directory during uninstall. Re-running it reuses the previously selected data directory.
+The installer is per-user. Uninstall removes neither the selected data directory nor backups, and says where they are. Re-running it reuses the previously selected data directory.
 
 ### Automated builds and releases
 
@@ -111,6 +111,98 @@ The update log is written to `%TEMP%\TradeFoundry-Update\install.log`.
 
 The manifest URL is baked into the tray at build time (`-p:UpdateManifestUrl`). For testing, `TradeFoundryUpdateManifestUrl` overrides it and also enables update checks on development builds. Installers are not code-signed yet, so Windows SmartScreen may warn on a manual install.
 
+## Backup and restore
+
+**Settings > Backups** backs up the whole installation, every journal included, into one `.tfbackup` file. Backups are on from the first start: every day at 02:00, keeping the newest backup of each of the last 7 days, 4 weeks and 3 months.
+
+### What a backup holds
+
+- The database, copied with SQLite's online backup API (never a plain file copy), plus daily-journal images, review attachments, expense receipts and image settings.
+- Publishing tokens, but only in encrypted backups.
+- Not included: ChatGPT sign-ins (sign in again), MCP tokens (revoked on restore), the backup passphrase, the Backblaze B2 key, data protection keys, `appsettings.user.json` and environment settings, and the public journal site. The public site can be republished.
+
+The site pauses while the journal is copied, about 20–30 seconds for a 3 GB journal. Pages show a "making a backup" notice and reload by themselves. Edits and autosaves made during the pause wait and are saved when it ends. Compressing, encrypting and uploading happen afterwards, with the site open.
+
+### Where backups go
+
+| Run as | Default folder |
+|---|---|
+| Windows desktop | `%LOCALAPPDATA%\TradeFoundry\Backups` |
+| Docker | `/app/backups`: the `tradefoundry-backups` volume, or `./backups` for the source-build Compose file |
+| `dotnet run` | `<data directory>-backups`, beside the data directory |
+
+Choose another folder in Settings > Backups. It needs the owner password and must be outside the data directory. The page warns when the folder is on the same drive as the journal, because one disk failure would take both. Use another drive, a synced folder, or Backblaze B2. Each backup is a `.tfbackup` file plus a small `.json` file listing what it holds. Copy both files when moving a backup.
+
+**Back up now** is on the same page, and in the tray menu. A failed backup, a failed upload, or no successful backup for two scheduled intervals shows in the notifications panel and in the tray. Backups missed while the computer was off or asleep run once, five minutes after TradeFoundry starts or wakes. Failures are retried after 5, 30 and 120 minutes. Retention deletes only this installation's scheduled backups. Manual backups, other installations' backups and the newest backup are always kept.
+
+### Encryption
+
+Turn on encryption with a passphrase of at least 12 characters. Keep a copy of the passphrase away from this computer, because a backup cannot be opened without it. Encrypted backups use the standard [age](https://age-encryption.org) format, so they can also be opened without TradeFoundry:
+
+```
+age -d backup.tfbackup > backup.zip
+```
+
+The passphrase is stored on this machine with its data protection keys, so scheduled backups can use it. It never goes into a backup.
+
+### Backblaze B2
+
+Cloud backups are always encrypted, and need an owner password. Set them up once with the [B2 command-line tool](https://www.backblaze.com/docs/cloud-storage-command-line-tools), signed in with your master key. The Backblaze website cannot create a key with exactly these permissions.
+
+```bash
+b2 account authorize
+# A private bucket used only for these backups. Hidden files are erased 30 days after being hidden.
+b2 bucket create --lifecycle-rule '{"daysFromHidingToDeleting": 30, "daysFromUploadingToHiding": null, "daysFromStartingToCancelingUnfinishedLargeFiles": 7, "fileNamePrefix": ""}' YOUR-BUCKET allPrivate
+# A key for that bucket and prefix only, deliberately without deleteFiles.
+b2 key create --bucket YOUR-BUCKET --name-prefix tradefoundry/ tradefoundry-backups listFiles,readFiles,writeFiles,listAllBucketNames
+```
+
+In PowerShell 5.1, escape the JSON's double quotes as `\"`. Do not use the website's "Keep only the last version" lifecycle preset: it erases hidden files after one day.
+
+Enter the bucket's S3 endpoint (such as `https://s3.us-west-002.backblazeb2.com`), the bucket name, the key ID and the application key in Settings > Backups. Saving tests the connection, and so does **Test connection**. The test uploads, lists, reads and hides a probe file, then checks that the key cannot erase it permanently. If it can, the page warns you.
+
+Each backup is saved to the folder first, then uploaded. A failed upload keeps the backup, shows a warning and is retried later without pausing the site again. You can also use **Upload again** in the history.
+
+Retention never deletes from the bucket; it hides old backups. Hidden backups stay restorable until the lifecycle rule erases them 30 days later, so the bucket holds about three times as much as the folder. TradeFoundry warns if a backup it did not prune disappears from the bucket. That is the time to check the bucket, while hidden backups can still be restored.
+
+### Restore
+
+A backup restores only into an installation without journals, so nothing is ever replaced by accident.
+
+- **New installation:** choose **Restore from a backup** on the first-run setup page.
+- **Existing installation:** first use **Move current data aside and start clean** in Settings > Backups. It needs the owner password and typing "start clean". It moves the data into `set-aside/` inside the data directory, keeps your owner account, and restarts empty. Nothing is deleted: while no journal exists, the restore page offers **Put back**.
+
+The restore page reads a backup from a folder, an uploaded file, or Backblaze B2 (with the key ID and application key, used only for that restore). For B2, **Show hidden backups** also lists pruned backups still within the recovery window. Each backup is checked in full before anything changes: every file's hash, the paths, and the database's integrity. Encrypted backups ask for their passphrase. The page then shows the backup's journals and counts, and asks for the password of the backup's owner account. After you confirm, TradeFoundry restarts once, in a few seconds, into the restored data, and you sign in with that password.
+
+After a restore:
+
+- Watched import folders stay paused until you check the paths and resume them.
+- MCP tokens are revoked. ChatGPT needs signing in again, and so does publishing, unless the backup was encrypted.
+- Backups go to the default folder. Encryption and B2 must be set up again on this machine.
+- The installation gets a new id, so it never prunes the original's backups.
+
+Outside desktop mode, restoring before setup needs a one-time code. TradeFoundry writes it to the server log (`docker compose logs tradefoundry`). This proves the visitor runs the server.
+
+### Moving to another computer
+
+1. Back up on the old computer, or let B2 hold the latest backup.
+2. Install TradeFoundry on the new one.
+3. On the first-run page, choose **Restore from a backup**.
+
+Copying the data directory by hand also works, but only while TradeFoundry is stopped, and the copy must include the `-wal` file.
+
+### Practice a restore
+
+Restore one backup now and then, so you know it works before you need it. Use a separate test copy that never touches your journal: in PowerShell, from the install folder (`%LOCALAPPDATA%\Programs\TradeFoundry`), run
+
+```powershell
+$env:Storage__DataDirectory = "$env:TEMP\tradefoundry-drill"
+$env:Mcp__Enabled = "false"
+.\TradeFoundry.exe --urls http://127.0.0.1:5099
+```
+
+Then open `http://127.0.0.1:5099/restore`, enter the one-time code from that window, restore your newest backup, and look through a journal. Stop it with Ctrl+C and delete the `tradefoundry-drill` folder in `%TEMP%`. A test copy restored from B2 stays separate from your real installation, because it gets its own id.
+
 ## Run with Docker
 
 Download [compose.published.yml](compose.published.yml) into an empty deployment directory. Once the publishing workflow has completed, run:
@@ -130,7 +222,7 @@ TRADEFOUNDRY_VERSION=0.1.0
 
 Use a version that has actually been published. Available tags are `main` (newest successful main build), `sha-<full commit SHA>` (a specific commit), numbered versions such as `0.1.0`, and `latest` (most recently published stable release). Prereleases such as `0.1.0-rc.1` do not update `latest`. Numbered releases and commit tags should never be reused; pin the registry digest for an immutable deployment.
 
-Update the version in `.env`, then run the same `pull` and `up -d` commands to upgrade. The named `tradefoundry-data` volume preserves journals, attachments, and authentication keys across container replacements. Keep the deployment directory/project name stable so Compose reuses that volume. `docker compose down -v` deletes it. Back up before upgrading; an older image may not support a database updated by a newer release.
+Update the version in `.env`, then run the same `pull` and `up -d` commands to upgrade. The named `tradefoundry-data` volume preserves journals, attachments, and authentication keys across container replacements. Keep the deployment directory/project name stable so Compose reuses that volume. `docker compose down -v` deletes it, and the `tradefoundry-backups` volume with it. Back up before upgrading (**Settings > Backups > Back up now**): an older image refuses a database updated by a newer release.
 
 To build from source instead:
 
@@ -138,13 +230,13 @@ To build from source instead:
 docker compose up -d --build
 ```
 
-The source-build Compose file mounts the host `data/` directory instead of a named volume. Back up the whole data directory/volume while the app is stopped, or use SQLite’s online backup tooling for the database; keep the active database on local storage rather than SMB/NFS. MCP is disabled in Docker images.
+The source-build Compose file mounts the host `data/` and `backups/` directories instead of named volumes. Keep the active database on local storage rather than SMB/NFS. MCP is disabled in Docker images. See [Backup and restore](#backup-and-restore).
 
 ### Trading expenses
 
 Each journal has an Expenses page for manually recording operating costs, managing categories, attaching PDF/image receipts, and exporting filtered expenses to CSV. Expenses do not change trading P&L or account balances. New entries use the journal currency; existing entries retain their recorded currency if the journal setting changes. Totals are separated by currency without conversion.
 
-Receipts are private files in `expense-receipts/<journal-id>/` beside `journal.db`, up to 10 MB each. Backups must include both the database and this receipt directory (along with other attachment directories); CSV export does not include receipt files. Deleting an expense hides it and its receipts while retaining audit history. Removing an individual receipt deletes its file.
+Receipts are private files in `expense-receipts/<journal-id>/` beside `journal.db`, up to 10 MB each. TradeFoundry's backups include them; CSV export does not include receipt files. Deleting an expense hides it and its receipts while retaining audit history. Removing an individual receipt deletes its file.
 
 ### Publishing images on Forgejo
 

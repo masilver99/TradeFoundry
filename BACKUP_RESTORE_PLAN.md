@@ -1,6 +1,6 @@
 # Backup and restore plan
 
-Status: decisions approved 2026-11-22. Phases 0–4 are implemented; see each phase's result.
+Status: decisions approved 2026-11-22. All phases are implemented; see each phase's result.
 
 ## Summary
 
@@ -396,6 +396,21 @@ As built:
 Replace the manual backup notes in both READMEs where relevant, add the Docker backup volume to both compose
 files, make the installer and uninstall text mention backups, and perform one real restore drill.
 
+*Result (2026-11-23):*
+- **README.** It has a "Backup and restore" section covering what a backup holds, where it goes, encryption, the
+  B2 setup commands, restore, moving to another computer, and practising a restore. The scattered advice to copy
+  the data directory by hand was replaced. The public journal README says TradeFoundry's backups do not include
+  that site.
+- **Compose and installer.** Both compose files already had the backup volume from Phase 1. The installer's data
+  directory page mentions daily backups and their folder. Uninstall (except silent uninstall) says that journal
+  data and backups were kept, and where. The installer compiled with Inno Setup 7 but was not installed, so the
+  installed copy on this machine was left alone.
+- **Drill.** With the published `win-x64` build, an encrypted backup of the scratch copy of the 3.36 GB journal
+  paused the site for 32 s. Following the README's "Practice a restore" steps word for word (separate data
+  directory, port 5099, one-time code from the console, passphrase, owner password), it restored in 37 s plus a
+  2 s restart. Every table, all 175 files and all trades matched, apart from the documented changes.
+- **Still open.** A drill on the owner's real installation after upgrading, the reference `age -d` once by hand,
+  and Windows to Docker restores, because Docker was not available.
 
 ## Interaction with the tags work in progress
 

@@ -18,14 +18,146 @@ public class BackupsModel : PageModel
     private readonly ImportFolderMonitor _monitor;
 
     private readonly BackupScheduler _scheduler;
+    private readonly BackupSecrets _secrets;
 
-    public BackupsModel(TradeFoundryDb database, BackupService backups, RestoreService restore, ImportFolderMonitor monitor, BackupScheduler scheduler)
+    public BackupsModel(TradeFoundryDb database, BackupService backups, RestoreService restore, ImportFolderMonitor monitor, BackupScheduler scheduler, BackupSecrets secrets)
     {
         _database = database;
         _backups = backups;
         _restore = restore;
         _monitor = monitor;
         _scheduler = scheduler;
+        _secrets = secrets;
+    }
+
+    public bool EncryptionEnabled { get; private set; }
+    public BackupCloudSettings? Cloud { get; private set; }
+    public CloudListingState? CloudListing { get; private set; }
+    public bool OwnerHasPassword { get; private set; }
+
+    public IActionResult OnPostEncryption(string? passphrase, string? confirmPassphrase, bool savedElsewhere)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        if (!PasswordMatches()) return Fail("The password is incorrect. Encryption was not changed.");
+        if (string.IsNullOrEmpty(passphrase) || passphrase.Length < BackupEncryption.MinimumPassphraseLength)
+            return Fail($"Use a passphrase of at least {BackupEncryption.MinimumPassphraseLength} characters. A few unrelated words work well.");
+        if (passphrase != confirmPassphrase) return Fail("The two passphrases do not match. Encryption was not changed.");
+        if (!savedElsewhere) return Fail("Confirm that the passphrase is saved somewhere other than this computer. Without it, encrypted backups cannot be opened.");
+        var changed = _secrets.EncryptionEnabled;
+        _secrets.SetPassphrase(passphrase);
+        Flash(changed
+            ? "Passphrase changed. New backups use it; earlier backups still need the passphrase they were made with."
+            : "Backups are now encrypted. Earlier backups stay unencrypted until retention removes them.", "success");
+        return Redirect(PagePath);
+    }
+
+    public IActionResult OnPostDisableEncryption()
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        if (!PasswordMatches()) return Fail("The password is incorrect. Encryption was not changed.");
+        if (_secrets.CloudSettings is not null) return Fail("Turn off Backblaze B2 first. Cloud backups are always encrypted.");
+        _secrets.SetPassphrase(null);
+        Flash("Encryption is off. New backups are not encrypted and do not include publishing tokens.", "success");
+        return Redirect(PagePath);
+    }
+
+    public async Task<IActionResult> OnPostCloud(string? endpoint, string? bucket, string? keyId, string? applicationKey, CancellationToken cancellationToken)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        if (!PasswordMatches()) return Fail("The password is incorrect. Backblaze B2 was not changed.");
+        if (string.IsNullOrEmpty(CurrentPassword)) return Fail("Set an owner password in Settings > Access before backing up to the cloud. Without one, anyone who can open this site could send your journal to another bucket.");
+        if (!_secrets.EncryptionEnabled) return Fail("Turn on encryption first. Cloud backups are always encrypted.");
+        var normalized = B2Cloud.NormalizeEndpoint(endpoint);
+        if (normalized is null) return Fail("Enter the bucket's S3 endpoint, such as https://s3.us-west-002.backblazeb2.com. It is shown on the bucket's page in Backblaze.");
+        bucket = bucket?.Trim();
+        if (!B2Cloud.IsValidBucket(bucket)) return Fail("Enter the bucket name exactly as Backblaze shows it.");
+        keyId = keyId?.Trim();
+        if (string.IsNullOrEmpty(keyId)) return Fail("Enter the application key ID.");
+        var secret = applicationKey?.Trim();
+        if (string.IsNullOrEmpty(secret))
+        {
+            // The key is write-only on this page: leaving it empty keeps the saved one for the same key ID.
+            var current = SafeCloudConnection();
+            if (current is null || current.KeyId != keyId) return Fail("Enter the application key.");
+            secret = current.ApplicationKey;
+        }
+
+        var connection = new B2Connection(normalized, bucket!, keyId, secret);
+        var result = await TestAsync(connection, cancellationToken);
+        if (!result.Works) return Fail($"Backblaze B2 was not saved. {result.Message}");
+        _secrets.SetCloudConnection(connection);
+        _backups.ForgetCloudListing();
+        Flash($"Backups are now uploaded to {bucket} after each backup. {result.Message}", result.CanErase ? "error" : "success");
+        return Redirect(PagePath);
+    }
+
+    public async Task<IActionResult> OnPostTestCloud(CancellationToken cancellationToken)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        if (SafeCloudConnection() is not { } connection) return Fail("Backblaze B2 is not set up, or its saved key cannot be read. Enter it again.");
+        var result = await TestAsync(connection, cancellationToken);
+        Flash(result.Message, result.Works && !result.CanErase ? "success" : "error");
+        return Redirect(PagePath);
+    }
+
+    public IActionResult OnPostDisableCloud()
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        if (!PasswordMatches()) return Fail("The password is incorrect. Backblaze B2 was not changed.");
+        _secrets.SetCloudConnection(null);
+        _database.SetMissingCloudBackups([]);
+        _backups.ForgetCloudListing();
+        Flash("Backups are no longer uploaded. Backups already in the bucket were left there.", "success");
+        return Redirect(PagePath);
+    }
+
+    public async Task<IActionResult> OnPostRefreshCloud(CancellationToken cancellationToken)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        var state = await _backups.RefreshCloudAsync(null, cancellationToken);
+        if (state.Error is not null) Flash(state.Error, "error");
+        return Redirect(PagePath + "#cloud");
+    }
+
+    public IActionResult OnPostRetryUpload(Guid runId)
+    {
+        if (_database.GetJournal(JournalId) is null) return NotFound();
+        var started = _backups.TryStartUpload(runId, out var message);
+        Flash(message, started ? "success" : "error");
+        return Redirect(PagePath);
+    }
+
+    private async Task<CloudTestResult> TestAsync(B2Connection connection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var cloud = _backups.CloudFactory.Create(connection);
+            return await CloudBackups.TestAsync(cloud, _database.GetOrCreateInstallationId(), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new CloudTestResult(false, false, B2Cloud.Describe(ex));
+        }
+    }
+
+    private B2Connection? SafeCloudConnection()
+    {
+        try
+        {
+            return _secrets.GetCloudConnection();
+        }
+        catch (BackupFailedException)
+        {
+            return null;
+        }
+    }
+
+    private bool PasswordMatches() => _database.GetOwnerPasswordHash() is { } hash && PasswordService.Verify(CurrentPassword, hash);
+
+    private IActionResult Fail(string message)
+    {
+        Flash(message, "error");
+        return Redirect(PagePath);
     }
 
     public BackupSchedule Schedule { get; private set; } = BackupSchedule.Default;
@@ -229,6 +361,10 @@ public class BackupsModel : PageModel
         Runs = _database.GetBackupRuns(HistoryLength);
         IntegrationsPaused = _database.AreIntegrationsPaused();
         Schedule = _database.GetBackupSchedule();
+        EncryptionEnabled = _secrets.EncryptionEnabled;
+        Cloud = _secrets.CloudSettings;
+        CloudListing = Cloud is null ? null : _backups.CloudListing;
+        OwnerHasPassword = _database.GetOwnerPasswordHash() is { } ownerHash && !PasswordService.Verify(string.Empty, ownerHash);
         RestoredFrom = null;
         if (_database.GetRestoredFrom() is { } restored)
         {

@@ -66,8 +66,8 @@
                     </li>
                 }
                 <li>MCP access tokens were revoked. Create new ones in Settings &gt; Access.</li>
-                <li>ChatGPT and publishing were not restored. Sign in to ChatGPT and enter publishing tokens again where you use them.</li>
-                <li>Backups go to the default folder until you choose another below.</li>
+                <li>ChatGPT was not restored; sign in again where you use it. Publishing tokens come back only from encrypted backups, so enter them again if publishing asks for one.</li>
+                <li>Backups go to the default folder until you choose another below. Encryption and Backblaze B2 are off until you set them up again on this machine.</li>
             </ul>
             <div class="d-flex flex-wrap gap-2">
                 @if (Model.IntegrationsPaused)
@@ -137,6 +137,103 @@
         </div>
     </div>
 
+    <div class="col-xl-6">
+        <div class="card tf-card h-100" id="encryption">
+            <div class="card-header"><div><div class="tf-kicker">ENCRYPTION</div><h3 class="tf-card-title">Encrypt backups</h3></div><span class="badge @(Model.EncryptionEnabled ? "bg-success-lt" : "bg-secondary-lt") ms-auto">@(Model.EncryptionEnabled ? "On" : "Off")</span></div>
+            <div class="card-body">
+                <p class="text-secondary small">Encrypted backups use the open <a href="https://age-encryption.org" target="_blank" rel="noopener">age</a> format with a passphrase, so they can also be opened without TradeFoundry (<code>age -d backup.tfbackup &gt; backup.zip</code>). Only encrypted backups include publishing tokens. The passphrase is stored on this machine for scheduled backups, but <strong>a lost or broken computer takes it with it</strong>: keep a copy in a password manager or on paper.</p>
+                <form method="post" action="@($"{journalPath}?handler=Encryption")" autocomplete="off" class="row g-2">
+                    @Html.AntiForgeryToken()
+                    <div class="col-md-6"><label class="form-label" for="backup-passphrase">@(Model.EncryptionEnabled ? "New passphrase" : "Passphrase")</label><input class="form-control" id="backup-passphrase" name="passphrase" type="password" autocomplete="new-password" minlength="@BackupEncryption.MinimumPassphraseLength" /></div>
+                    <div class="col-md-6"><label class="form-label" for="backup-passphrase-confirm">Type it again</label><input class="form-control" id="backup-passphrase-confirm" name="confirmPassphrase" type="password" autocomplete="new-password" /></div>
+                    <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="savedElsewhere" value="true" /> <span class="form-check-label">I have saved this passphrase somewhere other than this computer</span></label></div>
+                    <div class="col-md-6"><label class="form-label" for="encryption-password">Owner password</label><input class="form-control" id="encryption-password" name="CurrentPassword" type="password" autocomplete="current-password" /></div>
+                    <div class="col-12"><button class="btn btn-outline-primary" type="submit">@(Model.EncryptionEnabled ? "Change passphrase" : "Turn on encryption")</button></div>
+                </form>
+                @if (Model.EncryptionEnabled)
+                {
+                    <form method="post" action="@($"{journalPath}?handler=DisableEncryption")" autocomplete="off" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <div class="col-md-6"><label class="form-label" for="disable-encryption-password">Owner password</label><input class="form-control" id="disable-encryption-password" name="CurrentPassword" type="password" autocomplete="current-password" /></div>
+                        <div class="col-md-6 d-flex align-items-end"><button class="btn btn-outline-danger" type="submit" disabled="@(Model.Cloud is not null)">Turn off encryption</button></div>
+                        @if (Model.Cloud is not null)
+                        {
+                            <div class="col-12 form-hint">Turn off Backblaze B2 first: cloud backups are always encrypted.</div>
+                        }
+                    </form>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-6">
+        <div class="card tf-card h-100" id="cloud">
+            <div class="card-header"><div><div class="tf-kicker">OFFSITE</div><h3 class="tf-card-title">Backblaze B2</h3></div><span class="badge @(Model.Cloud is not null ? "bg-success-lt" : "bg-secondary-lt") ms-auto">@(Model.Cloud is not null ? "On" : "Off")</span></div>
+            <div class="card-body">
+                @if (Model.Cloud is { } cloud)
+                {
+                    <dl class="tf-definition-list">
+                        <dt>Bucket</dt><dd>@cloud.Bucket</dd>
+                        <dt>Endpoint</dt><dd class="text-break">@cloud.Endpoint</dd>
+                        <dt>Key ID</dt><dd>@cloud.KeyId</dd>
+                    </dl>
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <form method="post" action="@($"{journalPath}?handler=TestCloud")">@Html.AntiForgeryToken()<button class="btn btn-outline-primary" type="submit">Test connection</button></form>
+                        <form method="post" action="@($"{journalPath}?handler=RefreshCloud")">@Html.AntiForgeryToken()<button class="btn btn-outline-secondary" type="submit">List cloud backups</button></form>
+                    </div>
+                    @if (Model.CloudListing is { } listing)
+                    {
+                        @if (listing.Error is not null)
+                        {
+                            <div class="alert alert-danger small">@listing.Error</div>
+                        }
+                        else if (listing.Backups.Count == 0)
+                        {
+                            <p class="text-secondary small">No backups from this installation in the bucket (listed @Local(listing.ListedUtc)).</p>
+                        }
+                        else
+                        {
+                            <div class="small text-secondary mb-1">In the bucket, listed @Local(listing.ListedUtc):</div>
+                            <ul class="small mb-3">
+                                @foreach (var item in listing.Backups)
+                                {
+                                    <li>@Local(item.Sidecar.CreatedUtc) · @BackupsModel.FormatBytes(item.Sidecar.Size)@(item.Sidecar.Trigger == BackupTrigger.Manual ? " · manual" : string.Empty)</li>
+                                }
+                            </ul>
+                        }
+                    }
+                }
+                else
+                {
+                    <p class="text-secondary small">Uploads each backup, encrypted, to a private Backblaze B2 bucket after it is saved to the folder. Use a key that can read, write and list but <strong>not delete</strong>, limited to one bucket and the <code>tradefoundry/</code> prefix, and give the bucket a lifecycle rule that erases hidden files after 30 days. Pruned backups can then be recovered for 30 days, and a stolen key cannot erase them. The Backblaze website cannot create such a key; use the B2 command line:</p>
+                    <pre class="small bg-body-tertiary p-2 rounded text-wrap"><code>b2 key create --bucket YOUR-BUCKET --name-prefix tradefoundry/ tradefoundry-backups listFiles,readFiles,writeFiles,listAllBucketNames</code></pre>
+                }
+                <form method="post" action="@($"{journalPath}?handler=Cloud")" autocomplete="off" class="row g-2 @(Model.Cloud is null ? string.Empty : "mt-2 pt-3 border-top")">
+                    @Html.AntiForgeryToken()
+                    <div class="col-md-6"><label class="form-label" for="b2-endpoint">S3 endpoint</label><input class="form-control" id="b2-endpoint" name="endpoint" value="@Model.Cloud?.Endpoint" placeholder="https://s3.us-west-002.backblazeb2.com" /></div>
+                    <div class="col-md-6"><label class="form-label" for="b2-bucket">Bucket</label><input class="form-control" id="b2-bucket" name="bucket" value="@Model.Cloud?.Bucket" /></div>
+                    <div class="col-md-6"><label class="form-label" for="b2-key-id">Application key ID</label><input class="form-control" id="b2-key-id" name="keyId" value="@Model.Cloud?.KeyId" /></div>
+                    <div class="col-md-6"><label class="form-label" for="b2-key">Application key</label><input class="form-control" id="b2-key" name="applicationKey" type="password" autocomplete="off" placeholder="@(Model.Cloud is null ? string.Empty : "Saved; leave empty to keep it")" /></div>
+                    <div class="col-md-6"><label class="form-label" for="b2-password">Owner password</label><input class="form-control" id="b2-password" name="CurrentPassword" type="password" autocomplete="current-password" /></div>
+                    <div class="col-12 form-hint">
+                        @if (!Model.EncryptionEnabled) { <span class="text-warning">Turn on encryption first. </span> }
+                        @if (!Model.OwnerHasPassword) { <span class="text-warning">Set an owner password first. </span> }
+                        Saving tests the connection. The key is stored on this machine with its data protection keys and never included in a backup.
+                    </div>
+                    <div class="col-12"><button class="btn btn-outline-primary" type="submit" disabled="@(!Model.EncryptionEnabled || !Model.OwnerHasPassword)">@(Model.Cloud is null ? "Test and turn on" : "Test and save")</button></div>
+                </form>
+                @if (Model.Cloud is not null)
+                {
+                    <form method="post" action="@($"{journalPath}?handler=DisableCloud")" autocomplete="off" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <div class="col-md-6"><label class="form-label" for="disable-cloud-password">Owner password</label><input class="form-control" id="disable-cloud-password" name="CurrentPassword" type="password" autocomplete="current-password" /></div>
+                        <div class="col-md-6 d-flex align-items-end"><button class="btn btn-outline-danger" type="submit">Stop uploading</button></div>
+                    </form>
+                }
+            </div>
+        </div>
+    </div>
+
     <div class="col-12">
         <div class="card tf-card">
             <div class="card-header"><div><div class="tf-kicker">SCHEDULE</div><h3 class="tf-card-title">Scheduled backups</h3></div></div>
@@ -190,7 +287,7 @@
                             {
                                 var sidecar = backup.Sidecar;
                                 <tr>
-                                    <td>@Local(sidecar.CreatedUtc)@(sidecar.Trigger == BackupTrigger.Manual ? " · manual" : string.Empty)@(backup.FromThisInstallation ? string.Empty : " · other installation")</td>
+                                    <td>@Local(sidecar.CreatedUtc)@(sidecar.Trigger == BackupTrigger.Manual ? " · manual" : string.Empty)@(sidecar.Encrypted ? " · encrypted" : string.Empty)@(backup.FromThisInstallation ? string.Empty : " · other installation")</td>
                                     <td>@BackupsModel.FormatBytes(sidecar.Size)</td>
                                     <td>@sidecar.Counts.GetValueOrDefault("journals")</td>
                                     <td>@sidecar.Counts.GetValueOrDefault("trades").ToString("N0", CultureInfo.InvariantCulture)</td>
@@ -225,7 +322,21 @@
                                     <td>@Local(run.StartedUtc)</td>
                                     <td class="@BackupsModel.StatusClass(run.Status)">@BackupsModel.StatusLabel(run.Status)</td>
                                     <td>@(run.MaintenanceMilliseconds is { } ms ? $"{ms / 1000d:0.0} s" : "–")</td>
-                                    <td class="small text-break">@run.Message@foreach (var warning in run.Warnings) {<div class="text-warning">@warning</div>}</td>
+                                    <td class="small text-break">
+                                        @run.Message@foreach (var warning in run.Warnings) {<div class="text-warning">@warning</div>}
+                                        @if (!string.IsNullOrEmpty(run.CloudMessage))
+                                        {
+                                            <div class="@(run.CloudStatus == BackupCloudStatus.Failed ? "text-danger" : "text-secondary")">@run.CloudMessage</div>
+                                        }
+                                        @if (run.CloudStatus == BackupCloudStatus.Failed && Model.Cloud is not null && !Model.Progress.Running)
+                                        {
+                                            <form method="post" action="@($"{journalPath}?handler=RetryUpload")" class="mt-1">
+                                                @Html.AntiForgeryToken()
+                                                <input type="hidden" name="runId" value="@run.Id" />
+                                                <button class="btn btn-sm btn-outline-primary" type="submit">Upload again</button>
+                                            </form>
+                                        }
+                                    </td>
                                 </tr>
                             }
                         </tbody>

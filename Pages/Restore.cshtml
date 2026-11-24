@@ -57,6 +57,23 @@
                         <p class="text-secondary small mt-2">Nothing in this installation changes until you confirm.</p>
                     </div>
                 }
+                else if (job?.State == RestoreJob.NeedsPassphrase)
+                {
+                    <p class="tf-lede">This backup is encrypted. Enter the passphrase it was made with.</p>
+                    @if (!string.IsNullOrEmpty(job.Message))
+                    {
+                        <div class="alert alert-danger" role="alert">@job.Message</div>
+                    }
+                    <form method="post" action="/restore?handler=Unlock" class="row g-3" autocomplete="off">
+                        @Html.AntiForgeryToken()
+                        <div class="col-md-6"><label class="form-label" for="restore-passphrase">Backup passphrase</label><input class="form-control" id="restore-passphrase" name="passphrase" type="password" autocomplete="off" required autofocus /></div>
+                        <div class="col-12"><button class="btn btn-primary" type="submit">Decrypt and check</button></div>
+                    </form>
+                    <form method="post" action="/restore?handler=Discard" class="mt-2">
+                        @Html.AntiForgeryToken()
+                        <button class="btn btn-link px-0" type="submit">Choose another backup</button>
+                    </form>
+                }
                 else if (job?.State == RestoreJob.Ready && job.Preview is { } preview)
                 {
                     var manifest = preview.Manifest;
@@ -67,6 +84,7 @@
                         <dt>Trades</dt><dd>@manifest.Counts.GetValueOrDefault("trades").ToString("N0", CultureInfo.InvariantCulture)</dd>
                         <dt>Images and receipts</dt><dd>@((manifest.Counts.GetValueOrDefault("images") + manifest.Counts.GetValueOrDefault("receipts")).ToString("N0", CultureInfo.InvariantCulture))</dd>
                         <dt>Owner account</dt><dd>@preview.OwnerName</dd>
+                        <dt>Encrypted</dt><dd>@(manifest.Encrypted ? $"Yes{(preview.PublishingTokens > 0 ? $"; {preview.PublishingTokens} publishing token(s) will be restored" : string.Empty)}" : "No")</dd>
                     </dl>
                     @foreach (var warning in preview.Warnings)
                     {
@@ -74,7 +92,7 @@
                     }
                     <ul class="text-secondary small">
                         <li>You will sign in with the backup's owner password@(Model.HasOwner ? ", not this installation's" : string.Empty).</li>
-                        <li>Watched import folders stay paused until you check them. MCP tokens are revoked. ChatGPT and publishing need signing in again.</li>
+                        <li>Watched import folders stay paused until you check them. MCP tokens are revoked. ChatGPT needs signing in again@(preview.PublishingTokens > 0 ? string.Empty : ", and so does publishing").</li>
                         <li>TradeFoundry restarts once; it takes about as long as a normal start.</li>
                     </ul>
                     <form method="post" action="/restore?handler=Commit" class="row g-3" autocomplete="off">
@@ -129,6 +147,54 @@
                                                         <input type="hidden" name="Folder" value="@Model.Folder" />
                                                         <input type="hidden" name="archive" value="@sidecar.Archive" />
                                                         <button class="btn btn-sm btn-primary" type="submit">Check and restore</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    }
+
+                    <h3 class="tf-card-title mt-4">From Backblaze B2</h3>
+                    <p class="text-secondary small">The key is used only for this restore and is not saved. Every installation's backups in the bucket are listed.</p>
+                    <form method="post" action="/restore?handler=CloudList" class="row g-2" autocomplete="off">
+                        @Html.AntiForgeryToken()
+                        <div class="col-md-6"><label class="form-label" for="restore-endpoint">S3 endpoint</label><input class="form-control" id="restore-endpoint" name="Endpoint" value="@Model.Endpoint" placeholder="https://s3.us-west-002.backblazeb2.com" /></div>
+                        <div class="col-md-6"><label class="form-label" for="restore-bucket">Bucket</label><input class="form-control" id="restore-bucket" name="Bucket" value="@Model.Bucket" /></div>
+                        <div class="col-md-6"><label class="form-label" for="restore-key-id">Application key ID</label><input class="form-control" id="restore-key-id" name="KeyId" value="@Model.KeyId" /></div>
+                        <div class="col-md-6"><label class="form-label" for="restore-key">Application key</label><input class="form-control" id="restore-key" name="applicationKey" type="password" autocomplete="off" /></div>
+                        <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="ShowHidden" value="true" checked="@Model.ShowHidden" /> <span class="form-check-label">Show hidden backups (pruned or deleted, still in the bucket's recovery window)</span></label></div>
+                        <div class="col-12"><button class="btn btn-outline-primary" type="submit">List backups</button></div>
+                    </form>
+                    @if (Model.CloudBackups is { } cloudBackups)
+                    {
+                        @if (cloudBackups.Count == 0)
+                        {
+                            <p class="text-secondary mt-3">No TradeFoundry backups in that bucket.</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive mt-3">
+                                <table class="table table-vcenter">
+                                    <thead><tr><th>Made</th><th>Size</th><th>Journals</th><th>Trades</th><th>Version</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach (var backup in cloudBackups)
+                                        {
+                                            var sidecar = backup.Sidecar;
+                                            <tr>
+                                                <td>@Local(sidecar.CreatedUtc)@(backup.Hidden ? " · hidden" : string.Empty)<div class="small text-secondary">installation @sidecar.InstallationId.ToString("N")[..8]</div></td>
+                                                <td>@RestoreModel.FormatBytes(sidecar.Size)</td>
+                                                <td>@sidecar.Counts.GetValueOrDefault("journals")</td>
+                                                <td>@sidecar.Counts.GetValueOrDefault("trades").ToString("N0", CultureInfo.InvariantCulture)</td>
+                                                <td>@sidecar.AppVersion</td>
+                                                <td class="text-end">
+                                                    <form method="post" action="/restore?handler=CloudStage">
+                                                        @Html.AntiForgeryToken()
+                                                        <input type="hidden" name="archiveKey" value="@backup.ArchivePath" />
+                                                        <input type="hidden" name="versionId" value="@backup.VersionId" />
+                                                        <button class="btn btn-sm btn-primary" type="submit">Download and check</button>
                                                     </form>
                                                 </td>
                                             </tr>

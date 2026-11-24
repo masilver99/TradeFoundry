@@ -45,18 +45,35 @@ public sealed class BackupService : IHostedService
     private readonly AppActivityGate _gate;
     private readonly BackupOptions _options;
     private readonly ILogger<BackupService> _logger;
+    private readonly BackupSecrets? _secrets;
+    private readonly IBackupCloudFactory _cloudFactory;
+    private CloudListingState? _cloudListing;
     private readonly object _sync = new();
     private CancellationTokenSource? _cancellation;
     private Task _running = Task.CompletedTask;
     private BackupProgress _progress = new(false, null, string.Empty, null, false, null, null, null);
 
-    public BackupService(TradeFoundryDb database, AppActivityGate gate, IOptions<BackupOptions> options, ILogger<BackupService> logger)
+    public BackupService(TradeFoundryDb database, AppActivityGate gate, IOptions<BackupOptions> options, ILogger<BackupService> logger,
+        BackupSecrets? secrets = null, IBackupCloudFactory? cloudFactory = null)
     {
         _database = database;
         _gate = gate;
         _options = options.Value;
         _logger = logger;
+        _secrets = secrets;
+        _cloudFactory = cloudFactory ?? new B2CloudFactory();
     }
+
+    public IBackupCloudFactory CloudFactory => _cloudFactory;
+
+    /// <summary>True when a Backblaze B2 destination is set up.</summary>
+    public bool CloudEnabled => _secrets?.CloudSettings is not null;
+
+    /// <summary>True when backups are encrypted with a stored passphrase.</summary>
+    public bool EncryptionEnabled => _secrets?.EncryptionEnabled == true;
+
+    /// <summary>The last listing of this installation's visible cloud backups, kept in memory for the Backups page.</summary>
+    public CloudListingState? CloudListing { get { lock (_sync) return _cloudListing; } }
 
     public string DataDirectory => Path.GetDirectoryName(_database.DatabasePath)!;
 
@@ -209,6 +226,7 @@ public sealed class BackupService : IHostedService
         try
         {
             var interrupted = _database.FailInterruptedBackupRuns();
+            _database.FailInterruptedCloudUploads();
             if (interrupted > 0) _logger.LogWarning("{Count} backup run(s) were interrupted by the last shutdown.", interrupted);
             TryDeleteDirectory(Path.Combine(DataDirectory, StagingDirectoryName));
             var folder = Folder;
@@ -248,6 +266,12 @@ public sealed class BackupService : IHostedService
         {
             var folder = Folder;
             if (ValidateFolder(folder) is { } folderProblem) throw new BackupFailedException(folderProblem);
+            // Read secrets before pausing the site, so an unreadable one never costs a maintenance window.
+            var passphrase = _secrets?.GetPassphrase();
+            var cloud = _secrets?.GetCloudConnection();
+            if (cloud is not null && passphrase is null)
+                throw new BackupFailedException("Backups to Backblaze B2 must be encrypted. Turn on encryption in Settings > Backups.");
+            var encrypted = passphrase is not null;
 
             var databaseBytes = new FileInfo(_database.DatabasePath).Length;
             var fileBytes = DataDirectoryLayout.UserContentDirectories
@@ -295,6 +319,18 @@ public sealed class BackupService : IHostedService
                     : $"{missing.Count} images or receipts were already missing from the data directory, such as {missing[0]}");
             }
 
+            string? secretsPath = null;
+            if (encrypted && details.ProtectedPublishingTokens.Count > 0)
+            {
+                var (tokens, unreadable) = _secrets!.UnprotectPublishingTokens(details.ProtectedPublishingTokens);
+                if (unreadable > 0) warnings.Add($"{unreadable} publishing token(s) could not be read on this machine and were not included.");
+                if (tokens.Count > 0)
+                {
+                    secretsPath = Path.Combine(staging, BackupArchive.SecretsEntry);
+                    await File.WriteAllTextAsync(secretsPath, JsonSerializer.Serialize(new BackupSecretsFile(tokens), BackupArchive.Json), CancellationToken.None);
+                }
+            }
+
             var installationId = _database.GetOrCreateInstallationId();
             var name = $"{ArchivePrefix}{installationId.ToString("N")[..8]}-{run.StartedUtc.UtcDateTime:yyyyMMdd'T'HHmmss'Z'}-{run.Id.ToString("N")[..8]}";
             var archiveName = name + BackupArchive.Extension;
@@ -312,18 +348,33 @@ public sealed class BackupService : IHostedService
                 AppVersion,
                 Platform(),
                 details.SchemaVersion,
-                Encrypted: false,
+                Encrypted: encrypted,
                 BackupArchive.DatabaseFolder + Path.GetFileName(_database.DatabasePath),
                 details.Counts,
                 warnings,
                 []);
 
+            // An encrypted backup is zipped in staging on the data drive, then encrypted into the folder.
+            var zipPath = encrypted ? Path.Combine(staging, "archive.zip") : archivePartial;
             Report("Compressing", 0);
-            manifest = await Task.Run(() => BackupArchive.Write(archivePartial, snapshotPath, Path.GetFileName(_database.DatabasePath), filesRoot, manifest, new StageProgress(this, "Compressing"), cancellationToken), cancellationToken);
-            TryDeleteDirectory(staging);
+            manifest = await Task.Run(() => BackupArchive.Write(zipPath, snapshotPath, Path.GetFileName(_database.DatabasePath), filesRoot, manifest, new StageProgress(this, "Compressing"), cancellationToken, secretsPath), cancellationToken);
+            TryDeleteFile(snapshotPath);
+            TryDeleteDirectory(filesRoot);
+            if (secretsPath is not null) TryDeleteFile(secretsPath);
 
             Report("Verifying", 0);
-            var (_, sha256) = await Task.Run(() => BackupArchive.Verify(archivePartial, new StageProgress(this, "Verifying"), cancellationToken), cancellationToken);
+            var (_, sha256) = await Task.Run(() => BackupArchive.Verify(zipPath, new StageProgress(this, "Verifying"), cancellationToken), cancellationToken);
+            if (encrypted)
+            {
+                Report("Encrypting", 0);
+                await Task.Run(() => BackupEncryption.Encrypt(zipPath, archivePartial, passphrase!, new StageProgress(this, "Encrypting"), cancellationToken), cancellationToken);
+                Report("Verifying the encrypted copy", 0);
+                await Task.Run(() => BackupEncryption.VerifyDecryptsTo(archivePartial, passphrase!, sha256, new StageProgress(this, "Verifying the encrypted copy"), cancellationToken), cancellationToken);
+                TryDeleteFile(zipPath);
+                sha256 = await Task.Run(() => HashFile(archivePartial), cancellationToken);
+            }
+
+            TryDeleteDirectory(staging);
             var size = new FileInfo(archivePartial).Length;
 
             Report("Finishing", null);
@@ -343,7 +394,13 @@ public sealed class BackupService : IHostedService
             partialFiles.Clear();
 
             var status = warnings.Count > 0 ? BackupRunStatus.CompletedWithWarnings : BackupRunStatus.Completed;
-            Finish(run with { Status = status, ArchiveName = archiveName, ArchiveSize = size, Message = $"Saved to {folder}." }, maintenanceMilliseconds, warnings);
+            var done = run with { Status = status, ArchiveName = archiveName, ArchiveSize = size, Message = $"Saved to {folder}." };
+            if (cloud is not null)
+            {
+                done = await UploadAsync(done, cloud, installationId, archivePath, sidecar, cancellationToken);
+            }
+
+            Finish(done, maintenanceMilliseconds, warnings);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -366,6 +423,175 @@ public sealed class BackupService : IHostedService
         }
     }
 
+    /// <summary>
+    /// Uploads a finished archive and records the outcome on the run. A failure never fails the backup
+    /// itself: the archive is safe in the folder and the upload is retried without pausing the site.
+    /// </summary>
+    private async Task<BackupRun> UploadAsync(BackupRun run, B2Connection connection, Guid installationId, string archivePath, BackupSidecar sidecar, CancellationToken cancellationToken)
+    {
+        run = run with { CloudStatus = BackupCloudStatus.Uploading, CloudMessage = string.Empty };
+        _database.UpdateBackupRun(run);
+        try
+        {
+            Report("Uploading to Backblaze B2", 0);
+            using var cloud = _cloudFactory.Create(connection);
+            var key = await CloudBackups.UploadAsync(cloud, installationId, archivePath, sidecar, new StageProgress(this, "Uploading to Backblaze B2"), cancellationToken);
+            _database.RecordCloudUpload(key, DateTimeOffset.UtcNow);
+            _logger.LogInformation("Backup {RunId} uploaded to Backblaze B2 as {Key}.", run.Id, key);
+            return run with { CloudStatus = BackupCloudStatus.Uploaded, CloudMessage = $"Uploaded to Backblaze B2 bucket {connection.Bucket}." };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return run with { CloudStatus = BackupCloudStatus.Failed, CloudMessage = "The upload to Backblaze B2 was cancelled. It is retried later." };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Backup {RunId} could not be uploaded to Backblaze B2.", run.Id);
+            return run with { CloudStatus = BackupCloudStatus.Failed, CloudMessage = $"The upload to Backblaze B2 failed: {B2Cloud.Describe(ex)}" };
+        }
+    }
+
+    /// <summary>Uploads the archive of an earlier run again, after its upload failed. Returns false with a reason when it cannot start.</summary>
+    public bool TryStartUpload(Guid runId, out string message)
+    {
+        lock (_sync)
+        {
+            if (_progress.Running)
+            {
+                message = "A backup is already running.";
+                return false;
+            }
+
+            var run = _database.GetBackupRun(runId);
+            if (run is null || string.IsNullOrEmpty(run.ArchiveName))
+            {
+                message = "That backup has no archive to upload.";
+                return false;
+            }
+
+            var archivePath = Path.Combine(Folder, run.ArchiveName);
+            var sidecarPath = Path.ChangeExtension(archivePath, ".json");
+            BackupSidecar? sidecar = null;
+            try
+            {
+                if (File.Exists(archivePath) && File.Exists(sidecarPath))
+                    sidecar = JsonSerializer.Deserialize<BackupSidecar>(File.ReadAllText(sidecarPath), BackupArchive.Json);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+            }
+
+            if (sidecar is null)
+            {
+                message = "That backup is no longer in the backup folder, so it cannot be uploaded.";
+                return false;
+            }
+
+            B2Connection? connection;
+            try
+            {
+                connection = _secrets?.GetCloudConnection();
+            }
+            catch (BackupFailedException ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+
+            if (connection is null)
+            {
+                message = "Backblaze B2 is not set up.";
+                return false;
+            }
+
+            _cancellation = new CancellationTokenSource();
+            _progress = new BackupProgress(true, runId, "Uploading to Backblaze B2", null, false, DateTimeOffset.UtcNow, _progress.LastStatus, _progress.LastMessage);
+            var token = _cancellation.Token;
+            var installationId = _database.GetOrCreateInstallationId();
+            _running = Task.Run(async () =>
+            {
+                var done = await UploadAsync(run, connection, installationId, archivePath, sidecar, token);
+                FinishUpload(done);
+            }, CancellationToken.None);
+            message = "Uploading the backup to Backblaze B2.";
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Lists this installation's visible cloud backups, optionally applies retention to them by hiding, and
+    /// notices backups that disappeared without being pruned here. The result is kept for the Backups page.
+    /// </summary>
+    public async Task<CloudListingState> RefreshCloudAsync(BackupSchedule? retention, CancellationToken cancellationToken)
+    {
+        CloudListingState state;
+        try
+        {
+            var connection = _secrets?.GetCloudConnection() ?? throw new BackupFailedException("Backblaze B2 is not set up.");
+            using var cloud = _cloudFactory.Create(connection);
+            var installationId = _database.GetOrCreateInstallationId();
+            var listings = await CloudBackups.ListAsync(cloud, installationId, includeHidden: false, cancellationToken);
+            if (retention is not null)
+            {
+                var prune = BackupRetention.SelectForPruning(listings, retention);
+                if (prune.Count > 0)
+                {
+                    foreach (var key in await CloudBackups.PruneAsync(cloud, prune, cancellationToken))
+                    {
+                        _database.RecordCloudPrune(key, DateTimeOffset.UtcNow);
+                        _logger.LogInformation("Retention hid cloud backup {Key}.", key);
+                    }
+
+                    listings = listings.Except(prune).ToList();
+                }
+            }
+
+            var visible = listings.Select(listing => listing.ArchivePath).ToHashSet(StringComparer.Ordinal);
+            var missing = _database.GetUnprunedCloudUploads().Where(key => !visible.Contains(key)).ToList();
+            _database.SetMissingCloudBackups(missing);
+            if (missing.Count > 0) _logger.LogWarning("{Count} cloud backup(s) are no longer visible in Backblaze B2 although TradeFoundry did not prune them.", missing.Count);
+            state = new CloudListingState(DateTimeOffset.UtcNow, listings.Where(listing => listing.FromThisInstallation).ToList(), null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            if (ex is not BackupFailedException) _logger.LogWarning(ex, "Could not list cloud backups.");
+            state = new CloudListingState(DateTimeOffset.UtcNow, [], ex is BackupFailedException ? ex.Message : B2Cloud.Describe(ex));
+        }
+
+        lock (_sync) _cloudListing = state;
+        return state;
+    }
+
+    public void ForgetCloudListing()
+    {
+        lock (_sync) _cloudListing = null;
+    }
+
+    private void FinishUpload(BackupRun run)
+    {
+        try
+        {
+            _database.UpdateBackupRun(run);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not record the upload of backup {RunId}.", run.Id);
+        }
+
+        lock (_sync)
+        {
+            _progress = new BackupProgress(false, run.Id, string.Empty, null, false, null, run.Status, run.CloudMessage);
+            _cancellation?.Dispose();
+            _cancellation = null;
+        }
+    }
+
+    private static string HashFile(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.SequentialScan);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream));
+    }
+
     private void Finish(BackupRun run, long? maintenanceMilliseconds, IReadOnlyList<string> warnings)
     {
         var finished = run with { FinishedUtc = DateTimeOffset.UtcNow, MaintenanceMilliseconds = maintenanceMilliseconds, Warnings = warnings };
@@ -380,7 +606,8 @@ public sealed class BackupService : IHostedService
 
         lock (_sync)
         {
-            _progress = new BackupProgress(false, run.Id, string.Empty, null, false, null, finished.Status, finished.Message);
+            _progress = new BackupProgress(false, run.Id, string.Empty, null, false, null, finished.Status,
+                finished.CloudStatus == BackupCloudStatus.Failed ? $"{finished.Message} {finished.CloudMessage}" : finished.Message);
             _cancellation?.Dispose();
             _cancellation = null;
         }
@@ -477,6 +704,9 @@ public sealed class BackupService : IHostedService
         public void Report(double value) => service.Report(stage, value);
     }
 }
+
+/// <summary>The last listing of cloud backups, or the reason it failed.</summary>
+public sealed record CloudListingState(DateTimeOffset ListedUtc, IReadOnlyList<BackupListing> Backups, string? Error);
 
 /// <summary>A backup that stopped for a reason the owner can act on; its message is shown as is.</summary>
 public sealed class BackupFailedException(string message) : Exception(message);

@@ -12,7 +12,9 @@ namespace TradeFoundry.Services;
 public sealed class PublicationWorkflow(TradeFoundryDb database, PublicationExportService exporter,
     IDataProtectionProvider protection, IHttpClientFactory clients)
 {
-    private readonly IDataProtector _protector = protection.CreateProtector("TradeFoundry.PublicationToken.v1");
+    /// <summary>Data Protection purpose for publishing tokens; backups unprotect and restores re-protect with it.</summary>
+    public const string TokenPurpose = "TradeFoundry.PublicationToken.v1";
+    private readonly IDataProtector _protector = protection.CreateProtector(TokenPurpose);
     private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _gates = new();
 
     public async Task SaveSettings(Guid journalId, PublishingSettings settings, string? token, CancellationToken cancellationToken)

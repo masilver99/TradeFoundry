@@ -1,6 +1,6 @@
 # Backup and restore plan
 
-Status: decisions approved 2026-11-22. Nothing here is implemented.
+Status: decisions approved 2026-11-22. Phases 0–4 are implemented; see each phase's result.
 
 ## Summary
 
@@ -347,9 +347,55 @@ B2 and age spikes, encryption, portable publishing tokens, B2 destination, resto
 machine works from a real B2 bucket with only the key and passphrase, pruning works without `deleteFiles`, and a
 hidden backup can be restored.
 
+*Result (2026-11-23):*
+- **Spikes.** AgeSharp 0.2.0-preview.7 encrypted 4 GB in 21 s and decrypted it in 8 s, using about 300 MB at 1 GB and
+  at 4 GB (scrypt's fixed cost). Against `tradefoundry-backup`, with a key holding only `listFiles`, `readFiles`,
+  `writeFiles` and `listAllBucketNames` on the `tradefoundry/` prefix, all ten B2 checks passed: single and
+  multipart puts with Content-MD5, abort leaving nothing listed, hide without `deleteFiles`, delete by version
+  refused (403), and a hidden version downloadable by id.
+- **Scratch copy of the 3.36 GB journal, through the UI.** Encryption added 13 s and checking the encrypted copy
+  3 s. The 754 MB upload took 212 s once and about 16 minutes another time, so speed varies. The test connection
+  reported that the key cannot erase files.
+- **Restore from the bucket into fresh server-mode installations, with only the key and the passphrase.**
+  Download took 17 s, decrypting, checking and upgrading 36 s, and the restart 2 s. Every table, all 175 files and
+  all 1,794 trades matched, apart from the documented changes.
+- **Pruning.** Two real scheduled runs with "keep 1 daily" hid the older backup in the bucket. "Show hidden backups"
+  listed it, and it restored the same way.
+- **The age CLI.** rage (pyrage 1.4) decrypted the real 754 MB backup in 7 s, and the ZIP inside passed its CRC
+  test. The reference `age` CLI only takes a passphrase typed at a terminal, so it still needs one manual run.
+- **Site pause.** It was 18 s on a warm disk and 70–77 s right after several GB had been written to the same disk,
+  as in Phase 1.
+
+As built:
+- **Encryption.** The whole archive is wrapped in age with a scrypt passphrase, stored under Data Protection.
+  Enabling it needs the owner password, the passphrase typed twice (at least 12 characters) and the "saved
+  elsewhere" box. The ZIP is built in staging on the data drive, verified, encrypted into the folder, and the
+  encrypted file is decrypted again to check it matches.
+- **Restore of encrypted backups.** They are read in place through `AgeRandomAccess`, so no decrypted copy is
+  written to disk. Restore asks for the passphrase after choosing a backup from a folder, a file or B2. A wrong
+  passphrase asks again.
+- **Publishing tokens.** They travel unprotected in `secrets.json`, inside encrypted backups only. On commit they
+  are protected again with the target machine's keys.
+- **Secrets that never travel.** The backup passphrase, the B2 settings and the missing-backup list are stripped
+  from every snapshot and dropped on restore. Start clean keeps them, together with the schedule.
+- **Destinations.** The folder is always written first. B2 is an extra destination and requires encryption and
+  a non-empty owner password. Objects are stored as `tradefoundry/<installation>/<archive>` with the sidecar
+  uploaded last, as single puts up to 16 MB and 16 MB parts above that. Unfinished uploads under the
+  installation's prefix are aborted before each upload.
+- **Failed uploads.** A failed upload keeps the backup ("completed", with the cloud status "failed"), raises a
+  warning, and is retried after 5, 30 and 120 minutes from the saved archive, without a new pause. "Upload again"
+  does the same on demand.
+- **Cloud retention.** It runs after a successful scheduled upload and only hides objects, sidecar first.
+  TradeFoundry records what it uploaded and pruned, and warns when a backup it did not prune is no longer visible.
+- **Restore from B2.** It lists every installation's backups. The key is held in memory for that restore only,
+  and the download's SHA-256 is checked against the sidecar.
+- **Password checks.** Changing encryption or B2 needs the owner password. Download of a backup from the
+  Backups page was not built.
+
 ### 5. Documentation and drill (small)
 Replace the manual backup notes in both READMEs where relevant, add the Docker backup volume to both compose
 files, make the installer and uninstall text mention backups, and perform one real restore drill.
+
 
 ## Interaction with the tags work in progress
 

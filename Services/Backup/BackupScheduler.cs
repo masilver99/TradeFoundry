@@ -36,6 +36,9 @@ public sealed class BackupScheduler : BackgroundService
     private DateTimeOffset? _retryAt;
     private DateTimeOffset? _retrySlot;
     private int _failures;
+    private Guid? _uploadRun;
+    private int _uploadFailures;
+    private DateTimeOffset? _uploadRetryAt;
     private volatile BackupWarning? _warning;
 
     public BackupScheduler(TradeFoundryDb database, BackupService backups, TimeProvider time, ILogger<BackupScheduler> logger)
@@ -90,6 +93,7 @@ public sealed class BackupScheduler : BackgroundService
         var schedule = _database.GetBackupSchedule();
         try
         {
+            await RetryUploadAsync(now, cancellationToken);
             if (!schedule.Enabled)
             {
                 NextRun = null;
@@ -140,6 +144,7 @@ public sealed class BackupScheduler : BackgroundService
                 _retryAt = null;
                 _failures = 0;
                 Prune(schedule);
+                if (run.CloudStatus == BackupCloudStatus.Uploaded) await _backups.RefreshCloudAsync(schedule, cancellationToken);
             }
             else if (run?.Status == BackupRunStatus.Cancelled && cancellationToken.IsCancellationRequested)
             {
@@ -176,6 +181,38 @@ public sealed class BackupScheduler : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Uploads the newest backup again when its upload to B2 failed: 5, 30 and 120 minutes after each
+    /// failure, without pausing the site, because the archive is already in the folder.
+    /// </summary>
+    private async Task RetryUploadAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (!_backups.CloudEnabled || _backups.Progress.Running) return;
+        var latest = _database.GetBackupRuns(10).FirstOrDefault(run => run.Status is BackupRunStatus.Completed or BackupRunStatus.CompletedWithWarnings);
+        if (latest is not { CloudStatus: BackupCloudStatus.Failed }) return;
+        if (_uploadRun != latest.Id)
+        {
+            _uploadRun = latest.Id;
+            _uploadFailures = 0;
+            _uploadRetryAt = (latest.FinishedUtc ?? now) + RetryDelays[0];
+        }
+
+        if (_uploadFailures >= RetryDelays.Length || now < _uploadRetryAt) return;
+        if (!_backups.TryStartUpload(latest.Id, out var message))
+        {
+            // Counts as an attempt, so a backup that left the folder is not retried forever.
+            _logger.LogInformation("Upload retry did not start: {Reason}", message);
+            _uploadFailures++;
+            if (_uploadFailures < RetryDelays.Length) _uploadRetryAt = now + RetryDelays[_uploadFailures];
+            return;
+        }
+
+        await _backups.WaitAsync();
+        if (_database.GetBackupRun(latest.Id)?.CloudStatus == BackupCloudStatus.Uploaded) return;
+        _uploadFailures++;
+        if (_uploadFailures < RetryDelays.Length) _uploadRetryAt = _time.GetUtcNow() + RetryDelays[_uploadFailures];
+    }
+
     internal void RefreshWarning(BackupSchedule schedule, DateTimeOffset now)
     {
         try
@@ -185,6 +222,20 @@ public sealed class BackupScheduler : BackgroundService
             if (latest?.Status is BackupRunStatus.Failed or BackupRunStatus.Interrupted)
             {
                 _warning = new BackupWarning($"backup-failed:{latest.Id:D}", $"The last backup failed: {latest.Message}");
+                return;
+            }
+
+            if (latest is { CloudStatus: BackupCloudStatus.Failed } && _backups.CloudEnabled)
+            {
+                _warning = new BackupWarning($"backup-upload-failed:{latest.Id:D}", $"The last backup was saved to the folder but not uploaded to Backblaze B2. {latest.CloudMessage}");
+                return;
+            }
+
+            var missing = _database.GetMissingCloudBackups();
+            if (missing.Count > 0 && _backups.CloudEnabled)
+            {
+                _warning = new BackupWarning($"backup-cloud-missing:{missing.Count}:{missing[0]}",
+                    $"{(missing.Count == 1 ? "A backup" : $"{missing.Count} backups")} uploaded to Backblaze B2 can no longer be seen in the bucket, although TradeFoundry did not prune {(missing.Count == 1 ? "it" : "them")}. Hidden files are erased when the bucket's recovery window ends, so check the bucket now. Restore can still list hidden backups.");
                 return;
             }
 

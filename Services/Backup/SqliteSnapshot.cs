@@ -122,8 +122,24 @@ public static class SqliteSnapshot
         // restore elsewhere and a liability in a file that leaves it.
         if (TableHasColumn(connection, "ai_connections", "protected_credentials"))
             Execute(connection, "UPDATE ai_connections SET protected_credentials = '' WHERE protected_credentials <> ''");
+        var publishingTokens = new Dictionary<Guid, string>();
         if (TableHasColumn(connection, "journal_publishing", "protected_token"))
+        {
+            // Read first: an encrypted backup carries them, unprotected, in secrets.json.
+            using (var read = connection.CreateCommand())
+            {
+                read.CommandText = "SELECT journal_id, protected_token FROM journal_publishing WHERE protected_token <> ''";
+                using var reader = read.ExecuteReader();
+                while (reader.Read())
+                    if (Guid.TryParse(reader.GetString(0), out var journalId)) publishingTokens[journalId] = reader.GetString(1);
+            }
+
             Execute(connection, "UPDATE journal_publishing SET protected_token = '' WHERE protected_token <> ''");
+        }
+
+        // This machine's backup passphrase and cloud key never travel in a backup.
+        if (TableExists(connection, "app_settings"))
+            Execute(connection, "DELETE FROM app_settings WHERE settings_key IN (" + string.Join(", ", TradeFoundry.Data.TradeFoundryDb.MachineOnlyBackupSettings.Select(key => $"'{key}'")) + ")");
 
         var check = Convert.ToString(Scalar(connection, "PRAGMA quick_check(1)"));
         if (!string.Equals(check, "ok", StringComparison.OrdinalIgnoreCase))
@@ -147,7 +163,7 @@ public static class SqliteSnapshot
                 referenced.Add($"{directory}/{reader.GetString(0)}/{reader.GetString(1)}");
         }
 
-        return new SnapshotDetails(schemaVersion, counts, referenced);
+        return new SnapshotDetails(schemaVersion, counts, referenced, publishingTokens);
     }
 
     private static readonly (string Name, (string Table, string Query) Sql)[] CountQueries =
@@ -201,4 +217,4 @@ public static class SqliteSnapshot
 }
 
 /// <summary>What a prepared snapshot contains: its schema version, row counts, and the data files it references.</summary>
-public sealed record SnapshotDetails(int SchemaVersion, IReadOnlyDictionary<string, long> Counts, IReadOnlyList<string> ReferencedFiles);
+public sealed record SnapshotDetails(int SchemaVersion, IReadOnlyDictionary<string, long> Counts, IReadOnlyList<string> ReferencedFiles, IReadOnlyDictionary<Guid, string> ProtectedPublishingTokens);

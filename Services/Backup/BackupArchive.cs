@@ -15,6 +15,8 @@ public static class BackupArchive
     public const string ManifestEntry = "manifest.json";
     public const string DatabaseFolder = "database/";
     public const string FilesFolder = "files/";
+    /// <summary>Publishing tokens, unprotected. Only ever written into encrypted backups.</summary>
+    public const string SecretsEntry = "secrets.json";
 
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -34,12 +36,14 @@ public static class BackupArchive
         string filesRoot,
         BackupManifest manifest,
         IProgress<double>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? secretsPath = null)
     {
         var sources = new List<(string EntryName, string Path, long Length)>
         {
             (DatabaseFolder + databaseFileName, snapshotPath, new FileInfo(snapshotPath).Length)
         };
+        if (secretsPath is not null) sources.Add((SecretsEntry, secretsPath, new FileInfo(secretsPath).Length));
         if (Directory.Exists(filesRoot))
         {
             foreach (var path in Directory.EnumerateFiles(filesRoot, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
@@ -101,14 +105,21 @@ public static class BackupArchive
     /// </summary>
     public static (BackupManifest Manifest, string Sha256) Verify(string archivePath, IProgress<double>? progress, CancellationToken cancellationToken)
     {
-        var buffer = new byte[1024 * 1024];
         string archiveHash;
         using (var file = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.SequentialScan))
         {
             archiveHash = Convert.ToHexStringLower(SHA256.HashData(file));
         }
 
-        using var zip = ZipFile.OpenRead(archivePath);
+        using var stream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024);
+        return (Verify(stream, progress, cancellationToken), archiveHash);
+    }
+
+    /// <summary>Checks every entry of an archive read from a seekable stream, such as a decrypted backup.</summary>
+    public static BackupManifest Verify(Stream archive, IProgress<double>? progress, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[1024 * 1024];
+        using var zip = new ZipArchive(archive, ZipArchiveMode.Read, leaveOpen: true);
         var manifestEntry = zip.GetEntry(ManifestEntry) ?? throw new InvalidDataException("The backup has no manifest.");
         BackupManifest manifest;
         using (var stream = manifestEntry.Open())
@@ -148,6 +159,6 @@ public static class BackupArchive
                 throw new InvalidDataException($"{item.Path} in the backup does not match its manifest.");
         }
 
-        return (manifest, archiveHash);
+        return manifest;
     }
 }

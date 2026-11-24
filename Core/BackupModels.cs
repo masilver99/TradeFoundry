@@ -26,7 +26,32 @@ public sealed record BackupRun(
     string ArchiveName,
     long? ArchiveSize,
     string Message,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    string CloudStatus = "",
+    string CloudMessage = "");
+
+/// <summary>Where a run's archive stands in Backblaze B2. Empty when cloud backup was off for that run.</summary>
+public static class BackupCloudStatus
+{
+    public const string None = "";
+    public const string Uploading = "uploading";
+    public const string Uploaded = "uploaded";
+    public const string Failed = "failed";
+}
+
+/// <summary>
+/// A Backblaze B2 bucket reached through its S3-compatible API. The application key is held only in
+/// memory; what is stored is <see cref="BackupCloudSettings"/>.
+/// </summary>
+public sealed record B2Connection(string Endpoint, string Bucket, string KeyId, string ApplicationKey);
+
+/// <summary>Stored cloud destination. The application key is protected with Data Protection.</summary>
+public sealed record BackupCloudSettings(string Endpoint, string Bucket, string KeyId, string ProtectedApplicationKey);
+
+/// <summary>Publishing tokens carried in an encrypted backup as <c>secrets.json</c>, unprotected.</summary>
+public sealed record BackupSecretsFile(IReadOnlyList<BackupPublishingToken> PublishingTokens);
+
+public sealed record BackupPublishingToken(Guid JournalId, string Token);
 
 /// <summary>One file inside a backup archive, with the size and hash recorded at backup time.</summary>
 public sealed record BackupManifestEntry(string Path, long Size, string Sha256);
@@ -128,5 +153,9 @@ public sealed record RestoredFrom(Guid BackupId, DateTimeOffset BackupCreatedUtc
 /// <summary>The owner account and settings carried from a database into the fresh one "start clean" creates.</summary>
 public sealed record StartCleanOwner(string Id, string DisplayName, string PasswordHash, string CreatedUtc, IReadOnlyDictionary<string, string> Settings);
 
-/// <summary>A backup found in a destination, as listed from its sidecar.</summary>
-public sealed record BackupListing(BackupSidecar Sidecar, string ArchivePath, bool FromThisInstallation);
+/// <summary>
+/// A backup found in a destination, as listed from its sidecar. For a folder, <see cref="ArchivePath"/>
+/// is a file path; for B2 it is the object key, with <see cref="VersionId"/> set and <see cref="Hidden"/>
+/// true when it was pruned or deleted but is still within the bucket's recovery window.
+/// </summary>
+public sealed record BackupListing(BackupSidecar Sidecar, string ArchivePath, bool FromThisInstallation, string? VersionId = null, bool Hidden = false);

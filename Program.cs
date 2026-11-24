@@ -130,6 +130,8 @@ WebApplication BuildApplication(bool firstStart)
     builder.Services.Configure<BackupOptions>(builder.Configuration.GetSection("Backup"));
     builder.Services.AddSingleton<TradeFoundryDb>();
     builder.Services.AddSingleton<AppActivityGate>();
+    builder.Services.AddSingleton<BackupSecrets>();
+    builder.Services.AddSingleton<IBackupCloudFactory, B2CloudFactory>();
     builder.Services.AddSingleton<BackupService>();
     builder.Services.AddHostedService(services => services.GetRequiredService<BackupService>());
     builder.Services.AddSingleton(hostRestart);

@@ -8,11 +8,12 @@ using TradeFoundry.Data;
 
 namespace TradeFoundry.Services.Backup;
 
-public sealed record RestorePreview(BackupManifest Manifest, IReadOnlyList<string> Journals, string OwnerName, IReadOnlyList<string> Warnings);
+public sealed record RestorePreview(BackupManifest Manifest, IReadOnlyList<string> Journals, string OwnerName, IReadOnlyList<string> Warnings, int PublishingTokens = 0);
 
 public sealed record RestoreJob(Guid Id, string State, string Stage, double? Fraction, string? Message, RestorePreview? Preview)
 {
     public const string Staging = "staging";
+    public const string NeedsPassphrase = "needs-passphrase";
     public const string Ready = "ready";
     public const string Failed = "failed";
     public const string Committing = "committing";
@@ -46,11 +47,17 @@ public sealed class RestoreService : IHostedService
     private readonly object _sync = new();
     private RestoreJob? _job;
     private CancellationTokenSource? _jobCancellation;
+    private (string ArchivePath, bool Owned)? _source;
+    private B2Connection? _cloudConnection;
+    private IReadOnlyList<BackupListing> _cloudListings = [];
+    private readonly BackupSecrets? _secrets;
     private string? _code;
     private int _codeFailures;
 
-    public RestoreService(TradeFoundryDb database, BackupService backups, HostRuntimeInfo runtime, HostRestart restart, IHostApplicationLifetime lifetime, ILogger<RestoreService> logger)
+    public RestoreService(TradeFoundryDb database, BackupService backups, HostRuntimeInfo runtime, HostRestart restart, IHostApplicationLifetime lifetime, ILogger<RestoreService> logger,
+        BackupSecrets? secrets = null)
     {
+        _secrets = secrets;
         _database = database;
         _backups = backups;
         _runtime = runtime;
@@ -136,6 +143,84 @@ public sealed class RestoreService : IHostedService
         return TryStart(upload, id, out var message) ? (true, message) : (false, message);
     }
 
+    /// <summary>The bucket last listed for restore, without its key, so the page can show which one.</summary>
+    public string? CloudBucket { get { lock (_sync) return _cloudConnection?.Bucket; } }
+
+    /// <summary>
+    /// Lists backups in a B2 bucket, from every installation. The key is kept in memory only, for
+    /// downloading the chosen backup, and is never stored.
+    /// </summary>
+    public async Task<IReadOnlyList<BackupListing>> ListCloudBackupsAsync(B2Connection connection, bool includeHidden, CancellationToken cancellationToken)
+    {
+        using var cloud = _backups.CloudFactory.Create(connection);
+        var listings = await CloudBackups.ListAsync(cloud, null, includeHidden, cancellationToken);
+        lock (_sync)
+        {
+            _cloudConnection = connection;
+            _cloudListings = listings;
+        }
+
+        return listings;
+    }
+
+    /// <summary>Downloads a listed cloud backup into staging, checks its hash against the sidecar, then unpacks it like an upload.</summary>
+    public bool TryStageFromCloud(string archiveKey, string? versionId, out string message)
+    {
+        lock (_sync)
+        {
+            var listing = _cloudListings.FirstOrDefault(item => item.ArchivePath == archiveKey && item.VersionId == versionId);
+            if (_cloudConnection is not { } connection || listing is null)
+            {
+                message = "List the bucket's backups again, then choose one.";
+                return false;
+            }
+
+            if (_job is { State: RestoreJob.Staging or RestoreJob.Committing })
+            {
+                message = "A backup is already being prepared.";
+                return false;
+            }
+
+            if (_job is { } previous) TryDeleteDirectory(Path.Combine(StagingRoot, previous.Id.ToString("N")));
+            var id = Guid.NewGuid();
+            _jobCancellation?.Dispose();
+            _jobCancellation = new CancellationTokenSource();
+            _job = new RestoreJob(id, RestoreJob.Staging, "Downloading from Backblaze B2", 0, null, null);
+            _source = null;
+            var token = _jobCancellation.Token;
+            _ = Task.Run(() => DownloadAndStageAsync(id, connection, listing, token), CancellationToken.None);
+            message = "Downloading the backup.";
+            return true;
+        }
+    }
+
+    /// <summary>Continues a restore that stopped to ask for the backup's passphrase.</summary>
+    public bool Unlock(string passphrase, out string message)
+    {
+        lock (_sync)
+        {
+            if (_job is not { State: RestoreJob.NeedsPassphrase } job || _source is not { } source)
+            {
+                message = "There is no encrypted backup waiting for its passphrase.";
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(passphrase))
+            {
+                message = "Enter the backup's passphrase.";
+                return false;
+            }
+
+            _jobCancellation?.Dispose();
+            _jobCancellation = new CancellationTokenSource();
+            _job = job with { State = RestoreJob.Staging, Stage = "Opening the encrypted backup", Fraction = null, Message = null };
+            var token = _jobCancellation.Token;
+            _ = Task.Run(() => StageAsync(job.Id, source.ArchivePath, source.Owned, passphrase, token), CancellationToken.None);
+            message = "Checking the backup.";
+            return true;
+        }
+    }
+
     /// <summary>Drops a staged or failed restore.</summary>
     public void Discard()
     {
@@ -144,6 +229,7 @@ public sealed class RestoreService : IHostedService
             if (_job?.State == RestoreJob.Committing) return;
             _jobCancellation?.Cancel();
             _job = null;
+            _source = null;
         }
 
         TryDeleteDirectory(StagingRoot);
@@ -168,8 +254,11 @@ public sealed class RestoreService : IHostedService
                 hash.CommandText = "SELECT password_hash FROM app_users ORDER BY created_utc LIMIT 1";
                 if (hash.ExecuteScalar() is not string stored || !PasswordService.Verify(password ?? string.Empty, stored))
                     return "That is not the password of the backup's owner account.";
-                TradeFoundryDb.PrepareRestoredDatabase(connection, preview.Manifest, DateTimeOffset.UtcNow);
+                TradeFoundryDb.PrepareRestoredDatabase(connection, preview.Manifest, DateTimeOffset.UtcNow, ProtectCarriedTokens(staging));
             }
+
+            TryDeleteFile(Path.Combine(staging, BackupRestoreReader.StagedSecretsName));
+            lock (_sync) _cloudConnection = null;
 
             PendingDataOperation.Write(DataDirectory, new PendingOperation(
                 PendingOperation.Restore, PendingOperation.MovingAside, DateTimeOffset.UtcNow,
@@ -252,6 +341,72 @@ public sealed class RestoreService : IHostedService
         return Task.CompletedTask;
     }
 
+    /// <summary>Publishing tokens from the backup's secrets.json, protected again with this machine's keys.</summary>
+    private Dictionary<Guid, string> ProtectCarriedTokens(string staging)
+    {
+        var path = Path.Combine(staging, BackupRestoreReader.StagedSecretsName);
+        var tokens = new Dictionary<Guid, string>();
+        if (_secrets is null || !File.Exists(path)) return tokens;
+        foreach (var token in ReadSecrets(path)?.PublishingTokens ?? [])
+        {
+            if (token.Token.Length is >= 32 and <= 4096 && token.Token.All(c => c is >= '!' and <= '~'))
+                tokens[token.JournalId] = _secrets.ProtectPublishingToken(token.Token);
+        }
+
+        return tokens;
+    }
+
+    private static BackupSecretsFile? ReadSecrets(string path)
+    {
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<BackupSecretsFile>(File.ReadAllText(path), BackupArchive.Json);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private async Task DownloadAndStageAsync(Guid id, B2Connection connection, BackupListing listing, CancellationToken cancellationToken)
+    {
+        var staging = Path.Combine(StagingRoot, id.ToString("N"));
+        var download = Path.Combine(staging, "download" + BackupArchive.Extension);
+        try
+        {
+            Directory.CreateDirectory(staging);
+            using (var cloud = _backups.CloudFactory.Create(connection))
+            {
+                await cloud.DownloadAsync(listing.ArchivePath, listing.VersionId, download, new StageProgress(this, id, "Downloading from Backblaze B2"), cancellationToken);
+            }
+
+            Report(id, "Checking the download", null);
+            string hash;
+            await using (var file = new FileStream(download, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.SequentialScan))
+            {
+                hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(file, cancellationToken));
+            }
+
+            if (new FileInfo(download).Length != listing.Sidecar.Size || !string.Equals(hash, listing.Sidecar.Sha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("The downloaded backup does not match the size and hash recorded when it was made.");
+        }
+        catch (Exception ex)
+        {
+            var cancelled = ex is OperationCanceledException && cancellationToken.IsCancellationRequested;
+            if (!cancelled && ex is not InvalidDataException) _logger.LogError(ex, "Could not download backup {Key}.", listing.ArchivePath);
+            TryDeleteDirectory(staging);
+            lock (_sync)
+            {
+                if (_job?.Id == id)
+                    _job = cancelled ? null : _job with { State = RestoreJob.Failed, Stage = string.Empty, Fraction = null, Message = ex is InvalidDataException ? ex.Message : $"The backup could not be downloaded: {B2Cloud.Describe(ex)}" };
+            }
+
+            return;
+        }
+
+        await StageAsync(id, download, deleteArchive: true, null, cancellationToken);
+    }
+
     private bool TryStart(string archivePath, Guid? uploadId, out string message)
     {
         lock (_sync)
@@ -268,21 +423,57 @@ public sealed class RestoreService : IHostedService
             _jobCancellation?.Dispose();
             _jobCancellation = new CancellationTokenSource();
             _job = new RestoreJob(id, RestoreJob.Staging, "Checking the backup", null, null, null);
+            _source = null;
             var token = _jobCancellation.Token;
-            _ = Task.Run(() => StageAsync(id, archivePath, uploadId is not null, token), CancellationToken.None);
+            _ = Task.Run(() => StageAsync(id, archivePath, uploadId is not null, null, token), CancellationToken.None);
             message = "Checking the backup.";
             return true;
         }
     }
 
-    private Task StageAsync(Guid id, string archivePath, bool deleteArchive, CancellationToken cancellationToken)
+    private Task StageAsync(Guid id, string archivePath, bool deleteArchive, string? passphrase, CancellationToken cancellationToken)
     {
         var staging = Path.Combine(StagingRoot, id.ToString("N"));
         var unpacked = deleteArchive ? Path.Combine(staging, "unpacked") : staging;
         try
         {
-            Report(id, "Checking and unpacking the backup", 0);
-            var manifest = BackupRestoreReader.Extract(archivePath, unpacked, new StageProgress(this, id, "Checking and unpacking the backup"), cancellationToken);
+            BackupManifest manifest;
+            if (BackupEncryption.IsEncrypted(archivePath))
+            {
+                // Ask for the passphrase and keep the archive; nothing has been unpacked yet.
+                Stream decrypted;
+                try
+                {
+                    if (passphrase is null) throw new BackupPassphraseException();
+                    Report(id, "Opening the encrypted backup", null);
+                    decrypted = BackupEncryption.OpenDecrypted(archivePath, passphrase);
+                }
+                catch (BackupPassphraseException)
+                {
+                    lock (_sync)
+                    {
+                        if (_job?.Id == id)
+                        {
+                            _source = (archivePath, deleteArchive);
+                            _job = _job with { State = RestoreJob.NeedsPassphrase, Stage = string.Empty, Fraction = null, Message = passphrase is null ? null : "That passphrase does not open this backup." };
+                        }
+                    }
+
+                    return Task.CompletedTask;
+                }
+
+                using (decrypted)
+                {
+                    Report(id, "Decrypting, checking and unpacking the backup", 0);
+                    manifest = BackupRestoreReader.Extract(decrypted, unpacked, new StageProgress(this, id, "Decrypting, checking and unpacking the backup"), cancellationToken);
+                }
+            }
+            else
+            {
+                Report(id, "Checking and unpacking the backup", 0);
+                manifest = BackupRestoreReader.Extract(archivePath, unpacked, new StageProgress(this, id, "Checking and unpacking the backup"), cancellationToken);
+            }
+
             if (deleteArchive)
             {
                 // Uploads are unpacked beside the upload; move the result up and drop the upload.
@@ -329,10 +520,12 @@ public sealed class RestoreService : IHostedService
                 while (reader.Read()) journals.Add(reader.GetInt64(1) == 0 ? reader.GetString(0) : $"{reader.GetString(0)} (archived)");
             }
 
+            var secretsPath = Path.Combine(staging, BackupRestoreReader.StagedSecretsName);
+            var carriedTokens = File.Exists(secretsPath) ? ReadSecrets(secretsPath)?.PublishingTokens.Count ?? 0 : 0;
             lock (_sync)
             {
                 if (_job?.Id == id)
-                    _job = _job with { State = RestoreJob.Ready, Stage = string.Empty, Fraction = null, Preview = new RestorePreview(manifest, journals, ownerName, warnings) };
+                    _job = _job with { State = RestoreJob.Ready, Stage = string.Empty, Fraction = null, Message = null, Preview = new RestorePreview(manifest, journals, ownerName, warnings, carriedTokens) };
             }
         }
         catch (Exception ex)
@@ -409,6 +602,17 @@ public sealed class RestoreService : IHostedService
         using var command = connection.CreateCommand();
         command.CommandText = sql;
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     private static void TryDeleteDirectory(string path)

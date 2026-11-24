@@ -20,6 +20,7 @@ public static partial class BackupRestoreReader
     private const long MaxManifestBytes = 64L * 1024 * 1024;
     public const string StagedDatabaseName = "journal.db";
     public const string StagedFilesFolder = "files";
+    public const string StagedSecretsName = "secrets.json";
 
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")]
     private static partial Regex SafeSegment();
@@ -38,7 +39,14 @@ public static partial class BackupRestoreReader
     /// </summary>
     public static BackupManifest Extract(string archivePath, string stagingDirectory, IProgress<double>? progress, CancellationToken cancellationToken)
     {
-        using var zip = ZipFile.OpenRead(archivePath);
+        using var stream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024);
+        return Extract(stream, stagingDirectory, progress, cancellationToken);
+    }
+
+    /// <summary>Same as the path overload, for an archive read from a seekable stream such as a decrypted backup.</summary>
+    public static BackupManifest Extract(Stream archive, string stagingDirectory, IProgress<double>? progress, CancellationToken cancellationToken)
+    {
+        using var zip = new ZipArchive(archive, ZipArchiveMode.Read, leaveOpen: true);
         var manifest = ReadManifest(zip);
         if (zip.Entries.Count > MaxEntries) throw new InvalidDataException("The backup contains too many files.");
 
@@ -49,6 +57,8 @@ public static partial class BackupRestoreReader
         {
             if (entry.Size < 0 || entry.Sha256 is not { Length: 64 } || !entry.Sha256.All(char.IsAsciiHexDigitLower))
                 throw new InvalidDataException($"The manifest entry for {entry.Path} is malformed.");
+            if (entry.Path == BackupArchive.SecretsEntry && entry.Size > 1024 * 1024)
+                throw new InvalidDataException("The backup's secrets file is too large.");
             if (!seenIgnoringCase.Add(entry.Path))
                 throw new InvalidDataException($"The backup lists {entry.Path} more than once, ignoring case.");
             targets[entry.Path] = TargetFor(entry.Path, manifest, stagingDirectory, ref databaseEntries);
@@ -170,8 +180,6 @@ public static partial class BackupRestoreReader
             throw new InvalidDataException("This file is not a TradeFoundry backup.");
         if (manifest.FormatVersion > BackupManifest.CurrentFormatVersion || manifest.SchemaVersion > TradeFoundryDb.SchemaVersion)
             throw new InvalidDataException($"This backup was made by a newer version of TradeFoundry ({manifest.AppVersion}). Install that version or newer to restore it.");
-        if (manifest.Encrypted)
-            throw new InvalidDataException("This backup is encrypted, which this version of TradeFoundry cannot read yet.");
         return manifest;
     }
 
@@ -180,6 +188,8 @@ public static partial class BackupRestoreReader
         var segments = path.Split('/');
         if (segments.Any(segment => !SafeSegment().IsMatch(segment)))
             throw new InvalidDataException($"The backup contains an unsafe file name: {path}");
+
+        if (path == BackupArchive.SecretsEntry) return Path.Combine(stagingDirectory, StagedSecretsName);
 
         if (segments is ["database", var databaseFile] && path == manifest.DatabaseEntry)
         {

@@ -30,6 +30,11 @@ public class RestoreModel : PageModel
     public bool HasOwner { get; private set; }
     public RestoreJob? Job { get; private set; }
     public IReadOnlyList<BackupListing>? Backups { get; private set; }
+    public IReadOnlyList<BackupListing>? CloudBackups { get; private set; }
+    [BindProperty] public string? Endpoint { get; set; }
+    [BindProperty] public string? Bucket { get; set; }
+    [BindProperty] public string? KeyId { get; set; }
+    [BindProperty] public bool ShowHidden { get; set; }
     public IReadOnlyList<SetAsideCopy> SetAside { get; private set; } = [];
     public string? ErrorMessage { get; private set; }
 
@@ -103,6 +108,51 @@ public class RestoreModel : PageModel
         ErrorMessage = _restore.Commit(password ?? string.Empty);
         Job = _restore.Job;
         return Page();
+    }
+
+    public async Task<IActionResult> OnPostCloudList(string? applicationKey, CancellationToken cancellationToken)
+    {
+        if (!Load(verifyCode: true)) return Redirect("/Login?ReturnUrl=%2Frestore");
+        if (Access != RestoreAccess.Allowed) return Page();
+        var endpoint = B2Cloud.NormalizeEndpoint(Endpoint);
+        if (endpoint is null)
+        {
+            ErrorMessage = "Enter the bucket's S3 endpoint, such as https://s3.us-west-002.backblazeb2.com.";
+            return Page();
+        }
+
+        if (!B2Cloud.IsValidBucket(Bucket?.Trim()) || string.IsNullOrWhiteSpace(KeyId) || string.IsNullOrWhiteSpace(applicationKey))
+        {
+            ErrorMessage = "Enter the bucket name, application key ID and application key.";
+            return Page();
+        }
+
+        try
+        {
+            CloudBackups = await _restore.ListCloudBackupsAsync(new B2Connection(endpoint, Bucket!.Trim(), KeyId.Trim(), applicationKey.Trim()), ShowHidden, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ErrorMessage = B2Cloud.Describe(ex);
+        }
+
+        return Page();
+    }
+
+    public IActionResult OnPostCloudStage(string archiveKey, string? versionId)
+    {
+        if (!Load(verifyCode: true)) return Redirect("/Login?ReturnUrl=%2Frestore");
+        if (Access != RestoreAccess.Allowed) return Page();
+        if (!_restore.TryStageFromCloud(archiveKey, string.IsNullOrEmpty(versionId) ? null : versionId, out var message)) TempData["RestoreError"] = message;
+        return Redirect("/restore");
+    }
+
+    public IActionResult OnPostUnlock(string? passphrase)
+    {
+        if (!Load(verifyCode: true)) return Redirect("/Login?ReturnUrl=%2Frestore");
+        if (Access != RestoreAccess.Allowed) return Page();
+        if (!_restore.Unlock(passphrase ?? string.Empty, out var message)) TempData["RestoreError"] = message;
+        return Redirect("/restore");
     }
 
     public IActionResult OnPostPutBack(string name)

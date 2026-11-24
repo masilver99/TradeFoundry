@@ -52,6 +52,8 @@ public class ReviewModel : PageModel
     [BindProperty] public List<TradeSetupCriterionEvaluationInput> SetupCriterionEvaluations { get; set; } = new();
 
     public DailyReviewModel Day { get; private set; } = new();
+    /// <summary>The day statistics panel; null when the day has no completed trade.</summary>
+    public DayStatsViewModel? DayStats { get; private set; }
     public MaeTargetSettings MaeTargets { get; private set; } = new();
     public string? ErrorMessage { get; private set; }
     public string? NoticeMessage { get; private set; }
@@ -71,6 +73,7 @@ public class ReviewModel : PageModel
             Date = date;
             DailyJournalStateJson = Day.DailyJournal.Text;
             Focus = ActiveTrade?.Trade.ReviewKey;
+            DayStats = BuildDayStats();
         }
         catch (InvalidOperationException)
         {
@@ -665,6 +668,16 @@ public class ReviewModel : PageModel
 
     private JournalFilterScope? _filterScope;
     private bool _filterResolved;
+
+    private DayStatsViewModel? BuildDayStats()
+    {
+        if (Day.CompletedTradeCount == 0) return null;
+        var journal = Day.Journal.Id == Guid.Empty ? _database.GetJournal(JournalId) : Day.Journal;
+        if (journal is null) return null;
+        var trades = FilterScope?.Apply(_database.GetAllTrades(JournalId)) ?? _database.GetAllTrades(JournalId);
+        var history = DailyTradeAggregation.Build(trades, journal.TimeZone);
+        return DayStatsViewModel.Build(_database, journal, Day.Date, history, Day.CompletedTrades.Select(item => item.Trade), Day.OpenTradeCount, FilterScope?.IsActive == true, "review-day-stats", context: "review", chartsOpen: false);
+    }
 
     private DailyReviewModel GetFilteredDay(DateOnly date, string? focusReviewKey = null) => _reviews.GetDay(JournalId, date, FilterScope, ShowHidden, focusReviewKey ?? Focus);
 

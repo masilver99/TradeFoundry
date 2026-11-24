@@ -97,6 +97,7 @@ public sealed partial class TradeFoundryDb
             "CREATE TABLE IF NOT EXISTS app_users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, created_utc TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS journals (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES app_users(id), name TEXT NOT NULL, execution_context TEXT NOT NULL, labels TEXT NOT NULL DEFAULT '', description_lexical_state_json TEXT NOT NULL DEFAULT '', timezone TEXT NOT NULL DEFAULT 'UTC', currency TEXT NOT NULL DEFAULT 'USD', grouping_policy TEXT NOT NULL DEFAULT 'flat_to_flat', starting_equity TEXT NULL, created_utc TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
             "CREATE TABLE IF NOT EXISTS journal_mae_targets (journal_id TEXT NOT NULL REFERENCES journals(id) ON DELETE CASCADE, instrument_code TEXT NOT NULL DEFAULT '', target_per_contract TEXT NOT NULL CHECK(CAST(target_per_contract AS REAL) > 0), updated_utc TEXT NOT NULL, PRIMARY KEY(journal_id, instrument_code))",
+            "CREATE TABLE IF NOT EXISTS journal_daily_limits (journal_id TEXT PRIMARY KEY REFERENCES journals(id) ON DELETE CASCADE, max_daily_loss TEXT NULL, daily_profit_goal TEXT NULL, revenge_window_minutes INTEGER NOT NULL DEFAULT 5, updated_utc TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS ix_journals_owner ON journals(owner_user_id, archived, created_utc)",
             "CREATE TABLE IF NOT EXISTS instruments (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, default_commission TEXT NULL, exchange_fee_per_contract TEXT NULL, nfa_fee_per_contract TEXT NULL, clearing_fee_per_contract TEXT NULL, point_value TEXT NOT NULL, tick_size TEXT NOT NULL DEFAULT '0', created_utc TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS source_instrument_mappings (id TEXT PRIMARY KEY, application_key TEXT NOT NULL, match_regex TEXT NOT NULL, instrument_code TEXT NOT NULL REFERENCES instruments(code), commission_override TEXT NULL, position INTEGER NOT NULL DEFAULT 0, created_utc TEXT NOT NULL, UNIQUE(application_key, match_regex))",
@@ -527,6 +528,45 @@ public sealed partial class TradeFoundryDb
             DefaultPerContract = defaultTarget,
             InstrumentTargets = instrumentTargets
         };
+    }
+
+    public DailyLimitSettings GetDailyLimitSettings(Guid journalId)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT max_daily_loss, daily_profit_goal, revenge_window_minutes FROM journal_daily_limits WHERE journal_id = $journal";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) return new DailyLimitSettings();
+        return new DailyLimitSettings
+        {
+            MaxDailyLoss = reader.IsDBNull(0) ? null : ParseDecimal(reader.GetString(0)),
+            DailyProfitGoal = reader.IsDBNull(1) ? null : ParseDecimal(reader.GetString(1)),
+            RevengeWindowMinutes = reader.GetInt32(2)
+        };
+    }
+
+    public void SaveDailyLimitSettings(Guid journalId, DailyLimitSettings settings)
+    {
+        _ = GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
+        if (settings.MaxDailyLoss is <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(settings), "The maximum daily loss must be greater than zero.");
+        if (settings.DailyProfitGoal is <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(settings), "The daily profit goal must be greater than zero.");
+        if (settings.RevengeWindowMinutes is < 1 or > DailyLimitSettings.MaxRevengeWindowMinutes)
+            throw new ArgumentOutOfRangeException(nameof(settings), $"The revenge window must be between 1 and {DailyLimitSettings.MaxRevengeWindowMinutes} minutes.");
+
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO journal_daily_limits (journal_id, max_daily_loss, daily_profit_goal, revenge_window_minutes, updated_utc) VALUES ($journal, $loss, $goal, $window, $updated) "
+            + "ON CONFLICT(journal_id) DO UPDATE SET max_daily_loss = excluded.max_daily_loss, daily_profit_goal = excluded.daily_profit_goal, revenge_window_minutes = excluded.revenge_window_minutes, updated_utc = excluded.updated_utc";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        command.Parameters.AddWithValue("$loss", settings.MaxDailyLoss.HasValue ? settings.MaxDailyLoss.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : DBNull.Value);
+        command.Parameters.AddWithValue("$goal", settings.DailyProfitGoal.HasValue ? settings.DailyProfitGoal.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : DBNull.Value);
+        command.Parameters.AddWithValue("$window", settings.RevengeWindowMinutes);
+        command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
     }
 
     public void SaveMaeTargetSettings(Guid journalId, decimal? defaultPerContract, IReadOnlyDictionary<string, decimal> instrumentTargets)

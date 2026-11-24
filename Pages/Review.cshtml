@@ -14,6 +14,7 @@
     var summary = Model.Day.Summary;
     var activeReviewKey = Model.ActiveTrade?.Trade.ReviewKey ?? string.Empty;
     ViewData["UsesLightweightCharts"] = allTrades.Length > 0;
+    ViewData["UsesPlotly"] = Model.DayStats is not null;
     ViewData["UsesLexical"] = true;
     ViewData["UsesTags"] = true;
     ViewData["ReviewModel"] = Model;
@@ -194,6 +195,12 @@ else
 
     else
     {
+        @if (Model.DayStats is not null)
+        {
+            <div class="card tf-card tf-review-day-stats">
+                <div class="card-body"><partial name="_DayStats" model="Model.DayStats" /></div>
+            </div>
+        }
         <div class="tf-review-workspace" data-review-workspace>
             <aside class="card tf-card tf-review-roster" aria-label="Trades for selected day">
                             <div class="tf-review-roster-list" role="listbox" aria-label="Trades on selected day">

@@ -81,6 +81,22 @@ public sealed class MaeTargetSettings
     }
 }
 
+/// <summary>
+/// Personal daily guardrails used by the day statistics. Review-only: nothing here places or blocks orders.
+/// </summary>
+public sealed class DailyLimitSettings
+{
+    public const int DefaultRevengeWindowMinutes = 5;
+    public const int MaxRevengeWindowMinutes = 240;
+
+    /// <summary>The realized loss, as a positive amount, after which the day should stop. Null when not set.</summary>
+    public decimal? MaxDailyLoss { get; init; }
+    /// <summary>The realized profit, as a positive amount, at which the day is done. Null when not set.</summary>
+    public decimal? DailyProfitGoal { get; init; }
+    /// <summary>An entry this many minutes or fewer after a losing exit counts as a possible revenge trade.</summary>
+    public int RevengeWindowMinutes { get; init; } = DefaultRevengeWindowMinutes;
+}
+
 public sealed class WatchedImportFileStatus
 {
     public Guid JournalId { get; init; }

@@ -77,6 +77,14 @@ public sealed class DailyJournalModel : PageModel
         return new JsonResult(new { date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), trades });
     }
 
+    public IActionResult OnGetDayStats(DateOnly date)
+    {
+        if (!LoadJournal()) return NotFound();
+        if (!TradeDaysByDate.TryGetValue(date, out var day) || day.CompletedTradeCount == 0) return NotFound();
+        var model = DayStatsViewModel.Build(_database, Journal, date, TradeDays, day.CompletedTrades, day.OpenTrades.Count, Filter.IsActive, $"daily-journal-stats-{date:yyyyMMdd}", context: "daily-journal");
+        return Partial("_DayStats", model);
+    }
+
     public async Task<IActionResult> OnPostUploadImageAsync(DateOnly date, IFormFile? image, CancellationToken cancellationToken)
     {
         if (_database.GetJournal(JournalId) is null) return NotFound();
@@ -253,6 +261,8 @@ public sealed class DailyJournalModel : PageModel
             TradeCount = trading?.TotalTradeCount ?? 0,
             RealizedNetPnl = trading?.RealizedNetPnl ?? 0m,
             ChartUrl = $"{page}?handler=DayChart&date={queryDate}",
+            StatsUrl = $"{page}?handler=DayStats&date={queryDate}",
+            CompletedTradeCount = trading?.CompletedTradeCount ?? 0,
             ImageUploadUrl = $"{page}?handler=UploadImage&date={queryDate}",
             SaveUrl = $"{page}?handler=Save&date={queryDate}",
             AutosaveUrl = $"{page}?handler=Autosave&date={queryDate}"
@@ -273,6 +283,8 @@ public sealed class DailyJournalCardViewModel
     public int TradeCount { get; init; }
     public decimal RealizedNetPnl { get; init; }
     public string ChartUrl { get; init; } = string.Empty;
+    public int CompletedTradeCount { get; init; }
+    public string StatsUrl { get; init; } = string.Empty;
     public string ImageUploadUrl { get; init; } = string.Empty;
     public string SaveUrl { get; init; } = string.Empty;
     public string AutosaveUrl { get; init; } = string.Empty;

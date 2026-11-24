@@ -29,6 +29,9 @@ public class JournalModel : PageModel
     [BindProperty] public decimal? StartingEquity { get; set; }
     [BindProperty] public decimal? MaeTargetPerContract { get; set; }
     [BindProperty] public string? MaeInstrumentOverrides { get; set; } = string.Empty;
+    [BindProperty] public decimal? MaxDailyLoss { get; set; }
+    [BindProperty] public decimal? DailyProfitGoal { get; set; }
+    [BindProperty] public int RevengeWindowMinutes { get; set; } = DailyLimitSettings.DefaultRevengeWindowMinutes;
 
     public Journal? Journal { get; private set; }
     public string? FlashMessage { get; private set; }
@@ -89,6 +92,39 @@ public class JournalModel : PageModel
         return Redirect($"/journal/{JournalId:D}/settings/journal");
     }
 
+    public IActionResult OnPostSaveDailyLimits()
+    {
+        Journal = _database.GetJournal(JournalId);
+        if (Journal is null) return NotFound();
+
+        foreach (var key in ModelState.Keys.Where(key => key is not (nameof(MaxDailyLoss) or nameof(DailyProfitGoal) or nameof(RevengeWindowMinutes))).ToArray())
+            ModelState.Remove(key);
+
+        if (MaxDailyLoss is <= 0m)
+            ModelState.AddModelError(nameof(MaxDailyLoss), "Enter a max daily loss greater than zero, or leave it empty.");
+        if (DailyProfitGoal is <= 0m)
+            ModelState.AddModelError(nameof(DailyProfitGoal), "Enter a daily goal greater than zero, or leave it empty.");
+        if (RevengeWindowMinutes is < 1 or > DailyLimitSettings.MaxRevengeWindowMinutes)
+            ModelState.AddModelError(nameof(RevengeWindowMinutes), $"Enter a re-entry window from 1 to {DailyLimitSettings.MaxRevengeWindowMinutes} minutes.");
+        if (!ModelState.IsValid)
+        {
+            var submitted = (MaxDailyLoss, DailyProfitGoal, RevengeWindowMinutes);
+            Load();
+            (MaxDailyLoss, DailyProfitGoal, RevengeWindowMinutes) = submitted;
+            return Page();
+        }
+
+        _database.SaveDailyLimitSettings(JournalId, new DailyLimitSettings
+        {
+            MaxDailyLoss = MaxDailyLoss,
+            DailyProfitGoal = DailyProfitGoal,
+            RevengeWindowMinutes = RevengeWindowMinutes
+        });
+        TempData["FlashMessage"] = "Daily limits saved.";
+        TempData["FlashKind"] = "success";
+        return Redirect($"/journal/{JournalId:D}/settings/journal");
+    }
+
     private Dictionary<string, decimal> ParseInstrumentOverrides()
     {
         var targets = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
@@ -135,6 +171,10 @@ public class JournalModel : PageModel
         Currency = Journal.Currency;
         GroupingPolicy = Journal.GroupingPolicy;
         StartingEquity = Journal.StartingEquity;
+        var limits = _database.GetDailyLimitSettings(JournalId);
+        MaxDailyLoss = limits.MaxDailyLoss;
+        DailyProfitGoal = limits.DailyProfitGoal;
+        RevengeWindowMinutes = limits.RevengeWindowMinutes;
         var maeTargets = _database.GetMaeTargetSettings(JournalId);
         MaeTargetPerContract = maeTargets.DefaultPerContract;
         MaeInstrumentOverrides = string.Join(Environment.NewLine, maeTargets.InstrumentTargets

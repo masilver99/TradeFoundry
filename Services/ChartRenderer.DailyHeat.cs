@@ -10,9 +10,11 @@ public static partial class ChartRenderer
     /// One range bar per day: the body runs from flat to the day's net P&amp;L and the
     /// wick runs down to the day's estimated low, so the heat behind a result is visible.
     /// </summary>
-    public static string DailyHeatRange(DailyHeatSummary summary)
+    public static string DailyHeatRange(DailyHeatSummary summary) => DailyHeatRange(summary.Days, null);
+
+    /// <param name="highlight">A day to outline, such as the day a daily page is showing.</param>
+    public static string DailyHeatRange(IReadOnlyList<DailyHeatDay> days, DateOnly? highlight)
     {
-        var days = summary.Days;
         if (days.Count == 0) return Empty(NoMaeMessage);
 
         var dates = DayLabels(days);
@@ -50,7 +52,12 @@ public static partial class ChartRenderer
                 y = days.Select(day => day.NetPnl).ToArray(),
                 width = .7,
                 name = "Net P&L",
-                marker = new { color = days.Select(day => day.NetPnl >= 0m ? Green : Red).ToArray() },
+                marker = new
+                {
+                    color = days.Select(day => day.NetPnl >= 0m ? Green : Red).ToArray(),
+                    opacity = days.Select(day => highlight is null || day.Date == highlight ? 1d : .55d).ToArray(),
+                    line = new { color = Ink, width = days.Select(day => day.Date == highlight ? 2d : 0d).ToArray() }
+                },
                 customdata,
                 hovertemplate = "%{x}<br>Net P&L: %{y:,.2f}<br>Intraday low: %{customdata[0]:,.2f}<br>Recovered from low: %{customdata[1]:,.2f}<br>Total heat: %{customdata[2]:,.2f}<br>%{customdata[3]} trades%{customdata[4]}<extra></extra>"
             }

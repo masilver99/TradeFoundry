@@ -82,7 +82,17 @@ public sealed record BrokerStatement(
     DateTimeOffset ImportedUtc);
 
 /// <summary>A stored statement day, with the statement it came from.</summary>
-public sealed record BrokerStatementDayRecord(Guid StatementId, BrokerStatementKind Kind, string FileName, DateTimeOffset ImportedUtc, StatementDay Day);
+/// <param name="StatementHasWarnings">The statement did not read cleanly, so its figures are shown but never applied.</param>
+public sealed record BrokerStatementDayRecord(Guid StatementId, BrokerStatementKind Kind, string FileName, string Account, bool StatementHasWarnings, DateTimeOffset ImportedUtc, StatementDay Day);
+
+/// <summary>
+/// New fee components for one trade's review. <paramref name="ExpectedRevision"/> is the review revision the
+/// fees were calculated against; if the review has changed since, nothing is written.
+/// </summary>
+public sealed record TradeFeeUpdate(string ReviewKey, int ExpectedRevision, decimal ExchangeFees, decimal NfaFees, decimal ClearingFees, string Reason);
+
+/// <summary>A trade review changed after statement fees were calculated for it, so none of the batch was saved.</summary>
+public sealed class StatementFeeConflictException(string message) : InvalidOperationException(message);
 
 /// <summary>The statement could not be read as a supported broker statement.</summary>
 public sealed class StatementParseException(string message) : InvalidOperationException(message);

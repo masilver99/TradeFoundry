@@ -50,7 +50,7 @@
     <h2 id="statement-upload-title" class="tf-card-title mb-2">Import statements</h2>
     <form method="post" action="@Model.BaseUrl?handler=Import@(Model.ShowAll ? "&show=all" : "")" enctype="multipart/form-data" class="tf-recon-upload">
         @Html.AntiForgeryToken()
-        <div><label class="form-label" for="statement-files">AMP daily or monthly statement PDFs · select as many as you like</label><input id="statement-files" name="files" type="file" class="form-control" accept="application/pdf,.pdf" multiple required /></div>
+        <div><label class="form-label" for="statement-files">AMP daily or monthly statement PDFs · up to @StatementsModel.MaxFilesPerImport at a time, 10 MB each</label><input id="statement-files" name="files" type="file" class="form-control" accept="application/pdf,.pdf" multiple required /></div>
         <button class="btn btn-primary" type="submit">Import</button>
     </form>
     <p class="text-secondary small mt-2 mb-0">Files already imported are skipped. Statements are stored as read-only evidence; applying their fees writes to each trade's review, where the change shows in history and can be reverted.</p>
@@ -69,6 +69,14 @@ else
         <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Need attention</div><div class="tf-metric-value @(attention > 0 ? "negative" : "positive")">@attention</div><div class="tf-metric-note">Trades differ, missing, or statements disagree</div></div></div></div>
     </section>
 
+    @if (report.UnmatchedAccounts.Count > 0 && report.MatchedAccounts.Count == 0)
+    {
+        <div class="alert tf-alert warning" role="status">No journal trade account contains the statement account number @string.Join(", ", report.UnmatchedAccounts), so every closed trade in this journal is compared. Trades from other accounts or a simulator will show as differences.</div>
+    }
+    else if (report.OtherAccountTradeCount > 0)
+    {
+        <div class="alert tf-alert" role="status">Comparing trades from account @string.Join(", ", report.MatchedAccounts). @report.OtherAccountTradeCount closed trade(s) from other accounts are left out.</div>
+    }
     @if (report.UncoveredTradeDates.Count > 0)
     {
         <div class="alert tf-alert warning" role="status">@report.UncoveredTradeDates.Count journal trading day(s) have no statement yet (@report.UncoveredTradeDates[0].ToString("MMM d, yyyy") – @report.UncoveredTradeDates[^1].ToString("MMM d, yyyy")). Import the statements that cover them to reconcile those days.</div>
@@ -115,7 +123,7 @@ else
                             <a class="btn btn-sm btn-outline-secondary" href="@(open ? Model.ListUrl + "#day-" + key : Model.DayUrl(day.Date))">@(open ? "Hide" : "Details")</a>
                             @if (day.CanApplyFees)
                             {
-                                <form method="post" action="@Model.BaseUrl?handler=Apply@(Model.ShowAll ? "&show=all" : "")">@Html.AntiForgeryToken()<input type="hidden" name="date" value="@key" /><button class="btn btn-sm btn-outline-primary" type="submit">Apply fees</button></form>
+                                <form method="post" action="@Model.BaseUrl?handler=Apply@(Model.ShowAll ? "&show=all" : "")">@Html.AntiForgeryToken()<input type="hidden" name="date" value="@key" /><input type="hidden" name="expectedFees" value="@day.JournalFees.ToString(System.Globalization.CultureInfo.InvariantCulture)" /><button class="btn btn-sm btn-outline-primary" type="submit">Apply fees</button></form>
                             }
                             @if (day.Trades.Count > 0){<a class="btn btn-sm btn-outline-secondary" href="@Model.ReviewUrl(day.Date)">Review day</a>}
                         </div></td>

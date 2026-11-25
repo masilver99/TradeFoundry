@@ -109,7 +109,7 @@ public sealed partial class TradeFoundryDb
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT d.statement_id, s.kind, s.file_name, s.imported_utc, d.trade_date, d.buy_contracts, d.sell_contracts, d.realized_pnl, d.has_realized_pnl, d.fees_json, d.fills_json FROM broker_statement_days d JOIN broker_statements s ON s.id = d.statement_id WHERE d.journal_id = $journal ORDER BY d.trade_date, s.kind, s.imported_utc";
+        command.CommandText = "SELECT d.statement_id, s.kind, s.file_name, s.imported_utc, d.trade_date, d.buy_contracts, d.sell_contracts, d.realized_pnl, d.has_realized_pnl, d.fees_json, d.fills_json, s.account, s.warnings_json FROM broker_statement_days d JOIN broker_statements s ON s.id = d.statement_id WHERE d.journal_id = $journal ORDER BY d.trade_date, s.kind, s.imported_utc";
         command.Parameters.AddWithValue("$journal", journalId.ToString());
         using var reader = command.ExecuteReader();
         var results = new List<BrokerStatementDayRecord>();
@@ -125,7 +125,8 @@ public sealed partial class TradeFoundryDb
                 Fees = JsonSerializer.Deserialize<List<StatementFee>>(reader.GetString(9), StatementJson) ?? [],
                 Fills = JsonSerializer.Deserialize<List<StatementFill>>(reader.GetString(10), StatementJson) ?? []
             };
-            results.Add(new BrokerStatementDayRecord(Guid.Parse(reader.GetString(0)), ParseKind(reader.GetString(1)), reader.GetString(2), DateTimeOffset.Parse(reader.GetString(3), CultureInfo.InvariantCulture), day));
+            var warnings = JsonSerializer.Deserialize<string[]>(reader.GetString(12), StatementJson) ?? [];
+            results.Add(new BrokerStatementDayRecord(Guid.Parse(reader.GetString(0)), ParseKind(reader.GetString(1)), reader.GetString(2), reader.GetString(11), warnings.Length > 0, DateTimeOffset.Parse(reader.GetString(3), CultureInfo.InvariantCulture), day));
         }
         return results;
     }
@@ -141,24 +142,66 @@ public sealed partial class TradeFoundryDb
     }
 
     /// <summary>
-    /// Sets a trade's fee components in its review annotation and clears any all-in override, keeping
-    /// every other review field. The change is a normal revision, so it shows in history and can be reverted.
+    /// The current review revision of every trade review in the journal, matching what a save checks
+    /// against: the annotation's revision, or the last history revision once an annotation is gone.
     /// </summary>
-    public TradeReviewSaveResult SetTradeReviewFees(Guid journalId, string reviewKey, decimal exchangeFees, decimal nfaFees, decimal clearingFees, string reason)
+    public IReadOnlyDictionary<string, int> GetTradeReviewRevisions(Guid journalId)
     {
-        TradeReviewAnnotation current;
-        using (var connection = OpenConnection())
-        using (var transaction = connection.BeginTransaction())
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT review_key, MAX(revision) FROM (SELECT review_key, revision FROM trade_review_annotations WHERE journal_id = $journal UNION ALL SELECT review_key, revision FROM trade_review_history WHERE journal_id = $journal) GROUP BY review_key";
+        command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+        using var reader = command.ExecuteReader();
+        var results = new Dictionary<string, int>(StringComparer.Ordinal);
+        while (reader.Read()) results[reader.GetString(0)] = reader.GetInt32(1);
+        return results;
+    }
+
+    /// <summary>
+    /// Writes fee components to several trade reviews in one transaction, clearing any all-in override and
+    /// keeping every other review field. Each write is a normal revision, so it shows in history and can be
+    /// reverted. If any review is no longer at its expected revision, nothing is written.
+    /// </summary>
+    public int ApplyTradeReviewFees(Guid journalId, IReadOnlyList<TradeFeeUpdate> updates)
+    {
+        foreach (var update in updates)
         {
-            current = ReadTradeReviewOrHistoryRevision(connection, transaction, journalId, reviewKey);
-            transaction.Commit();
+            if (string.IsNullOrWhiteSpace(update.ReviewKey)) throw new ArgumentException("A review key is required.", nameof(updates));
+            if (update.ExchangeFees < 0m || update.NfaFees < 0m || update.ClearingFees < 0m) throw new ArgumentOutOfRangeException(nameof(updates), "Fee components cannot be negative.");
         }
 
-        var patch = PatchFromAnnotation(current, current.Revision, reason);
-        patch.ExchangeFees = exchangeFees;
-        patch.NfaFees = nfaFees;
-        patch.ClearingFees = clearingFees;
-        patch.AllInCommission = null;
-        return SaveTradeReview(journalId, reviewKey, patch, "statement fees");
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var catalog = ReadTagCatalog(connection, transaction, journalId);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var update in updates)
+        {
+            using (var exists = connection.CreateCommand())
+            {
+                exists.Transaction = transaction;
+                exists.CommandText = "SELECT 1 FROM trades WHERE journal_id = $journal AND review_key = $reviewKey LIMIT 1";
+                exists.Parameters.AddWithValue("$journal", journalId.ToString("D"));
+                exists.Parameters.AddWithValue("$reviewKey", update.ReviewKey);
+                if (exists.ExecuteScalar() is null) throw new StatementFeeConflictException("A trade for these fees no longer exists. Reload and try again.");
+            }
+
+            var current = ReadTradeReviewOrHistoryRevision(connection, transaction, journalId, update.ReviewKey);
+            if (current.Revision != update.ExpectedRevision)
+                throw new StatementFeeConflictException("A trade review changed after these fees were calculated, so nothing was saved. Reload and try again.");
+
+            var patch = PatchFromAnnotation(current, current.Revision, update.Reason);
+            patch.ExchangeFees = update.ExchangeFees;
+            patch.NfaFees = update.NfaFees;
+            patch.ClearingFees = update.ClearingFees;
+            patch.AllInCommission = null;
+            var normalized = NormalizeReviewPatch(patch);
+            var tags = current.TagIds.Select(id => catalog.Resolve(id)).OfType<Tag>().ToArray();
+            var annotation = AnnotationFromPatch(journalId, update.ReviewKey, current.Revision + 1, normalized, tags, now);
+            WriteTradeReview(connection, transaction, annotation);
+            InsertTradeReviewHistory(connection, transaction, journalId, update.ReviewKey, annotation.Revision, "statement fees", SerializeReview(current), SerializeReview(annotation), normalized.Reason, now);
+        }
+
+        transaction.Commit();
+        return updates.Count;
     }
 }

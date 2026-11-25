@@ -34,7 +34,20 @@ public static partial class AmpStatementParser
     /// <summary>Statement pages are US Letter or A4; anything right of this is the header's right column.</summary>
     private const double RightColumnStart = 290d;
 
+    /// <summary>Reads a statement; anything unreadable is reported as a <see cref="StatementParseException"/>.</summary>
     public static ParsedBrokerStatement Parse(IReadOnlyList<StatementLine> lines)
+    {
+        try
+        {
+            return ParseLines(lines);
+        }
+        catch (Exception e) when (e is FormatException or OverflowException or ArgumentException or InvalidOperationException and not StatementParseException)
+        {
+            throw new StatementParseException("This statement could not be read: a date or amount on it is not in the expected format.");
+        }
+    }
+
+    private static ParsedBrokerStatement ParseLines(IReadOnlyList<StatementLine> lines)
     {
         BrokerStatementKind? kind = null;
         DateOnly? headerDate = null, periodStart = null, periodEnd = null;
@@ -81,6 +94,7 @@ public static partial class AmpStatementParser
             if (AsOfPattern().Match(normalized) is { Success: true } asOf && section is Section.Confirmations or Section.PurchaseSale)
             {
                 asOfDate = ParseDateWord(asOf.Groups[1].Value);
+                if (asOfDate is null) warnings.Add($"'{asOf.Groups[1].Value}' is not a valid trade date.");
                 rowDate = null;
                 continue;
             }
@@ -187,6 +201,16 @@ public static partial class AmpStatementParser
                 day.SellContracts = fillSells;
             }
         }
+
+        // Cross-check the days against the statement's own totals, so a missed fee or P&L line is caught.
+        var dayFees = days.Values.Sum(d => d.TotalFees);
+        var dayPnl = days.Values.Sum(d => d.RealizedPnl);
+        if (totalFees is { } summaryFees && Math.Abs(summaryFees - dayFees) > 0.005m)
+            warnings.Add($"The account summary shows {summaryFees:0.00} in commission and fees, but the day fee lines add up to {dayFees:0.00}.");
+        if (realized is { } summaryPnl && Math.Abs(summaryPnl - dayPnl) > 0.005m)
+            warnings.Add($"The account summary shows {summaryPnl:0.00} realized P&L, but the purchase & sale totals add up to {dayPnl:0.00}.");
+        foreach (var currency in days.Values.SelectMany(d => d.Fees.Select(f => f.Currency)).Where(c => c != "USD").Distinct())
+            warnings.Add($"Fees in {currency} are not supported; only USD fees are reconciled.");
 
         return new ParsedBrokerStatement
         {
@@ -310,17 +334,19 @@ public static partial class AmpStatementParser
     private static bool TryDateWord(string text, out DateOnly date)
     {
         date = default;
-        if (!DateWordPattern().IsMatch(text)) return false;
-        date = ParseDateWord(text);
+        if (!DateWordPattern().IsMatch(text) || ParseDateWord(text) is not { } parsed) return false;
+        date = parsed;
         return true;
     }
 
-    private static DateOnly ParseDateWord(string text)
+    /// <summary>14-SEP-26, or null when it is not a real date.</summary>
+    private static DateOnly? ParseDateWord(string text)
     {
-        // 14-SEP-26: month names are matched case-insensitively by title-casing them first.
+        // Month names are matched case-insensitively by title-casing them first.
         var titled = text[..4] + text.Substring(4, 2).ToLowerInvariant() + text[6..];
-        return DateOnly.ParseExact(titled, "dd-MMM-yy", CultureInfo.InvariantCulture);
+        return DateOnly.TryParseExact(titled, "dd-MMM-yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : null;
     }
 
-    private static DateOnly ParseSlashDate(string text) => DateOnly.ParseExact(text, "MM/dd/yy", CultureInfo.InvariantCulture);
+    private static DateOnly? ParseSlashDate(string text) =>
+        DateOnly.TryParseExact(text, "MM/dd/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : null;
 }

@@ -468,4 +468,248 @@ public sealed class StatementReconciliationTests : IDisposable
         Assert.Equal(StatementFeeCategory.Clearing, StatementFeeCategory.Classify("Clearing Teton"));
         Assert.Equal(StatementFeeCategory.Clearing, StatementFeeCategory.Classify("Commission"));
     }
+
+    // ---- review findings: eligibility, evidence, atomicity, rounding, components, robustness ----
+
+    /// <summary>A one-round-trip daily statement for Aug 4: bought 7700.50, sold 7716.75 (+$81.25).</summary>
+    private static List<Row> Aug4Daily(string pnl = "81.25 CR", IEnumerable<Row>? fees = null, string? summaryFees = null)
+    {
+        List<Row> rows =
+        [
+            Text(35, "DAILY STATEMENT"),
+            new((5, "Test Trader"), (66, "04-AUG-26")),
+            new((5, "1 Main Street"), (66, "123456")),
+            Text(30, "T R A D E S   C O N F I R M A T I O N S"),
+            Text(0, "THE FOLLOWING TRADES HAVE BEEN EXECUTED THIS DAY FOR YOUR ACCOUNT AND RISK."),
+            Header(),
+            Fill("04-AUG-26", "2101", "BUY", 1, "7700.50"),
+            Fill("04-AUG-26", "2102", "SELL", 1, "7716.75"),
+            Total(1, 1),
+            .. fees ?? FeeBlock(1),
+            Text(30, "P U R C H A S E   &   S A L E"),
+            Header(),
+            Total(1, 1, pnl)
+        ];
+        if (summaryFees is not null)
+        {
+            rows.Add(Text(25, "Account Summary as of 08/04/26"));
+            rows.Add(new((0, "TOTAL COMMISSION & FEES"), (40, summaryFees + " DR")));
+        }
+        return rows;
+    }
+
+    private static readonly (string, string, int, decimal)[] Aug4RoundTrip = [("2026-08-04 14:00:00", "Buy", 1, 7700.50m), ("2026-08-04 14:30:00", "Sell", 1, 7716.75m)];
+
+    private ReconciliationDay Aug4() => _service.BuildReport(_journal.Id).Days.Single(d => d.Date == new DateOnly(2026, 8, 4));
+
+    /// <summary>Imports one round trip with an explicit account and instrument, charging $1.22 per round turn.</summary>
+    private void ImportRoundTrip(string account, string instrument, string symbol, string keyPrefix)
+    {
+        var parsed = new ParsedImport { SourceType = TradeFoundryConstants.SierraFills, SourceApplication = TradeFoundryConstants.SierraChart };
+        var entry = new DateTimeOffset(2026, 8, 4, 14, 0, 0, TimeSpan.Zero);
+        foreach (var (side, price, time, row) in new[] { ("Buy", 7700.50m, entry, 1), ("Sell", 7716.75m, entry.AddMinutes(30), 2) })
+        {
+            var key = $"{keyPrefix}-{row}";
+            parsed.Records.Add(new ParsedRecord
+            {
+                SourceType = TradeFoundryConstants.SierraFills, SourceKey = key, RowNumber = row, PayloadJson = "{}",
+                Fill = new FillDraft
+                {
+                    SourceType = TradeFoundryConstants.SierraFills, SourceKey = key, EventUtc = time, SourceTimeText = time.ToString("O"),
+                    Symbol = symbol, Instrument = instrument, Account = account, Side = side, Quantity = 1, Price = price, RowNumber = row,
+                    PointValue = 5m, TickSize = .25m, ExchangeFeePerContract = .35m, NfaFeePerContract = .01m, ClearingFeePerContract = .25m
+                }
+            });
+        }
+        _db.CommitImport(_journal.Id, $"{keyPrefix}.txt", parsed, "flat_to_flat", "source");
+    }
+
+    [Fact]
+    public async Task OnlyComparesTradesFromTheStatementAccountWhenTradeAccountsNameIt()
+    {
+        ImportRoundTrip("AMP-123456", "MES", "MESU26", "live");
+        ImportRoundTrip("Sim101", "MES", "MESU26", "sim");
+        await Import(Pdf(Aug4Daily()), "aug4.pdf");
+
+        var report = _service.BuildReport(_journal.Id);
+        Assert.Equal(["123456"], report.MatchedAccounts);
+        Assert.Equal(1, report.OtherAccountTradeCount);
+        var day = report.Days.Single();
+        Assert.Equal("AMP-123456", Assert.Single(day.Trades).Account);
+        Assert.Equal(ReconciliationStatus.FeesDiffer, day.Status);
+        Assert.True(day.CanApplyFees);
+    }
+
+    [Fact]
+    public async Task ComparesEveryTradeAndSaysSoWhenNoTradeAccountNamesTheStatementAccount()
+    {
+        ImportTrades(.25m, Aug4RoundTrip);
+        await Import(Pdf(Aug4Daily()), "aug4.pdf");
+
+        var report = _service.BuildReport(_journal.Id);
+        Assert.Empty(report.MatchedAccounts);
+        Assert.Equal(["123456"], report.UnmatchedAccounts);
+        Assert.Equal(0, report.OtherAccountTradeCount);
+        Assert.Single(report.Days.Single().Trades);
+    }
+
+    [Fact]
+    public async Task TreatsAnInstrumentTheStatementDoesNotShowAsATradeDifference()
+    {
+        // Same prices, quantity and point value, so contracts and P&L agree, but MNQ is not on the statement.
+        ImportRoundTrip("", "MNQ", "MNQU26", "mnq");
+        await Import(Pdf(Aug4Daily()), "aug4.pdf");
+
+        var day = Aug4();
+        Assert.Equal(ReconciliationStatus.TradesDiffer, day.Status);
+        Assert.Equal(["MNQ"], day.UnmatchedInstruments);
+        Assert.False(day.CanApplyFees);
+    }
+
+    [Fact]
+    public async Task DoesNotOfferFeesWhenRealizedPnlDiffersEvenIfContractsMatch()
+    {
+        ImportTrades(.25m, Aug4RoundTrip);
+        await Import(Pdf(Aug4Daily(pnl: "80.00 CR")), "aug4.pdf");
+
+        var day = Aug4();
+        Assert.Equal(ReconciliationStatus.TradesDiffer, day.Status);
+        Assert.Equal(day.StatementContractSides, day.JournalContractSides);
+        Assert.False(day.CanApplyFees);
+        Assert.Throws<InvalidOperationException>(() => _service.ApplyFees(_journal.Id, day.Date));
+    }
+
+    [Fact]
+    public async Task NeverZeroesFeesWhenTheStatementHasNoFeeLinesForTheDay()
+    {
+        ImportTrades(.25m, Aug4RoundTrip);
+        await Import(Pdf(Aug4Daily(fees: [])), "aug4.pdf");
+
+        var day = Aug4();
+        Assert.Equal(ReconciliationStatus.FeesDiffer, day.Status);
+        Assert.False(day.CanApplyFees);
+        Assert.Contains("No fee lines", day.ApplyBlocker);
+        Assert.Equal((0, 0), _service.ApplyAllFeeDifferences(_journal.Id));
+        Assert.Equal(1.22m, Assert.Single(_db.GetAllTrades(_journal.Id)).Fees);
+    }
+
+    [Fact]
+    public async Task BlocksFeesFromAStatementWhoseSummaryDisagreesWithItsFeeLines()
+    {
+        ImportTrades(.25m, Aug4RoundTrip);
+        var outcome = await Import(Pdf(Aug4Daily(summaryFees: "1.50")), "aug4.pdf");
+
+        Assert.Contains(outcome.Statement!.Warnings, w => w.Contains("commission and fees"));
+        var day = Aug4();
+        Assert.False(day.CanApplyFees);
+        Assert.Contains("did not read cleanly", day.ApplyBlocker);
+    }
+
+    [Fact]
+    public async Task BlocksANetFeeCreditInsteadOfWritingANegativeFee()
+    {
+        ImportTrades(.25m, Aug4RoundTrip);
+        Row[] fees = [Fee("Exchange", "0.70"), Fee("NFA", "0.02"), new((62, "Clearing Teton"), (80, "USD"), (90, "1.00 CR"))];
+        await Import(Pdf(Aug4Daily(fees: fees)), "aug4.pdf");
+
+        var day = Aug4();
+        Assert.Equal(-1.00m, day.Statement!.ClearingFees);
+        Assert.False(day.CanApplyFees);
+        Assert.Contains("credit", day.ApplyBlocker);
+    }
+
+    [Fact]
+    public async Task ComparesEachFeeComponentNotJustTheTotal()
+    {
+        // $0.49 per side in total, as on the statement, but split $0.30 / $0.01 / $0.18 instead of $0.35 / $0.01 / $0.13.
+        var instrument = Assert.Single(_db.GetInstruments(), item => item.Code == "MES");
+        Assert.True(_db.SaveInstrument(instrument.Id, "MES", null, .30m, .01m, .18m, 5m, .25m));
+        var csv = "Activity Type,DateTime,Symbol,BuySell,Quantity,Fill Price\nFills,2026-08-04 14:00:00,MESU26,Buy,1,7700.50\nFills,2026-08-04 14:30:00,MESU26,Sell,1,7716.75";
+        _db.CommitImport(_journal.Id, "fills.txt", new ImportService(_db).Parse(csv, "sierra", "source", "UTC", configuration: _db.GetInstrumentConfiguration()), "flat_to_flat", "source");
+        await Import(Pdf(Aug4Daily()), "aug4.pdf");
+
+        var day = Aug4();
+        Assert.Equal(day.StatementFees, day.JournalFees);
+        Assert.Equal(ReconciliationStatus.FeesDiffer, day.Status);
+        Assert.True(day.CanApplyFees);
+
+        Assert.Equal(1, _service.ApplyFees(_journal.Id, day.Date));
+        var after = Aug4();
+        Assert.Equal(ReconciliationStatus.Matched, after.Status);
+        Assert.Equal((.70m, .02m, .26m), (after.JournalExchangeFees, after.JournalNfaFees, after.JournalClearingFees));
+    }
+
+    [Fact]
+    public async Task RefusesToApplyFeesTheUserDidNotSee()
+    {
+        ImportTrades(.25m, Aug4RoundTrip);
+        await Import(Pdf(Aug4Daily()), "aug4.pdf");
+
+        var conflict = Assert.Throws<StatementFeeConflictException>(() => _service.ApplyFees(_journal.Id, new DateOnly(2026, 8, 4), expectedJournalFees: 9.99m));
+        Assert.Contains("changed after the page loaded", conflict.Message);
+        Assert.Equal(1.22m, Assert.Single(_db.GetAllTrades(_journal.Id)).Fees);
+
+        Assert.Equal(1, _service.ApplyFees(_journal.Id, new DateOnly(2026, 8, 4), expectedJournalFees: 1.22m));
+    }
+
+    [Fact]
+    public void WritesNoFeesWhenAnyReviewInTheBatchHasMoved()
+    {
+        ImportTrades(.25m, AugustFills[0..4]);
+        var trades = _db.GetAllTrades(_journal.Id).OrderBy(t => t.ExitUtc).ToArray();
+        var revisions = _db.GetTradeReviewRevisions(_journal.Id);
+        Assert.True(_db.SaveTradeReview(_journal.Id, trades[1].ReviewKey, new TradeReviewPatch { Lessons = "Edited elsewhere", ExpectedRevision = 0 }).Saved);
+
+        TradeFeeUpdate[] updates =
+        [
+            new(trades[0].ReviewKey, revisions.GetValueOrDefault(trades[0].ReviewKey), .70m, .02m, .26m, "test"),
+            new(trades[1].ReviewKey, revisions.GetValueOrDefault(trades[1].ReviewKey), .70m, .02m, .26m, "test")
+        ];
+
+        Assert.Throws<StatementFeeConflictException>(() => _db.ApplyTradeReviewFees(_journal.Id, updates));
+        var annotations = _db.GetTradeReviewAnnotations(_journal.Id);
+        Assert.False(annotations.ContainsKey(trades[0].ReviewKey));
+        Assert.Null(annotations[trades[1].ReviewKey].ExchangeFees);
+        Assert.Empty(_db.GetTradeReviewHistory(_journal.Id, trades[0].ReviewKey));
+    }
+
+    [Fact]
+    public void SplitsSmallFeesWithoutNegativeShares()
+    {
+        var trades = Enumerable.Range(0, 4).Select(_ => new Trade { Id = Guid.NewGuid(), Quantity = 1, ClosedQuantity = 1 }).ToArray();
+        var day = new StatementDay { TradeDate = new(2026, 8, 4), BuyContracts = 4, SellContracts = 4 };
+        day.Fees.Add(new StatementFee("Clearing", StatementFeeCategory.Clearing, .02m, "USD"));
+
+        var shares = StatementReconciliationService.Allocate(day, trades);
+
+        Assert.Equal([.01m, .01m, 0m, 0m], shares.Select(s => s.ClearingFees));
+        Assert.All(shares, s => Assert.True(s.ClearingFees >= 0m));
+        Assert.Equal(.02m, shares.Sum(s => s.ClearingFees));
+    }
+
+    [Fact]
+    public void ReportsImpossibleDatesAsStatementProblemsNotCrashes()
+    {
+        var pages = MonthlyStatement();
+        pages[0][4] = Text(0, "THE FOLLOWING TRADES HAVE BEEN EXECUTED AS OF 31-FEB-26");
+        var statement = AmpStatementParser.Parse(Lines(pages[0], pages[1]));
+        Assert.Contains(statement.Warnings, w => w.Contains("31-FEB-26"));
+
+        var daily = DailyStatement();
+        daily[1] = new((5, "Test Trader"), (66, "31-FEB-26"));
+        for (var i = 0; i < daily.Count; i++)
+            daily[i] = new(daily[i].Cells.Select(c => (c.Column, c.Text.Replace("14-SEP-26", "31-FEB-26"))).ToArray());
+        var error = Assert.Throws<StatementParseException>(() => AmpStatementParser.Parse(Lines(daily)));
+        Assert.Contains("date could not be found", error.Message);
+    }
+
+    [Fact]
+    public async Task RejectsPdfsWithFarMorePagesThanAStatement()
+    {
+        var pages = Enumerable.Range(0, StatementText.MaxPages + 1).Select(_ => new List<Row> { Text(0, "x") }).ToArray();
+        var outcome = await Import(Pdf(pages), "huge.pdf");
+        Assert.False(outcome.Imported);
+        Assert.Contains("pages", outcome.Message);
+        Assert.Empty(_db.GetBrokerStatements(_journal.Id));
+    }
 }

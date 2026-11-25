@@ -24,16 +24,25 @@ public sealed record StatementLine(int Page, IReadOnlyList<StatementWord> Words)
 public static class StatementText
 {
     private const double BaselineTolerance = 2.5d;
+    /// <summary>A busy month runs to a few dozen pages; anything far past that is not a statement worth parsing.</summary>
+    public const int MaxPages = 300;
+    public const int MaxWords = 300_000;
 
     public static IReadOnlyList<StatementLine> ReadPdf(byte[] content)
     {
         try
         {
             using var document = PdfDocument.Open(content);
+            if (document.NumberOfPages > MaxPages)
+                throw new StatementParseException($"This PDF has {document.NumberOfPages} pages; statements are limited to {MaxPages}.");
             var lines = new List<StatementLine>();
+            var wordCount = 0;
             foreach (var page in document.GetPages())
             {
-                lines.AddRange(GroupLines(page.Number, page.GetWords()));
+                var words = page.GetWords().ToList();
+                wordCount += words.Count;
+                if (wordCount > MaxWords) throw new StatementParseException("This PDF has more text than a statement would; it was not imported.");
+                lines.AddRange(GroupLines(page.Number, words));
             }
             return lines;
         }

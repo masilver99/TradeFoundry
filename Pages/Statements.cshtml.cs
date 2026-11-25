@@ -13,9 +13,11 @@ namespace TradeFoundry.Pages;
 [ValidateAntiForgeryToken]
 [RequestSizeLimit(MaxUploadLength)]
 [RequestFormLimits(MultipartBodyLengthLimit = MaxUploadLength)]
-public sealed class StatementsModel(TradeFoundryDb database, StatementReconciliationService service) : PageModel
+public sealed class StatementsModel(TradeFoundryDb database, StatementReconciliationService service, ILogger<StatementsModel> logger) : PageModel
 {
-    private const long MaxUploadLength = 512L * 1024 * 1024;
+    /// <summary>Up to <see cref="MaxFilesPerImport"/> statements of 10 MB each would be 1 GB; real statements are well under 1 MB.</summary>
+    private const long MaxUploadLength = 200L * 1024 * 1024;
+    public const int MaxFilesPerImport = 100;
 
     public sealed record ImportMessage(string FileName, string Outcome, string Message);
 
@@ -53,7 +55,8 @@ public sealed class StatementsModel(TradeFoundryDb database, StatementReconcilia
         if (database.GetJournal(JournalId) is null) return NotFound();
         var messages = new List<ImportMessage>();
         if (files.Count == 0) messages.Add(new(string.Empty, "failed", "Choose one or more statement PDFs."));
-        foreach (var file in files)
+        if (files.Count > MaxFilesPerImport) messages.Add(new(string.Empty, "failed", $"Only the first {MaxFilesPerImport} files were imported; import the rest in another batch."));
+        foreach (var file in files.Take(MaxFilesPerImport))
         {
             try
             {
@@ -61,13 +64,15 @@ public sealed class StatementsModel(TradeFoundryDb database, StatementReconcilia
                 var outcome = await service.ImportAsync(JournalId, stream, file.FileName, file.Length, cancellationToken);
                 messages.Add(new(outcome.FileName, outcome.Imported ? "imported" : outcome.Duplicate ? "duplicate" : "failed", outcome.Message));
             }
-            catch (Exception e) when (e is IOException or InvalidOperationException)
+            catch (Exception e) when (e is not OperationCanceledException)
             {
-                messages.Add(new(Path.GetFileName(file.FileName), "failed", e.Message));
+                // One unreadable file must not stop the rest of the batch.
+                logger.LogWarning(e, "Statement import failed for one file.");
+                messages.Add(new(Path.GetFileName(file.FileName), "failed", e is StatementParseException ? e.Message : "This file could not be imported."));
             }
         }
-        // Keep the flash small: list failures individually, and summarize the rest.
-        var stored = messages.Where(m => m.Outcome == "failed").Take(50).ToList();
+        // TempData lives in a cookie, so keep it small: list a few failures and summarize the rest.
+        var stored = messages.Where(m => m.Outcome == "failed").Take(8).ToList();
         var imported = messages.Count(m => m.Outcome == "imported");
         var duplicates = messages.Count(m => m.Outcome == "duplicate");
         if (messages.Count <= 10) stored = messages;
@@ -76,12 +81,12 @@ public sealed class StatementsModel(TradeFoundryDb database, StatementReconcilia
         return Redirect(ListUrl);
     }
 
-    public IActionResult OnPostApply(DateOnly date)
+    public IActionResult OnPostApply(DateOnly date, decimal? expectedFees)
     {
         if (database.GetJournal(JournalId) is null) return NotFound();
         try
         {
-            var changed = service.ApplyFees(JournalId, date);
+            var changed = service.ApplyFees(JournalId, date, expectedFees);
             TempData["StatementMessage"] = $"Applied statement fees to {changed} trade(s) on {date.ToString("MMM d, yyyy", CultureInfo.InvariantCulture)}.";
         }
         catch (InvalidOperationException e) { TempData["StatementError"] = e.Message; }
@@ -129,10 +134,13 @@ public sealed class StatementsModel(TradeFoundryDb database, StatementReconcilia
     public static string StatusHelp(ReconciliationDay day) => day.Status switch
     {
         ReconciliationStatus.Matched => "Contracts, realized P&L and fees agree with the statement.",
+        ReconciliationStatus.FeesDiffer when day.ApplyBlocker is { } blocker => $"The trades agree; only the fees differ. The statement fees can't be applied yet: {blocker}",
         ReconciliationStatus.FeesDiffer => "The trades agree; only the fees differ. Apply the statement fees to correct them.",
+        ReconciliationStatus.TradesDiffer when day.UnmatchedInstruments.Count > 0 =>
+            $"The journal has {string.Join(", ", day.UnmatchedInstruments)} trades on this day, which the statement doesn't show. They may be from another account.",
         ReconciliationStatus.TradesDiffer when day.StatementContractSides != day.JournalContractSides =>
             $"The statement has {day.StatementContractSides} contract sides and the journal has {day.JournalContractSides}. A trade may be missing, duplicated, or held overnight.",
-        ReconciliationStatus.TradesDiffer => "Contracts agree but realized P&L differs, so a fill price or quantity differs. Fees can still be applied.",
+        ReconciliationStatus.TradesDiffer => "Contracts agree but realized P&L differs, so a fill price or quantity differs. Fix the trades before applying fees.",
         ReconciliationStatus.MissingFromJournal => "The statement shows trading on this day, but the journal has no closed trades. Import that day's trades.",
         ReconciliationStatus.NotOnStatement => "The journal has trades on a day the statement covers, but the statement shows no trading. These may be from another account or a simulator.",
         ReconciliationStatus.StatementsDisagree => "Two imported statements give different figures for this day, which usually means the broker corrected a trade. The monthly statement is shown.",

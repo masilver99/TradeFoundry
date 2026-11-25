@@ -258,20 +258,22 @@ public sealed class DayStatisticsTests
     }
 
     [Fact]
-    public void Heat_window_ends_at_the_selected_day()
+    public void Trade_heat_holds_only_the_selected_days_trades_in_entry_order()
     {
         var history = HistoryDays(40, day => new[] { Trade(DayOpen(day), 5, 10m, mae: 2m) });
-        var selected = history[20].Date;
         var report = DayStatistics.Build(new DayStatisticsInput
         {
-            Date = selected,
-            DayTrades = history[20].CompletedTrades,
-            History = history
+            Date = Date,
+            DayTrades = new[] { Trade(Open.AddMinutes(30), 5, -20m), Trade(Open, 5, 70m, mae: 2m) },
+            History = history,
+            TimeZoneId = "UTC"
         });
 
-        Assert.Equal(DayStatistics.HeatWindowDays, report.HeatWindow.Count);
-        Assert.Equal(history[0].Date, report.HeatWindow[0].Date);
-        Assert.Contains(report.HeatWindow, day => day.Date == selected);
+        Assert.Equal(2, report.TradeHeat.Count);
+        Assert.Equal(new[] { 1, 2 }, report.TradeHeat.Select(trade => trade.Number));
+        Assert.Equal(new[] { 70m, -20m }, report.TradeHeat.Select(trade => trade.NetPnl));
+        Assert.NotNull(report.TradeHeat[0].Mae);
+        Assert.Null(report.TradeHeat[1].Mae);
     }
 
     [Fact]
@@ -293,7 +295,7 @@ public sealed class DayStatisticsTests
 
         foreach (var chart in new[]
         {
-            ChartRenderer.DayEquity(report), ChartRenderer.DayHeatWindow(report), ChartRenderer.DayTradeNumber(report),
+            ChartRenderer.DayEquity(report), ChartRenderer.DayTradeHeat(report), ChartRenderer.DayTradeNumber(report),
             ChartRenderer.DaySessionCurve(report), ChartRenderer.DayGreenRate(report), ChartRenderer.DayTradeCountScatter(report),
             ChartRenderer.DayRatingScatter(report)
         })
@@ -301,10 +303,8 @@ public sealed class DayStatisticsTests
             Assert.Contains("data-plotly-chart", chart);
         }
 
-        using var heat = ReadPayload(ChartRenderer.DayHeatWindow(report));
-        var widths = heat.RootElement.GetProperty("data")[1].GetProperty("marker").GetProperty("line").GetProperty("width").EnumerateArray().Select(value => value.GetDouble()).ToArray();
-        Assert.Equal(1, widths.Count(width => width > 0));
-        Assert.Equal(2d, widths[^1]);
+        using var heat = ReadPayload(ChartRenderer.DayTradeHeat(report));
+        Assert.Equal(2, heat.RootElement.GetProperty("data")[1].GetProperty("y").GetArrayLength());
 
         using var scatter = ReadPayload(ChartRenderer.DayTradeCountScatter(report));
         Assert.Equal(2, scatter.RootElement.GetProperty("data").GetArrayLength());

@@ -16,7 +16,7 @@ public sealed class DayStatsViewModel
     public string Context { get; init; } = "day";
     public bool FilterActive { get; init; }
     public string IntradayEquityChart { get; init; } = string.Empty;
-    public string HeatWindowChart { get; init; } = string.Empty;
+    public string TradeHeatChart { get; init; } = string.Empty;
     public string TradeNumberChart { get; init; } = string.Empty;
     public string SessionChart { get; init; } = string.Empty;
     public string GreenRateChart { get; init; } = string.Empty;
@@ -46,7 +46,7 @@ public sealed class DayStatsViewModel
             ChartsOpen = chartsOpen,
             FilterActive = filterActive,
             IntradayEquityChart = ChartRenderer.DayEquity(report),
-            HeatWindowChart = ChartRenderer.DayHeatWindow(report),
+            TradeHeatChart = ChartRenderer.DayTradeHeat(report),
             TradeNumberChart = ChartRenderer.DayTradeNumber(report),
             SessionChart = ChartRenderer.DaySessionCurve(report),
             GreenRateChart = ChartRenderer.DayGreenRate(report),

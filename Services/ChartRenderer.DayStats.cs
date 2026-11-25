@@ -60,8 +60,53 @@ public static partial class ChartRenderer
         }, layout);
     }
 
-    /// <summary>Daily P&amp;L and intraday low for the trading days around the selected day, with that day outlined.</summary>
-    public static string DayHeatWindow(DayStatisticsReport report) => DailyHeatRange(report.HeatWindow, report.Date);
+    /// <summary>
+    /// One range bar per trade of the selected day, in entry order: the body runs from flat to the
+    /// trade's net P&amp;L and the wick runs down to its MAE, so the heat behind each result is visible.
+    /// </summary>
+    public static string DayTradeHeat(DayStatisticsReport report)
+    {
+        var trades = report.TradeHeat;
+        if (trades.Count == 0) return Empty("Trade P&L and heat appear after a completed trade.");
+
+        var labels = trades.Select(trade => $"#{trade.Number}").ToArray();
+        var layout = CartesianLayout();
+        layout["barmode"] = "overlay";
+        SetAxis(layout, "xaxis", "trade (entry order)", category: true);
+        SetAxis(layout, "yaxis", "net P&L");
+        return Plotly("Trade P&L and heat", new object[]
+        {
+            new
+            {
+                type = "bar",
+                x = labels,
+                // The wick fills from the trade's MAE up to the bottom of the body.
+                @base = trades.Select(trade => -(trade.Mae ?? 0m)).ToArray(),
+                y = trades.Select(trade => Math.Max(0m, Math.Min(0m, trade.NetPnl) + (trade.Mae ?? 0m))).ToArray(),
+                width = .18,
+                name = "MAE",
+                marker = new { color = Gold, opacity = .85 },
+                hoverinfo = "skip"
+            },
+            new
+            {
+                type = "bar",
+                x = labels,
+                y = trades.Select(trade => trade.NetPnl).ToArray(),
+                width = .7,
+                name = "Net P&L",
+                marker = new { color = trades.Select(trade => trade.NetPnl >= 0m ? Green : Red).ToArray() },
+                customdata = trades.Select(trade => new object?[]
+                {
+                    trade.Label,
+                    trade.EntryLocal.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+                    trade.ExitLocal.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+                    trade.Mae.HasValue ? (-trade.Mae.Value).ToString("N2", CultureInfo.InvariantCulture) : "not recorded"
+                }).ToArray(),
+                hovertemplate = "%{x} %{customdata[0]}<br>%{customdata[1]} → %{customdata[2]}<br>Net P&L: %{y:,.2f}<br>MAE: %{customdata[3]}<extra></extra>"
+            }
+        }, layout);
+    }
 
     /// <summary>Average P&amp;L and win rate for the first, second, third … trade of the day, with the selected day's trades.</summary>
     public static string DayTradeNumber(DayStatisticsReport report)

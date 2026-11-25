@@ -56,6 +56,10 @@ public sealed record DayFlag(string Key, string Title, string Detail, string Ton
 
 public sealed record TradeNumberBucket(string Label, int Number, int TradeCount, decimal AveragePnl, decimal WinRate, decimal? TodayPnl);
 
+/// <summary>One completed trade of the selected day: its net result and how far it went against the position.</summary>
+/// <param name="Mae">Position MAE in currency, when recorded.</param>
+public sealed record DayTradeHeat(int Number, string Label, DateTime EntryLocal, DateTime ExitLocal, decimal NetPnl, decimal? Mae);
+
 public sealed record DayPoint(DateOnly Date, int TradeCount, decimal NetPnl, int? Rating);
 
 public sealed record GreenDayRollingPoint(DateOnly Date, int WindowDayCount, decimal GreenRate);
@@ -108,8 +112,8 @@ public sealed class DayStatisticsReport
     public GreenDayStats GreenDays { get; init; } = new();
     public IReadOnlyList<DayPoint> Days { get; init; } = Array.Empty<DayPoint>();
     public SessionCurve Session { get; init; } = new();
-    /// <summary>Daily P&amp;L and intraday low for the trading days around the selected day.</summary>
-    public IReadOnlyList<DailyHeatDay> HeatWindow { get; init; } = Array.Empty<DailyHeatDay>();
+    /// <summary>The selected day's completed trades in entry order, with each trade's MAE.</summary>
+    public IReadOnlyList<DayTradeHeat> TradeHeat { get; init; } = Array.Empty<DayTradeHeat>();
     public bool HasTrades => Scorecard.TradeCount > 0;
 }
 
@@ -122,7 +126,6 @@ public static class DayStatistics
     public const int MinimumComparisonDays = 5;
     public const int TradeNumberCap = 10;
     public const int GreenDayWindow = 20;
-    public const int HeatWindowDays = 30;
     public const int SessionSlotMinutes = 15;
 
     public static DayStatisticsReport Build(DayStatisticsInput input)
@@ -167,7 +170,7 @@ public static class DayStatistics
             GreenDays = BuildGreenDays(daysWithToday, input.Date),
             Days = daysWithToday.Select(day => new DayPoint(day.Date, day.CompletedTradeCount, day.RealizedNetPnl, input.Ratings.GetValueOrDefault(day.Date)?.Rating)).ToArray(),
             Session = BuildSession(daysWithToday, input.Date, timeZone),
-            HeatWindow = BuildHeatWindow(daysWithToday, input.Date)
+            TradeHeat = BuildTradeHeat(trades, timeZone)
         };
     }
 
@@ -506,15 +509,17 @@ public static class DayStatistics
         };
     }
 
-    private static DailyHeatDay[] BuildHeatWindow(IReadOnlyList<DailyTradeSummary> days, DateOnly date)
-    {
-        var heatDays = days.Select(DailyHeatMetrics.BuildDay).Where(day => day.MaeObservedTradeCount > 0).ToArray();
-        if (heatDays.Length == 0) return heatDays;
-        var last = Array.FindLastIndex(heatDays, day => day.Date <= date);
-        var end = Math.Min(heatDays.Length - 1, Math.Max(last, HeatWindowDays - 1));
-        var start = Math.Max(0, end - HeatWindowDays + 1);
-        return heatDays[start..(end + 1)];
-    }
+    private static readonly MaeTargetSettings NoMaeTargets = new();
+
+    private static DayTradeHeat[] BuildTradeHeat(Trade[] trades, TimeZoneInfo timeZone)
+        => trades.Select((trade, index) => new DayTradeHeat(
+                index + 1,
+                $"{trade.Symbol} {trade.Direction}".Trim(),
+                Local(trade.EntryUtc, timeZone),
+                Local(trade.ExitUtc!.Value, timeZone),
+                trade.NetPnl,
+                MaeReviewMetrics.Build(trade, NoMaeTargets).PositionMae))
+            .ToArray();
 
     /// <summary>The share of the sample below the value, counting ties as half, as 0–100.</summary>
     internal static decimal Percentile(decimal value, IEnumerable<decimal> sample)

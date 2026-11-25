@@ -203,11 +203,6 @@
     </div>
     @if (Model.Results.PageCount > 1)
     {
-        <div class="card-footer"><ul class="pagination mb-0 justify-content-end tf-pagination">
-            @for (var pageNumber = 1; pageNumber <= Model.Results.PageCount; pageNumber++)
-            {
-                <li class="page-item @(pageNumber == Model.Results.Page ? "active" : string.Empty)"><a class="page-link" href="@($"{action}?pageNumber={pageNumber}&search={Uri.EscapeDataString(Model.Search ?? string.Empty)}")">@pageNumber</a></li>
-            }
-        </ul></div>
+        <div class="card-footer">@await Html.PartialAsync("_Pager", new TradeFoundry.Pages.Pager(Model.Results.Page, Model.Results.PageCount, page => $"{action}?pageNumber={page}&search={Uri.EscapeDataString(Model.Search ?? string.Empty)}"))</div>
     }
 </section>

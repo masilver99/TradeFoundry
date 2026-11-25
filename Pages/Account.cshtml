@@ -11,7 +11,7 @@
     var summary = Model.Ledger.Summary;
     var isEditing = Model.EditingTransaction is not null;
     var handler = isEditing ? "Update" : "Create";
-    var formAction = $"/journal/{journal.Id:D}/account?handler={handler}";
+    var formAction = Model.AccountUrl($"handler={handler}");
 }
 
 @if (!string.IsNullOrWhiteSpace(Model.FlashMessage))
@@ -83,18 +83,39 @@
             <div class="col-md-3"><label class="form-label" for="Input_Amount">Amount<input asp-for="Input.Amount" class="form-control" id="Input_Amount" type="number" min="@(Model.Input.Type == AccountTransactionType.Correction ? null : "0.01")" step="0.01" required /></label><span asp-validation-for="Input.Amount" class="text-danger small"></span></div>
             <div class="col-md-3"><label class="form-label" for="Input_EffectiveLocal">Effective date / time<input class="form-control" id="Input_EffectiveLocal" name="Input.EffectiveLocal" type="datetime-local" value="@Model.Input.EffectiveLocal.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture)" required /></label><span asp-validation-for="Input.EffectiveLocal" class="text-danger small"></span></div>
             <div class="col-md-3"><label class="form-label" for="Input_Note">Note <span class="text-secondary">(optional)</span><input asp-for="Input.Note" class="form-control" id="Input_Note" maxlength="500" placeholder="Funding, transfer, owner draw…" /></label><span asp-validation-for="Input.Note" class="text-danger small"></span></div>
-            <div class="col-12 tf-account-form-actions"><button class="btn btn-primary" type="submit">@(isEditing ? "Save changes" : "Add entry")</button>@if (isEditing){<a class="btn btn-outline-secondary" href="@($"/journal/{journal.Id:D}/account")">Cancel edit</a>}</div>
+            <div class="col-12 tf-account-form-actions"><button class="btn btn-primary" type="submit">@(isEditing ? "Save changes" : "Add entry")</button>@if (isEditing){<a class="btn btn-outline-secondary" href="@Model.AccountUrl()">Cancel edit</a>}</div>
         </form>
     </div>
 </section>
 
 <section class="card tf-card" id="account-ledger">
-    <div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">AUDITABLE ACTIVITY</div><h2 class="tf-card-title">Account ledger</h2></div><span class="text-secondary">@Model.Ledger.TotalCount row(s)@(Model.IsDateFiltered ? $" · {Model.Filter.PeriodLabel}" : string.Empty)</span></div></div>
+    <div class="card-header"><div class="tf-section-heading"><div><div class="tf-kicker">AUDITABLE ACTIVITY</div><h2 class="tf-card-title">Account ledger</h2></div>
+        <div class="tf-account-ledger-tools">
+            <span class="text-secondary">@Model.Ledger.TotalCount.ToString("N0") row(s)@(Model.IsShowFiltered ? $" · {Model.ShowLabel}" : string.Empty)@(Model.IsDateFiltered ? $" · {Model.Filter.PeriodLabel}" : string.Empty)</span>
+            <form method="get" action="@($"/journal/{journal.Id:D}/account")#account-ledger" class="tf-account-show" data-account-show>
+                @foreach (var item in Model.Filter.Filter.ToQuery())
+                {
+                    <input type="hidden" name="@item.Key" value="@item.Value" />
+                }
+                <label class="tf-filter-label" for="account-show">Show</label>
+                <select id="account-show" name="show" class="form-select form-select-sm">
+                    @foreach (var option in AccountLedgerShow.Options)
+                    {
+                        <option value="@option.Value" selected="@(option.Value == Model.Ledger.Show)">@option.Label</option>
+                    }
+                </select>
+                <button class="btn btn-sm btn-outline-secondary" type="submit" data-account-show-apply>Apply</button>
+            </form>
+        </div></div></div>
     <div class="card-body p-0">
         <div class="tf-table-wrap">
             @if (Model.Ledger.Entries.Count == 0)
             {
-                @if (Model.IsDateFiltered)
+                @if (Model.IsShowFiltered)
+                {
+                    <div class="tf-empty m-3"><strong>No @Model.ShowLabel.ToLowerInvariant() to show.</strong><span>Nothing matches this filter@(Model.IsDateFiltered ? $" within {Model.Filter.PeriodLabel}" : string.Empty). <a href="@($"/journal/{journal.Id:D}/account{(Model.FilterSuffix.Length > 0 ? "?" + Model.FilterSuffix[1..] : string.Empty)}#account-ledger")">Show all activity</a></span></div>
+                }
+                else if (Model.IsDateFiltered)
                 {
                     <div class="tf-empty m-3"><strong>No account activity in this range.</strong><span>Nothing was recorded within @Model.Filter.PeriodLabel.</span></div>
                 }
@@ -135,7 +156,7 @@
                             <td>@(entry.ReportedBalance.HasValue ? Model.Money(entry.ReportedBalance.Value) : "—")</td>
                             <td class="@(entry.Variance is < 0m ? "negative" : entry.Variance is > 0m ? "warning" : string.Empty)">@(entry.Variance.HasValue ? Model.SignedMoney(entry.Variance.Value) : "—")</td>
                             <td><span class="tf-account-source">@entry.Source</span>@if (!string.IsNullOrWhiteSpace(entry.Note)){<small>@entry.Note</small>}</td>
-                            <td>@if (!entry.IsReadOnly && entry.TransactionId.HasValue){<div class="d-flex gap-1"><a class="btn btn-sm btn-outline-secondary" href="@($"/journal/{journal.Id:D}/account?edit={entry.TransactionId.Value:D}&page={Model.PageNumber}#account-entry-form")">Edit</a><form method="post" action="@($"/journal/{journal.Id:D}/account?handler=Delete")" onsubmit="return confirm('Delete this account entry? Its audit history will be retained.');">@Html.AntiForgeryToken()<input type="hidden" name="transactionId" value="@entry.TransactionId.Value" /><input type="hidden" name="expectedRevision" value="@entry.Revision" /><button class="btn btn-sm btn-outline-danger" type="submit">Delete</button></form></div>}else{<span class="text-secondary">Read-only</span>}</td>
+                            <td>@if (!entry.IsReadOnly && entry.TransactionId.HasValue){<div class="d-flex gap-1"><a class="btn btn-sm btn-outline-secondary" href="@(Model.AccountUrl($"edit={entry.TransactionId.Value:D}&page={Model.Ledger.Page}{Model.FilterSuffix}") + "#account-entry-form")">Edit</a><form method="post" action="@Model.AccountUrl("handler=Delete")" onsubmit="return confirm('Delete this account entry? Its audit history will be retained.');">@Html.AntiForgeryToken()<input type="hidden" name="transactionId" value="@entry.TransactionId.Value" /><input type="hidden" name="expectedRevision" value="@entry.Revision" /><button class="btn btn-sm btn-outline-danger" type="submit">Delete</button></form></div>}else{<span class="text-secondary">Read-only</span>}</td>
                         </tr>
                     }
                     </tbody>
@@ -145,16 +166,17 @@
     </div>
     @if (Model.Ledger.PageCount > 1)
     {
-        <div class="card-footer"><ul class="pagination mb-0 justify-content-end tf-pagination">
-            @for (var pageNumber = 1; pageNumber <= Model.Ledger.PageCount; pageNumber++)
-            {
-                <li class="page-item @(pageNumber == Model.Ledger.Page ? "active" : string.Empty)"><a class="page-link" href="@($"/journal/{journal.Id:D}/account?page={pageNumber}{Model.FilterSuffix}#account-ledger")">@pageNumber</a></li>
-            }
-        </ul></div>
+        <div class="card-footer">@await Html.PartialAsync("_Pager", new TradeFoundry.Pages.Pager(Model.Ledger.Page, Model.Ledger.PageCount, Model.PageUrl))</div>
     }
 </section>
 
 <script>
+    (() => {
+        const show = document.querySelector("[data-account-show]");
+        if (!show) return;
+        show.querySelector("[data-account-show-apply]")?.setAttribute("hidden", "");
+        show.querySelector("select")?.addEventListener("change", () => show.submit());
+    })();
     (() => {
         const type = document.getElementById("Input_Type");
         const amount = document.getElementById("Input_Amount");

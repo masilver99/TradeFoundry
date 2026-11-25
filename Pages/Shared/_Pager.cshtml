@@ -1,0 +1,22 @@
+@model TradeFoundry.Pages.Pager
+@{
+    var groupLabel = $"{Model.GroupSize} pages";
+}
+@if (Model.IsVisible)
+{
+    <nav class="tf-pager" aria-label="Pagination">
+        <span class="tf-pager-status">Page @Model.Page.ToString("N0") of @Model.PageCount.ToString("N0")</span>
+        <ul class="pagination mb-0 tf-pagination">
+            <li class="page-item @(Model.HasPrevious ? string.Empty : "disabled")"><a class="page-link" href="@Model.Url(1)" title="First page">First</a></li>
+            <li class="page-item @(Model.HasPreviousGroup ? string.Empty : "disabled")"><a class="page-link" href="@Model.Url(Model.PreviousGroupPage)" title="Back @groupLabel" aria-label="Back @groupLabel">«</a></li>
+            <li class="page-item @(Model.HasPrevious ? string.Empty : "disabled")"><a class="page-link" href="@Model.Url(Model.Page - 1)" title="Previous page" aria-label="Previous page">‹</a></li>
+            @foreach (var number in Model.GroupPages)
+            {
+                <li class="page-item @(number == Model.Page ? "active" : string.Empty)"><a class="page-link" href="@Model.Url(number)" aria-current="@(number == Model.Page ? "page" : null)">@number.ToString("N0")</a></li>
+            }
+            <li class="page-item @(Model.HasNext ? string.Empty : "disabled")"><a class="page-link" href="@Model.Url(Model.Page + 1)" title="Next page" aria-label="Next page">›</a></li>
+            <li class="page-item @(Model.HasNextGroup ? string.Empty : "disabled")"><a class="page-link" href="@Model.Url(Model.NextGroupPage)" title="Forward @groupLabel" aria-label="Forward @groupLabel">»</a></li>
+            <li class="page-item @(Model.HasNext ? string.Empty : "disabled")"><a class="page-link" href="@Model.Url(Model.PageCount)" title="Last page">Last</a></li>
+        </ul>
+    </nav>
+}

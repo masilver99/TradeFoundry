@@ -39,7 +39,7 @@ public sealed class AccountLedgerService
     /// The ledger with rows limited to a half-open UTC window. Balances are still calculated over the
     /// whole history, so each row shows the real running balance; <see cref="AccountLedgerPage.Period"/> sums the window.
     /// </summary>
-    public AccountLedgerPage GetLedger(Guid journalId, int page, int pageSize, DateTimeOffset? windowStartUtc, DateTimeOffset? windowEndUtcExclusive)
+    public AccountLedgerPage GetLedger(Guid journalId, int page, int pageSize, DateTimeOffset? windowStartUtc, DateTimeOffset? windowEndUtcExclusive, string? show = null)
     {
         var journal = _database.GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         return Build(
@@ -50,7 +50,8 @@ public sealed class AccountLedgerService
             page,
             pageSize,
             windowStartUtc,
-            windowEndUtcExclusive);
+            windowEndUtcExclusive,
+            show);
     }
 
     /// <summary>
@@ -66,7 +67,8 @@ public sealed class AccountLedgerService
         int page = 1,
         int pageSize = DefaultPageSize,
         DateTimeOffset? windowStartUtc = null,
-        DateTimeOffset? windowEndUtcExclusive = null)
+        DateTimeOffset? windowEndUtcExclusive = null,
+        string? show = null)
     {
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(transactions);
@@ -381,10 +383,11 @@ public sealed class AccountLedgerService
         var hasWindow = windowStartUtc.HasValue || windowEndUtcExclusive.HasValue;
         var period = hasWindow ? BuildPeriod(ordered, InWindow, windowStartUtc, openingBalance) : null;
 
+        var safeShow = AccountLedgerShow.Normalize(show);
         var safePageSize = Math.Clamp(pageSize, 1, 200);
-        var safePage = Math.Max(1, page);
         var newestFirst = ordered
             .Where(item => !hasWindow || InWindow(item))
+            .Where(item => AccountLedgerShow.Matches(safeShow, item.Entry))
             .OrderByDescending(item => item.EffectiveUtc)
             .ThenByDescending(item => item.Priority)
             .ThenByDescending(item => item.TieUtc)
@@ -392,12 +395,16 @@ public sealed class AccountLedgerService
             .ThenByDescending(item => item.TieId)
             .Select(item => item.Entry)
             .ToArray();
+        // A page past the end (e.g. after narrowing the filter) shows the last page instead of nothing.
+        var pageCount = Math.Max(1, (int)Math.Ceiling((double)newestFirst.Length / safePageSize));
+        var safePage = Math.Clamp(page, 1, pageCount);
 
         return new AccountLedgerPage
         {
             Summary = summary,
             Period = period,
             Entries = newestFirst.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToArray(),
+            Show = safeShow,
             Page = safePage,
             PageSize = safePageSize,
             TotalCount = newestFirst.Length

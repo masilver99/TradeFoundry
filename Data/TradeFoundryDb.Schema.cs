@@ -14,8 +14,9 @@ public sealed partial class TradeFoundryDb
     /// 1: the schema as of trade and day tags. Builds before it never stamped.
     /// 2: backup_runs.
     /// 3: journal_daily_limits.
+    /// 4: broker_statements and broker_statement_days.
     /// </remarks>
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
 
     /// <summary>Throws when the database was written by a newer TradeFoundry than this one.</summary>
     private void EnsureSchemaNotNewer(SqliteConnection connection)

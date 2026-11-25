@@ -1,0 +1,30 @@
+.tf-recon-upload { display:flex; align-items:end; gap:1rem; }
+.tf-recon-upload > div { flex:1; min-width:0; }
+.tf-recon-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem; }
+.tf-recon-actions { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
+.tf-recon-actions form { margin:0; }
+.tf-recon-table { min-width:900px; }
+.tf-recon-table th small { font-weight:400; color:var(--tf-muted); text-transform:none; }
+.tf-num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+.tf-recon-ok { border-color:rgba(63,185,80,.42); color:var(--tf-green); }
+.tf-recon-fees { border-color:rgba(var(--tf-gold-rgb),.5); color:var(--tf-gold); }
+.tf-recon-bad { border-color:rgba(248,81,73,.45); color:var(--tf-red); }
+.tf-recon-open > td { background:rgba(var(--tf-accent-rgb),.06); }
+.tf-recon-detail > td { background:var(--tf-surface-raised); white-space:normal; padding:1rem 1.25rem; }
+.tf-recon-detail-grid { display:grid; grid-template-columns:minmax(240px,1fr) minmax(0,2fr); gap:1.5rem; align-items:start; }
+.tf-recon-subtitle { font-size:var(--tf-fs-sm); font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--tf-muted); margin-bottom:.5rem; }
+.tf-recon-dl { display:grid; grid-template-columns:auto 1fr; gap:.25rem 1rem; margin:0 0 .5rem; }
+.tf-recon-dl dt { font-weight:400; color:var(--tf-muted); }
+.tf-recon-dl dd { margin:0; font-variant-numeric:tabular-nums; }
+.tf-recon-import-list { list-style:none; margin:0; padding:0; display:grid; gap:.4rem; }
+.tf-recon-import-list li { display:flex; flex-wrap:wrap; align-items:baseline; gap:.5rem; }
+.tf-recon-import-list strong { overflow-wrap:anywhere; }
+.tf-recon-import-imported .tf-status { border-color:rgba(63,185,80,.42); color:var(--tf-green); }
+.tf-recon-import-duplicate .tf-status { color:var(--tf-muted); }
+.tf-recon-import-failed .tf-status { border-color:rgba(248,81,73,.45); color:var(--tf-red); }
+.tf-recon-file { max-width:320px; white-space:normal; overflow-wrap:anywhere; }
+.tf-recon-statements { min-width:760px; }
+@media (max-width:767px) {
+  .tf-recon-upload { flex-direction:column; align-items:stretch; }
+  .tf-recon-detail-grid { grid-template-columns:1fr; }
+}

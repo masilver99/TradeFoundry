@@ -52,6 +52,7 @@ public static class CommandPaletteCatalog
         Page("Tag Report", "/tag-report", "Tag performance", "Tag probabilities", "Best tags", "Probability lookup");
         Page("Detached Reviews", "/detached-reviews", "Lost reviews", "Unattached reviews");
         Page("Account", "/account", "Balance", "Transactions");
+        Page("Statements", "/statements", "Broker statements", "Reconciliation", "AMP statements", "Statement fees");
         Page("Tax Liability", "/tax-liability", "Taxes", "Tax estimates");
         Page("Expenses", "/expenses", "Receipts", "Trading expenses", "Software costs");
         Page("Analytics", "/analytics", "Analysis", "Reports");

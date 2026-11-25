@@ -1,0 +1,211 @@
+@page "/journal/{journalId:guid}/statements"
+@model TradeFoundry.Pages.StatementsModel
+@using TradeFoundry.Core
+@using TradeFoundry.Pages
+@using TradeFoundry.Services.Statements
+@{
+    ViewData["Title"] = "Statements";
+    ViewData["ActiveNav"] = "statements";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / MONEY";
+    var report = Model.Report;
+    var journal = report.Journal;
+    var attention = report.Count(ReconciliationStatus.TradesDiffer) + report.Count(ReconciliationStatus.MissingFromJournal) + report.Count(ReconciliationStatus.NotOnStatement) + report.Count(ReconciliationStatus.StatementsDisagree);
+    var feeOnly = report.FeeOnlyDifferences.ToArray();
+    var firstPeriod = report.Statements.Count > 0 ? report.Statements.Min(s => s.PeriodStart) : (DateOnly?)null;
+    var lastPeriod = report.Statements.Count > 0 ? report.Statements.Max(s => s.PeriodEnd) : (DateOnly?)null;
+}
+<link rel="stylesheet" href="~/css/statements.css" asp-append-version="true" />
+
+<section class="tf-page-intro mb-3">
+    <div>
+        <div class="tf-kicker">BROKER STATEMENTS</div>
+        <h1>Statement reconciliation</h1>
+        <p class="tf-lede">Import your AMP daily and monthly statements and check every trading day against the journal. Where only the fees differ, apply the fees the broker actually charged.</p>
+    </div>
+    <div class="tf-page-meta"><span>@journal.Currency</span><span>CME trade dates</span></div>
+</section>
+
+@if (TempData["StatementMessage"] is string message)
+{
+    <div class="alert tf-alert" role="status">@message</div>
+}
+@if (TempData["StatementError"] is string error)
+{
+    <div class="alert tf-alert error" role="alert">@error</div>
+}
+@if (Model.ImportMessages.Count > 0)
+{
+    <section class="card tf-card mb-3" aria-label="Import results"><div class="card-body">
+        <h2 class="tf-card-title mb-2">Import results</h2>
+        <ul class="tf-recon-import-list">
+            @foreach (var item in Model.ImportMessages)
+            {
+                <li class="tf-recon-import-@item.Outcome"><span class="tf-status">@item.Outcome</span>@if (item.FileName.Length > 0){<strong>@item.FileName</strong>}<span>@item.Message</span></li>
+            }
+        </ul>
+    </div></section>
+}
+
+<section class="card tf-card mb-3" aria-labelledby="statement-upload-title"><div class="card-body">
+    <h2 id="statement-upload-title" class="tf-card-title mb-2">Import statements</h2>
+    <form method="post" action="@Model.BaseUrl?handler=Import@(Model.ShowAll ? "&show=all" : "")" enctype="multipart/form-data" class="tf-recon-upload">
+        @Html.AntiForgeryToken()
+        <div><label class="form-label" for="statement-files">AMP daily or monthly statement PDFs · up to @StatementsModel.MaxFilesPerImport at a time, 10 MB each</label><input id="statement-files" name="files" type="file" class="form-control" accept="application/pdf,.pdf" multiple required /></div>
+        <button class="btn btn-primary" type="submit">Import</button>
+    </form>
+    <p class="text-secondary small mt-2 mb-0">Files already imported are skipped. Statements are stored as read-only evidence; applying their fees writes to each trade's review, where the change shows in history and can be reverted.</p>
+</div></section>
+
+@if (report.Statements.Count == 0)
+{
+    <div class="tf-empty"><strong>No statements imported yet.</strong>Import your statements above to compare them with the journal.</div>
+}
+else
+{
+    <section class="row row-cards mb-3" aria-label="Reconciliation summary">
+        <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Statements</div><div class="tf-metric-value">@report.Statements.Count</div><div class="tf-metric-note">@firstPeriod?.ToString("MMM d, yyyy") – @lastPeriod?.ToString("MMM d, yyyy")</div></div></div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Matched days</div><div class="tf-metric-value positive">@report.Count(ReconciliationStatus.Matched)</div><div class="tf-metric-note">of @report.Days.Count reconciled day(s)</div></div></div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Fee-only differences</div><div class="tf-metric-value">@report.Count(ReconciliationStatus.FeesDiffer)</div><div class="tf-metric-note">Journal fees @(report.TotalFeeDifference >= 0 ? "over" : "under") by @StatementsModel.Money(Math.Abs(report.TotalFeeDifference)) across all days</div></div></div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card tf-card tf-metric"><div class="card-body"><div class="tf-metric-label">Need attention</div><div class="tf-metric-value @(attention > 0 ? "negative" : "positive")">@attention</div><div class="tf-metric-note">Trades differ, missing, or statements disagree</div></div></div></div>
+    </section>
+
+    @if (report.UnmatchedAccounts.Count > 0 && report.MatchedAccounts.Count == 0)
+    {
+        <div class="alert tf-alert warning" role="status">No journal trade account contains the statement account number @string.Join(", ", report.UnmatchedAccounts), so every closed trade in this journal is compared. Trades from other accounts or a simulator will show as differences.</div>
+    }
+    else if (report.OtherAccountTradeCount > 0)
+    {
+        <div class="alert tf-alert" role="status">Comparing trades from account @string.Join(", ", report.MatchedAccounts). @report.OtherAccountTradeCount closed trade(s) from other accounts are left out.</div>
+    }
+    @if (report.UncoveredTradeDates.Count > 0)
+    {
+        <div class="alert tf-alert warning" role="status">@report.UncoveredTradeDates.Count journal trading day(s) have no statement yet (@report.UncoveredTradeDates[0].ToString("MMM d, yyyy") – @report.UncoveredTradeDates[^1].ToString("MMM d, yyyy")). Import the statements that cover them to reconcile those days.</div>
+    }
+
+    <section class="card tf-card mb-3" id="reconciliation-days">
+        <div class="card-header tf-recon-header">
+            <h2 class="tf-card-title">Trading days</h2>
+            <div class="tf-recon-actions">
+                <div class="btn-group" role="group" aria-label="Days to show">
+                    <a class="btn btn-sm @(Model.ShowAll ? "btn-outline-secondary" : "btn-secondary")" href="@Model.BaseUrl" aria-current="@(Model.ShowAll ? null : "true")">Differences</a>
+                    <a class="btn btn-sm @(Model.ShowAll ? "btn-secondary" : "btn-outline-secondary")" href="@Model.BaseUrl?show=all" aria-current="@(Model.ShowAll ? "true" : null)">All days</a>
+                </div>
+                @if (feeOnly.Length > 0)
+                {
+                    <form method="post" action="@Model.BaseUrl?handler=ApplyAll@(Model.ShowAll ? "&show=all" : "")" data-recon-confirm="Apply the statement fees to the trades on @feeOnly.Length day(s)? Each change is saved in the trade's review history.">
+                        @Html.AntiForgeryToken()
+                        <button class="btn btn-sm btn-primary" type="submit">Apply fees to @feeOnly.Length fee-only day(s)</button>
+                    </form>
+                }
+            </div>
+        </div>
+        @if (Model.Rows.Count == 0)
+        {
+            <div class="tf-empty m-3"><strong>@(Model.ShowAll ? "No reconciled days." : "Every reconciled day matches.")</strong>@(Model.ShowAll ? "Import statements that cover your trading days." : "Choose All days to see them.")</div>
+        }
+        else
+        {
+            <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-recon-table">
+                <thead><tr><th>Day</th><th>Status</th><th class="text-end">Contract sides<br /><small>statement / journal</small></th><th class="text-end">Realized P&amp;L<br /><small>statement / journal</small></th><th class="text-end">Fees<br /><small>statement / journal</small></th><th class="text-end">Fee difference</th><th>Actions</th></tr></thead>
+                <tbody>
+                @foreach (var day in Model.Rows)
+                {
+                    var key = day.Date.ToString("yyyy-MM-dd");
+                    var open = Model.Day == day.Date;
+                    <tr id="day-@key" class="@(open ? "tf-recon-open" : null)">
+                        <td class="text-nowrap"><strong>@day.Date.ToString("ddd, MMM d, yyyy")</strong></td>
+                        <td><span class="tf-status @StatementsModel.StatusClass(day.Status)" title="@StatementsModel.StatusHelp(day)">@StatementsModel.StatusLabel(day.Status)</span></td>
+                        <td class="text-end tf-num">@(day.Source is null ? "—" : day.StatementContractSides.ToString()) / @(day.Trades.Count == 0 ? "—" : day.JournalContractSides.ToString())</td>
+                        <td class="text-end tf-num">@(day.Source is null ? "—" : StatementsModel.Money(day.StatementGrossPnl)) / @(day.Trades.Count == 0 ? "—" : StatementsModel.Money(day.JournalGrossPnl))</td>
+                        <td class="text-end tf-num">@(day.Source is null ? "—" : StatementsModel.Money(day.StatementFees)) / @(day.Trades.Count == 0 ? "—" : StatementsModel.Money(day.JournalFees))</td>
+                        <td class="text-end tf-num @(day.Source is not null && day.Trades.Count > 0 && Math.Abs(day.FeeDifference) >= 0.005m ? "negative" : null)">@(day.Source is not null && day.Trades.Count > 0 ? StatementsModel.SignedMoney(day.FeeDifference) : "—")</td>
+                        <td><div class="tf-recon-actions">
+                            <a class="btn btn-sm btn-outline-secondary" href="@(open ? Model.ListUrl + "#day-" + key : Model.DayUrl(day.Date))">@(open ? "Hide" : "Details")</a>
+                            @if (day.CanApplyFees)
+                            {
+                                <form method="post" action="@Model.BaseUrl?handler=Apply@(Model.ShowAll ? "&show=all" : "")">@Html.AntiForgeryToken()<input type="hidden" name="date" value="@key" /><input type="hidden" name="expectedFees" value="@day.JournalFees.ToString(System.Globalization.CultureInfo.InvariantCulture)" /><button class="btn btn-sm btn-outline-primary" type="submit">Apply fees</button></form>
+                            }
+                            @if (day.Trades.Count > 0){<a class="btn btn-sm btn-outline-secondary" href="@Model.ReviewUrl(day.Date)">Review day</a>}
+                        </div></td>
+                    </tr>
+                    @if (open)
+                    {
+                        <tr class="tf-recon-detail"><td colspan="7">
+                            <p class="mb-2">@StatementsModel.StatusHelp(day)</p>
+                            <div class="tf-recon-detail-grid">
+                                @if (day.Statement is { } statement)
+                                {
+                                    <div>
+                                        <h3 class="tf-recon-subtitle">Statement</h3>
+                                        <p class="text-secondary small mb-1">@day.Source!.Kind statement · @day.Source.FileName</p>
+                                        <dl class="tf-recon-dl">
+                                            <dt>Bought / sold</dt><dd>@statement.BuyContracts / @statement.SellContracts</dd>
+                                            <dt>Realized P&amp;L</dt><dd>@(statement.HasRealizedPnl ? StatementsModel.Money(statement.RealizedPnl) : "No purchase & sale on this day")</dd>
+                                            @foreach (var fee in statement.Fees.GroupBy(f => f.Name))
+                                            {
+                                                <dt>@fee.Key</dt><dd>@StatementsModel.Money(fee.Sum(f => f.Amount))</dd>
+                                            }
+                                            <dt>Total fees</dt><dd><strong>@StatementsModel.Money(statement.TotalFees)</strong>@if (statement.ContractSides > 0){<span class="text-secondary"> · @StatementsModel.Money(statement.TotalFees / statement.ContractSides) per contract side</span>}</dd>
+                                        </dl>
+                                        @foreach (var other in day.OtherSources)
+                                        {
+                                            <p class="text-secondary small mb-0">Also on @other.Kind.ToString().ToLowerInvariant() statement @other.FileName: @other.Day.ContractSides sides, @StatementsModel.Money(other.Day.RealizedPnl) P&amp;L, @StatementsModel.Money(other.Day.TotalFees) fees.</p>
+                                        }
+                                    </div>
+                                }
+                                @if (day.Trades.Count > 0)
+                                {
+                                    <div>
+                                        <h3 class="tf-recon-subtitle">Journal trades</h3>
+                                        <div class="tf-table-wrap"><table class="table table-sm tf-table">
+                                            <thead><tr><th>Exit</th><th>Symbol</th><th>Side</th><th class="text-end">Sides</th><th class="text-end">Gross</th><th class="text-end">Fees now</th>@if (day.Shares.Count > 0){<th class="text-end">From statement</th>}</tr></thead>
+                                            <tbody>
+                                            @foreach (var trade in day.Trades)
+                                            {
+                                                var share = day.Shares.FirstOrDefault(s => s.Trade.Id == trade.Id);
+                                                <tr>
+                                                    <td class="text-nowrap">@TimeZoneCatalog.Convert(trade.ExitUtc ?? trade.EntryUtc, journal.TimeZone).ToString("HH:mm:ss")</td>
+                                                    <td>@trade.Symbol</td>
+                                                    <td>@trade.Direction</td>
+                                                    <td class="text-end tf-num">@StatementReconciliationService.SidesOf(trade)</td>
+                                                    <td class="text-end tf-num">@StatementsModel.Money(trade.GrossPnl)</td>
+                                                    <td class="text-end tf-num">@StatementsModel.Money(trade.Fees)</td>
+                                                    @if (day.Shares.Count > 0){<td class="text-end tf-num" title="Exchange @StatementsModel.Money(share?.ExchangeFees ?? 0) · NFA @StatementsModel.Money(share?.NfaFees ?? 0) · Clearing @StatementsModel.Money(share?.ClearingFees ?? 0)">@StatementsModel.Money(share?.TotalFees ?? 0)</td>}
+                                                </tr>
+                                            }
+                                            </tbody>
+                                        </table></div>
+                                    </div>
+                                }
+                            </div>
+                        </td></tr>
+                    }
+                }
+                </tbody>
+            </table></div>
+        }
+    </section>
+
+    <section class="card tf-card" id="statement-list">
+        <div class="card-header"><h2 class="tf-card-title">Imported statements</h2></div>
+        <div class="tf-table-wrap"><table class="table table-vcenter tf-table tf-recon-statements">
+            <thead><tr><th>Period</th><th>Type</th><th>Account</th><th>File</th><th class="text-end">Days</th><th>Imported</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var statement in report.Statements)
+            {
+                <tr>
+                    <td class="text-nowrap">@(statement.Kind == BrokerStatementKind.Daily ? statement.PeriodStart.ToString("MMM d, yyyy") : $"{statement.PeriodStart:MMM d} – {statement.PeriodEnd:MMM d, yyyy}")</td>
+                    <td>@statement.Broker @statement.Kind.ToString().ToLowerInvariant()</td>
+                    <td>@(statement.Account.Length > 0 ? statement.Account : "—")</td>
+                    <td class="tf-recon-file">@statement.FileName@if (statement.Warnings.Count > 0){<small class="d-block text-warning">@string.Join(" ", statement.Warnings)</small>}</td>
+                    <td class="text-end tf-num">@statement.DayCount</td>
+                    <td class="text-nowrap">@TimeZoneCatalog.Convert(statement.ImportedUtc, journal.TimeZone).ToString("MMM d, yyyy")</td>
+                    <td><form method="post" action="@Model.BaseUrl?handler=Delete@(Model.ShowAll ? "&show=all" : "")" data-recon-confirm="Remove this statement? Fees already applied to trades are kept.">@Html.AntiForgeryToken()<input type="hidden" name="statementId" value="@statement.Id" /><button class="btn btn-sm btn-outline-danger" type="submit">Remove</button></form></td>
+                </tr>
+            }
+            </tbody>
+        </table></div>
+    </section>
+}
+
+@section Scripts {<script src="~/js/statements.js" asp-append-version="true"></script>}

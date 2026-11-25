@@ -164,6 +164,7 @@ WebApplication BuildApplication(bool firstStart)
     builder.Services.AddHttpClient("Publication", client => client.Timeout = TimeSpan.FromMinutes(3))
         .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
     builder.Services.AddSingleton<ExpenseService>();
+    builder.Services.AddSingleton<TradeFoundry.Services.Statements.StatementReconciliationService>();
     builder.Services.AddHttpClient("ChatGpt", client => client.Timeout = TimeSpan.FromMinutes(2))
         .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
     builder.Services.AddSingleton(services => new ChatGptOAuth(() => services.GetRequiredService<IHttpClientFactory>().CreateClient("ChatGpt")));

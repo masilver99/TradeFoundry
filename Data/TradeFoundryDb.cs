@@ -187,6 +187,7 @@ public sealed partial class TradeFoundryDb
         InitializeAiReviews(connection);
         InitializeAiPrompts(connection);
         InitializeBackup(connection);
+        InitializeBrokerStatements(connection);
 
         // The application started without migrations, so keep schema upgrades
         // additive and idempotent for existing local SQLite files.

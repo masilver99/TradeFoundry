@@ -72,7 +72,7 @@ The `/health` endpoint checks database availability and returns `{"status":"ok"}
 
 ## Forgejo deployment to trades.shaa.one
 
-`.forgejo/workflows/public-journal.yml` runs on publishing-related pushes to the repository's `master` branch and manual dispatch. It tests the backend in Docker, builds only the public reader for production, transfers the commit-tagged image over SSH, and deploys it in `/opt/trades` on the existing Docker host. The existing nginx-proxy and certificate companion provide HTTPS over the external `int` network; the production deployment does not start Caddy or bind host ports 80/443.
+The `deploy-public-journal` job in `.forgejo/workflows/container.yml` runs after the `publish` job has tested and published a `master` push, but only when that push changed something the public reader or its backend tests depend on (manual runs always deploy). It builds only the public reader for production, transfers the commit-tagged image over SSH, and deploys it in `/opt/trades` on the existing Docker host. The existing nginx-proxy and certificate companion provide HTTPS over the external `int` network; the production deployment does not start Caddy or bind host ports 80/443.
 
 Configure these **TradeFoundry repository Actions values**:
 

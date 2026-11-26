@@ -58,7 +58,7 @@
 
 <section class="row row-cards mb-3" aria-label="Account reconciliation">
     <div class="col-lg-4"><div class="card tf-card tf-account-status"><div class="card-body"><div class="tf-metric-label">Opening baseline</div><strong>@summary.OpeningBalanceSource</strong><p class="text-secondary mb-0">@Model.Money(summary.OpeningBalance ?? 0m) · imported and derived rows remain read-only.</p></div></div></div>
-    <div class="col-lg-4"><div class="card tf-card tf-account-status"><div class="card-body"><div class="tf-metric-label">Latest reported balance</div><strong>@(summary.LatestReportedBalance.HasValue ? Model.Money(summary.LatestReportedBalance.Value) : "No imported checkpoint")</strong><p class="text-secondary mb-0">Variance @(summary.LatestReportedVariance.HasValue ? Model.SignedMoney(summary.LatestReportedVariance.Value) : "—")</p></div></div></div>
+    <div class="col-lg-4"><div class="card tf-card tf-account-status"><div class="card-body"><div class="tf-metric-label">Latest reported balance</div><strong>@(summary.LatestReportedBalance.HasValue ? Model.Money(summary.LatestReportedBalance.Value) : "No imported checkpoint")</strong><p class="text-secondary mb-0">Variance @(summary.LatestReportedVariance.HasValue ? Model.SignedMoney(summary.LatestReportedVariance.Value) : "—")@if (summary.LatestReportedSource is { } reportedSource){<text> · @reportedSource</text>}</p></div></div></div>
     <div class="col-lg-4"><div class="card tf-card tf-account-status"><div class="card-body"><div class="tf-metric-label">Activity</div><strong>@(summary.HasActivity ? "Account activity recorded" : "Opening balance only")</strong><p class="text-secondary mb-0">@(summary.LatestActivityUtc.HasValue ? $"Latest {Model.LocalDateTime(summary.LatestActivityUtc.Value)}" : "Add a deposit or import account evidence.")</p></div></div></div>
 </section>
 
@@ -124,6 +124,13 @@
                                 else
                                 {
                                     <strong>@entry.Description</strong>
+                                }
+                                @if (entry.Kind == "midnight_balance")
+                                {
+                                    var check = entry.NextStatementDifference;
+                                    var checkClass = check is null ? "text-secondary" : Math.Abs(check.Value) < 0.005m ? "positive" : "warning";
+                                    var checkText = check is null ? "Awaiting the next statement" : Math.Abs(check.Value) < 0.005m ? "Confirmed by the next statement" : $"Next statement differs by {Model.SignedMoney(check.Value)}";
+                                    <small class="@checkClass" title="@entry.NextStatementDescription">@checkText</small>
                                 }
                                 @if (!string.IsNullOrWhiteSpace(entry.Account))
                                 {

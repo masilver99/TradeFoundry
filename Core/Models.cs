@@ -614,6 +614,8 @@ public sealed class AccountSummary
     public decimal? RealizedTwrPercent { get; init; }
     public decimal? LatestReportedBalance { get; init; }
     public decimal? LatestReportedVariance { get; init; }
+    /// <summary>Where the latest reported balance came from, e.g. "Broker statement"; null without one.</summary>
+    public string? LatestReportedSource { get; init; }
     public DateTimeOffset? LatestActivityUtc { get; init; }
     public bool HasActivity { get; init; }
     public bool HasInferredBaseline { get; init; }
@@ -643,6 +645,13 @@ public sealed class AccountLedgerEntry
     public bool IsOpeningBaseline { get; init; }
     public bool IsBeforeBaseline { get; init; }
     public string Note { get; init; } = string.Empty;
+    /// <summary>
+    /// For a derived midnight balance: the next statement's cash balance minus this balance rolled forward through the
+    /// activity recorded before that statement. Zero confirms it; null means no later statement has been imported yet.
+    /// </summary>
+    public decimal? NextStatementDifference { get; init; }
+    /// <summary>Which statement <see cref="NextStatementDifference"/> was checked against; empty without one.</summary>
+    public string NextStatementDescription { get; init; } = string.Empty;
 }
 
 /// <summary>Account activity inside the journal filter's date range; balances come from the full history.</summary>

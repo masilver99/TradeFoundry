@@ -151,7 +151,7 @@ public class AnalyticsModel : PageModel
 
         OrderExecution = _orderExecution.Get(JournalId, Filter, Trades);
         // Actual balance observations belong to the whole account, so a filtered view measures its trades from the starting balance.
-        AccountBalances = Filter.IsActive ? Array.Empty<AccountBalanceEvent>() : _database.GetAccountBalanceEvents(JournalId);
+        AccountBalances = Filter.IsActive ? Array.Empty<AccountBalanceEvent>() : _database.GetAccountBalanceCheckpoints(JournalId);
         LoadBenchmarkPoints();
         BenchmarkStatus = _database.GetBenchmarkSeriesStatus(JournalId, BenchmarkSymbol);
         Indicators = TearSheetMetrics.Build(Trades, OrderExecution,AccountBalances, BenchmarkPoints, Overview?.StartingEquity, Journal.TimeZone, Journal.Currency);

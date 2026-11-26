@@ -46,7 +46,7 @@ public class IndicatorsModel : PageModel
         var refresh = await _benchmarkRefresh.RefreshAsync(JournalId, allTrades, force: false, cancellationToken: cancellationToken);
         if (refresh.Failed) BenchmarkRefreshMessage = $"{refresh.Message} Existing cached benchmark data was kept.";
         OrderExecution = _orderExecution.Get(JournalId, Filter, Trades);
-        AccountBalances = Filter.IsActive ? Array.Empty<AccountBalanceEvent>() : _database.GetAccountBalanceEvents(JournalId);
+        AccountBalances = Filter.IsActive ? Array.Empty<AccountBalanceEvent>() : _database.GetAccountBalanceCheckpoints(JournalId);
         BenchmarkPoints = _database.GetBenchmarkPoints(JournalId, _benchmarkRefresh.DefaultSymbol);
         if (BenchmarkPoints.Count == 0) BenchmarkPoints = _database.GetBenchmarkPoints(JournalId);
         Indicators = TearSheetMetrics.Build(Trades, OrderExecution,AccountBalances, BenchmarkPoints, Overview.StartingEquity, Journal.TimeZone, Journal.Currency);

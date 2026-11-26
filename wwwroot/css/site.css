@@ -318,12 +318,13 @@ a.tf-notification-message:hover { color: var(--tf-blue); text-decoration: underl
 .tf-account-type-withdrawal { border-color: rgba(248,81,73,.42); color: var(--tf-red); }
 .tf-account-type-correction { border-color: rgba(var(--tf-gold-rgb),.42); color: var(--tf-gold); }
 .tf-account-type-realized-trade-pnl { border-color: rgba(88,166,255,.42); color: var(--tf-blue); }
-.tf-account-type-imported-balance, .tf-account-type-opening-balance { border-color: var(--tf-line-strong); color: var(--tf-muted); }
+.tf-account-type-imported-balance, .tf-account-type-opening-balance, .tf-account-type-midnight-balance { border-color: var(--tf-line-strong); color: var(--tf-muted); }
 .tf-account-source { color: var(--tf-ink); }
 .tf-account-outside { opacity: .65; }
 .tf-account-outside td:first-child { border-left: 2px solid var(--tf-gold); }
 .tf-account-table { min-width: 1180px; }
 .tf-account-table .btn { font-size: var(--tf-fs-xs); }
+.tf-account-table small.warning { color: var(--tf-gold); }
 .tf-side, .tf-status, .tf-chip { display: inline-flex; align-items: center; border: 1px solid var(--tf-line); border-radius: 4px; padding: 2px 6px; font-size: var(--tf-fs-2xs); font-weight: 600; text-transform: uppercase; }
 .tf-side-long { border-color: rgba(63,185,80,.42); color: var(--tf-green); }
 .tf-side-short { border-color: rgba(248,81,73,.42); color: var(--tf-red); }

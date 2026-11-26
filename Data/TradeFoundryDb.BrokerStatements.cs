@@ -77,6 +77,13 @@ public sealed partial class TradeFoundryDb
         return (GetBrokerStatements(journalId).First(s => s.Id == id), false);
     }
 
+    /// <summary>
+    /// The broker balances the account views compare against: statement cash balances when any statement gives one,
+    /// otherwise the imported platform balance rows. See <see cref="AccountBalanceCheckpoints"/>.
+    /// </summary>
+    public IReadOnlyList<AccountBalanceEvent> GetAccountBalanceCheckpoints(Guid journalId) =>
+        AccountBalanceCheckpoints.Select(GetBrokerStatements(journalId), GetAccountBalanceEvents(journalId));
+
     public IReadOnlyList<BrokerStatement> GetBrokerStatements(Guid journalId)
     {
         using var connection = OpenConnection();

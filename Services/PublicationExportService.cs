@@ -13,7 +13,7 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
         var journal = database.GetJournal(journalId) ?? throw new InvalidOperationException("Journal was not found.");
         var allTrades = database.GetAllTrades(journalId);
         // The balance is the account's real current balance, so it always comes from the whole ledger.
-        var account = AccountLedgerService.Build(journal, database.GetAccountTransactions(journalId), allTrades, database.GetAccountBalanceEvents(journalId)).Summary;
+        var account = AccountLedgerService.Build(journal, database.GetAccountTransactions(journalId), allTrades, database.GetAccountBalanceCheckpoints(journalId)).Summary;
         var filtered = filter is { IsActive: true };
         var trades = filtered ? filter!.Apply(allTrades) : allTrades;
         var sourceImages = new Dictionary<string, PublicationImage>();
@@ -69,7 +69,7 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
                             criterion.Criterion.CriterionType.ToString(), criterion.Criterion.Stage.ToString(), criterion.EvaluationState.ToString())).ToList())).ToList();
                 return string.IsNullOrWhiteSpace(label) && definitions.Count == 0 ? null : new PublicationTradeSetupInfo(label, definitions);
             });
-        var balanceEvents = filtered ? [] : database.GetAccountBalanceEvents(journalId);
+        var balanceEvents = filtered ? [] : database.GetAccountBalanceCheckpoints(journalId);
         var benchmarkSource = database.GetBenchmarkPoints(journalId, benchmarkOptions?.Value.DefaultSymbol ?? "^GSPC");
         var indicators = TearSheetMetrics.Build(trades, [], balanceEvents, benchmarkSource, journal.StartingEquity, journal.TimeZone, journal.Currency);
         var comparison = indicators.Benchmark;
@@ -96,7 +96,7 @@ public sealed class PublicationExportService(TradeFoundryDb database, DailyJourn
     {
         var zone = TimeZoneCatalog.Resolve(journal.TimeZone);
         var transactions = database.GetAccountTransactions(journal.Id);
-        var balances = database.GetAccountBalanceEvents(journal.Id);
+        var balances = database.GetAccountBalanceCheckpoints(journal.Id);
         DateTimeOffset Start(DateOnly date) => new(TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified), zone));
         return months.Select(month =>
         {

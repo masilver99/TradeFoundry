@@ -8,6 +8,10 @@ namespace TradeFoundry.Services;
 /// manual cash flows, realized trades, and imported balance evidence. Imported
 /// checkpoints are deliberately observations: after the opening fallback they
 /// never change the calculated balance.
+/// Broker statements strike their cash balance at the CME session close (5 p.m. Chicago),
+/// not at the journal's midnight, so each journal day that ends after a statement balance
+/// also gets a derived midnight balance: the statement balance plus the activity recorded
+/// between the close and midnight, checked against the next statement.
 /// </summary>
 public sealed class AccountLedgerService
 {
@@ -27,7 +31,7 @@ public sealed class AccountLedgerService
             journal,
             _database.GetAccountTransactions(journalId),
             _database.GetAllTrades(journalId),
-            _database.GetAccountBalanceEvents(journalId),
+            _database.GetAccountBalanceCheckpoints(journalId),
             1,
             DefaultPageSize).Summary;
     }
@@ -46,7 +50,7 @@ public sealed class AccountLedgerService
             journal,
             _database.GetAccountTransactions(journalId),
             _database.GetAllTrades(journalId),
-            _database.GetAccountBalanceEvents(journalId),
+            _database.GetAccountBalanceCheckpoints(journalId),
             page,
             pageSize,
             windowStartUtc,
@@ -66,7 +70,8 @@ public sealed class AccountLedgerService
         int page = 1,
         int pageSize = DefaultPageSize,
         DateTimeOffset? windowStartUtc = null,
-        DateTimeOffset? windowEndUtcExclusive = null)
+        DateTimeOffset? windowEndUtcExclusive = null,
+        DateTimeOffset? nowUtc = null)
     {
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(transactions);
@@ -171,7 +176,7 @@ public sealed class AccountLedgerService
         var openingSource = journal.StartingEquity.HasValue
             ? "Journal starting equity"
             : hasInferredBaseline
-                ? "First imported account balance"
+                ? AccountBalanceCheckpoints.IsStatement(baselineSnapshot!) ? "First broker statement cash balance" : "First imported account balance"
                 : "Zero-based account";
         var inferredBaselineUtc = baselineSnapshot?.EventUtc.ToUniversalTime();
 
@@ -179,14 +184,17 @@ public sealed class AccountLedgerService
         {
             var eventUtc = snapshot.EventUtc.ToUniversalTime();
             var isOpeningSnapshot = hasInferredBaseline && ReferenceEquals(snapshot, baselineSnapshot);
+            var fromStatement = AccountBalanceCheckpoints.IsStatement(snapshot);
             events.Add(new LedgerEvent
             {
                 EffectiveUtc = eventUtc,
-                Priority = isOpeningSnapshot ? 0 : 3,
+                // A statement balance is struck at the session close, before anything at that instant, which belongs to the next trade date.
+                Priority = isOpeningSnapshot ? 0 : fromStatement ? -1 : 3,
                 TieNumber = snapshot.RowNumber,
                 TieId = snapshot.Id,
                 IsOpening = isOpeningSnapshot,
                 IsSnapshot = true,
+                IsStatement = fromStatement,
                 ReportedBalance = snapshot.Balance,
                 Kind = isOpeningSnapshot ? "opening_balance" : "imported_balance",
                 Entry = new AccountLedgerEntry
@@ -195,15 +203,16 @@ public sealed class AccountLedgerService
                     ImportBatchId = snapshot.ImportBatchId,
                     EffectiveUtc = eventUtc,
                     Kind = isOpeningSnapshot ? "opening_balance" : "imported_balance",
-                    Label = isOpeningSnapshot ? "Opening balance (imported)" : "Imported balance",
+                    Label = isOpeningSnapshot ? (fromStatement ? "Opening balance (statement)" : "Opening balance (imported)") : fromStatement ? "Statement balance" : "Imported balance",
                     Description = SnapshotDescription(snapshot),
-                    Source = "Imported account balance",
+                    Source = SnapshotSource(snapshot),
                     Account = snapshot.Account,
                     Amount = isOpeningSnapshot ? snapshot.Balance : null,
                     ReportedBalance = snapshot.Balance,
                     IsReadOnly = true,
                     IsOpeningBaseline = isOpeningSnapshot,
-                    Note = snapshot.Note
+                    // The description already carries a statement checkpoint's note; name the file it came from instead.
+                    Note = fromStatement ? snapshot.SourceTimeText : snapshot.Note
                 }
             });
         }
@@ -239,13 +248,9 @@ public sealed class AccountLedgerService
             });
         }
 
-        var ordered = events
-            .OrderBy(item => item.EffectiveUtc)
-            .ThenBy(item => item.Priority)
-            .ThenBy(item => item.TieUtc)
-            .ThenBy(item => item.TieNumber)
-            .ThenBy(item => item.TieId)
-            .ToArray();
+        var ordered = InLedgerOrder(events);
+        var midnights = MidnightBalances(journal, ordered, inferredBaselineUtc, nowUtc ?? DateTimeOffset.UtcNow);
+        if (midnights.Count > 0) ordered = InLedgerOrder(ordered.Concat(midnights));
 
         var calculatedBalance = openingBalance;
         var realizedProfit = 0m;
@@ -254,6 +259,7 @@ public sealed class AccountLedgerService
         var netCorrections = 0m;
         var latestReportedBalance = (decimal?)null;
         var latestReportedVariance = (decimal?)null;
+        var latestReportedSource = (string?)null;
         var hasPreBaselineActivity = false;
         var hasPositiveCapitalBase = calculatedBalance > 0m;
         var twrFactor = 1m;
@@ -283,6 +289,7 @@ public sealed class AccountLedgerService
                 {
                     latestReportedBalance = ledgerEvent.ReportedBalance;
                     latestReportedVariance = openingVariance;
+                    latestReportedSource = ledgerEvent.Entry.Source;
                 }
                 ledgerEvent.Entry = WithCalculation(ledgerEvent.Entry, calculatedBalance, openingVariance, false);
                 continue;
@@ -327,10 +334,12 @@ public sealed class AccountLedgerService
                 var variance = ledgerEvent.ReportedBalance.HasValue
                     ? ledgerEvent.ReportedBalance.Value - calculatedBalance
                     : (decimal?)null;
-                if (ledgerEvent.ReportedBalance.HasValue)
+                // A derived midnight balance is not broker evidence of its own, so the latest reported balance stays the statement's.
+                if (ledgerEvent.ReportedBalance.HasValue && !ledgerEvent.IsDerived)
                 {
                     latestReportedBalance = ledgerEvent.ReportedBalance;
                     latestReportedVariance = variance;
+                    latestReportedSource = ledgerEvent.Entry.Source;
                 }
                 ledgerEvent.Entry = WithCalculation(ledgerEvent.Entry, calculatedBalance, variance, false);
             }
@@ -344,7 +353,9 @@ public sealed class AccountLedgerService
             : null;
         var statusMessages = new List<string>();
         if (hasInferredBaseline)
-            statusMessages.Add("Opening balance inferred from the earliest imported account-balance snapshot.");
+            statusMessages.Add(AccountBalanceCheckpoints.IsStatement(baselineSnapshot!)
+                ? "Opening balance taken from the earliest broker statement's opening cash balance."
+                : "Opening balance inferred from the earliest imported account-balance snapshot.");
         if (hasPreBaselineActivity)
             statusMessages.Add("Some activity predates the inferred account opening balance and is outside the calculated account period.");
         if (!hasPositiveCapitalBase)
@@ -368,6 +379,7 @@ public sealed class AccountLedgerService
             RealizedTwrPercent = realizedTwr,
             LatestReportedBalance = latestReportedBalance,
             LatestReportedVariance = latestReportedVariance,
+            LatestReportedSource = latestReportedSource,
             LatestActivityUtc = latestActivityUtc,
             HasActivity = actualEvents.Length > 0,
             HasInferredBaseline = hasInferredBaseline,
@@ -440,7 +452,7 @@ public sealed class AccountLedgerService
         decimal? balance = null;
         foreach (var item in ordered)
         {
-            if (!upTo(item)) continue;
+            if (item.IsDerived || !upTo(item)) continue;
             if (item.IsSnapshot && item.ReportedBalance.HasValue) balance = item.ReportedBalance;
             else if (balance.HasValue && !item.IsOpening && item.SignedAmount.HasValue) balance += item.SignedAmount.Value;
         }
@@ -468,8 +480,108 @@ public sealed class AccountLedgerService
         IsReadOnly = entry.IsReadOnly,
         IsOpeningBaseline = entry.IsOpeningBaseline,
         IsBeforeBaseline = beforeBaseline,
-        Note = entry.Note
+        Note = entry.Note,
+        NextStatementDifference = entry.NextStatementDifference,
+        NextStatementDescription = entry.NextStatementDescription
     };
+
+    private static LedgerEvent[] InLedgerOrder(IEnumerable<LedgerEvent> events) => events
+        .OrderBy(item => item.EffectiveUtc)
+        .ThenBy(item => item.Priority)
+        .ThenBy(item => item.TieUtc)
+        .ThenBy(item => item.TieNumber)
+        .ThenBy(item => item.TieId)
+        .ToArray();
+
+    /// <summary>
+    /// One balance at each journal midnight that follows a statement balance on the same journal day: the latest such
+    /// statement balance plus the cash flows and realized trades recorded after it and before midnight. Each is then
+    /// rolled forward to the next statement balance, and the difference from it is the check. Midnights that have not
+    /// happened yet, and statement balances before the account's opening baseline, give none.
+    /// </summary>
+    private static List<LedgerEvent> MidnightBalances(Journal journal, IReadOnlyList<LedgerEvent> ordered, DateTimeOffset? baselineUtc, DateTimeOffset nowUtc)
+    {
+        var zone = TimeZoneCatalog.Resolve(journal.TimeZone);
+        DateTimeOffset MidnightAfter(DateTimeOffset utc) =>
+            TimeZoneCatalog.FromLocal(TimeZoneInfo.ConvertTime(utc, zone).Date.AddDays(1), journal.TimeZone).ToUniversalTime();
+        static bool IsStatementBalance(LedgerEvent item) => item.IsStatement && item.ReportedBalance.HasValue;
+        static bool MovesBalance(LedgerEvent item) => !item.IsOpening && item.SignedAmount.HasValue;
+
+        var anchors = ordered
+            .Select((item, index) => (Item: item, Index: index))
+            .Where(x => IsStatementBalance(x.Item) && !(baselineUtc.HasValue && x.Item.EffectiveUtc < baselineUtc.Value))
+            .Select(x => (x.Item, x.Index, Midnight: MidnightAfter(x.Item.EffectiveUtc)))
+            .Where(x => x.Midnight <= nowUtc)
+            .GroupBy(x => x.Midnight)
+            .Select(g => g.Last());
+
+        var midnights = new List<LedgerEvent>();
+        foreach (var (anchor, anchorIndex, midnight) in anchors)
+        {
+            var balance = anchor.ReportedBalance!.Value;
+            var trades = 0;
+            var cashFlows = 0;
+            var next = anchorIndex + 1;
+            for (; next < ordered.Count && ordered[next].EffectiveUtc < midnight; next++)
+            {
+                var item = ordered[next];
+                if (!MovesBalance(item)) continue;
+                balance += item.SignedAmount!.Value;
+                if (item.IsTradePnl) trades++; else cashFlows++;
+            }
+
+            // Everything at or after midnight belongs to the next day; the next statement balance confirms the roll-forward.
+            decimal? difference = null;
+            var checkedAgainst = string.Empty;
+            var rolled = balance;
+            for (; next < ordered.Count; next++)
+            {
+                var item = ordered[next];
+                if (IsStatementBalance(item))
+                {
+                    difference = item.ReportedBalance!.Value - rolled;
+                    checkedAgainst = item.Entry.Description;
+                    break;
+                }
+                if (MovesBalance(item)) rolled += item.SignedAmount!.Value;
+            }
+
+            midnights.Add(new LedgerEvent
+            {
+                EffectiveUtc = midnight,
+                // Before anything at midnight itself, which starts the next journal day.
+                Priority = -2,
+                TieId = anchor.TieId,
+                IsSnapshot = true,
+                IsDerived = true,
+                ReportedBalance = balance,
+                Kind = "midnight_balance",
+                Entry = new AccountLedgerEntry
+                {
+                    EffectiveUtc = midnight,
+                    Kind = "midnight_balance",
+                    Label = "Midnight balance",
+                    Description = $"{anchor.Entry.Description}{ActivitySince(trades, cashFlows)}",
+                    Source = "Broker statement + journal",
+                    Account = anchor.Entry.Account,
+                    ReportedBalance = balance,
+                    IsReadOnly = true,
+                    Note = anchor.Entry.Note,
+                    NextStatementDifference = difference,
+                    NextStatementDescription = checkedAgainst
+                }
+            });
+        }
+        return midnights;
+    }
+
+    private static string ActivitySince(int trades, int cashFlows)
+    {
+        var parts = new List<string>();
+        if (trades > 0) parts.Add(trades == 1 ? "1 trade" : $"{trades} trades");
+        if (cashFlows > 0) parts.Add(cashFlows == 1 ? "1 account entry" : $"{cashFlows} account entries");
+        return parts.Count == 0 ? ", with no activity after it" : $", plus {string.Join(" and ", parts)} after it";
+    }
 
     private static DateTimeOffset Before(DateTimeOffset value) => value <= DateTimeOffset.MinValue
         ? DateTimeOffset.MinValue
@@ -480,6 +592,9 @@ public sealed class AccountLedgerService
         if (!string.IsNullOrWhiteSpace(snapshot.Note)) return snapshot.Note.Trim();
         return string.IsNullOrWhiteSpace(snapshot.Account) ? "Reported balance checkpoint" : $"Reported balance for {snapshot.Account}";
     }
+
+    private static string SnapshotSource(AccountBalanceEvent snapshot) =>
+        AccountBalanceCheckpoints.IsStatement(snapshot) ? "Broker statement" : "Imported account balance";
 
     private static string TradeDescription(Trade trade)
     {
@@ -503,6 +618,9 @@ public sealed class AccountLedgerService
         public decimal? ReportedBalance { get; init; }
         public bool IsTradePnl { get; init; }
         public bool IsSnapshot { get; init; }
+        public bool IsStatement { get; init; }
+        /// <summary>A midnight balance worked out from a statement balance, shown for comparison but never broker evidence itself.</summary>
+        public bool IsDerived { get; init; }
         public bool IsOpening { get; init; }
         public AccountLedgerEntry Entry { get; set; } = new();
     }

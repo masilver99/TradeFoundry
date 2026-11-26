@@ -204,6 +204,21 @@ public sealed class AccountBalanceCheckpointTests
     }
 
     [Fact]
+    public void MidnightBalancesAreListedWithTheBalances()
+    {
+        var (journal, trades) = EasternDays();
+        var statement = Statement(BrokerStatementKind.Daily, new(2026, 11, 23), new(2026, 11, 23), opening: 1_000m, newCash: 1_050m);
+        var checkpoints = AccountBalanceCheckpoints.FromStatements([statement]);
+
+        var balances = AccountLedgerService.Build(journal, [], trades, checkpoints, show: AccountLedgerShow.Balances, nowUtc: Now);
+        var tradesOnly = AccountLedgerService.Build(journal, [], trades, checkpoints, show: AccountLedgerShow.Trades, nowUtc: Now);
+
+        Assert.Equal(2, balances.Entries.Count(e => e.Kind == "midnight_balance"));
+        Assert.DoesNotContain(balances.Entries, e => e.TradeId.HasValue);
+        Assert.DoesNotContain(tradesOnly.Entries, e => e.Kind == "midnight_balance");
+    }
+
+    [Fact]
     public void PlatformBalancesGiveNoMidnightBalance()
     {
         var (journal, trades) = EasternDays();

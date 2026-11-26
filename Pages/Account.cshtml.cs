@@ -25,6 +25,8 @@ public sealed class AccountModel : PageModel
     [BindProperty(SupportsGet = true)] public Guid JournalId { get; set; }
     [BindProperty(SupportsGet = true)] public int PageNumber { get; set; } = 1;
     [BindProperty(SupportsGet = true, Name = "edit")] public Guid? EditId { get; set; }
+    /// <summary>The <see cref="AccountLedgerShow"/> row filter, kept across paging, edits, and saves.</summary>
+    [BindProperty(SupportsGet = true, Name = "show")] public string? Show { get; set; }
     [BindProperty] public AccountTransactionInput Input { get; set; } = new();
 
     public Journal? Journal { get; private set; }
@@ -33,6 +35,20 @@ public sealed class AccountModel : PageModel
     public JournalFilterScope Filter { get; private set; } = JournalFilter.None.Scope(null);
     public bool IsDateFiltered => Filter.HasDateBounds;
     public string FilterSuffix => Filter.Filter.ToQueryString() is { Length: > 0 } query ? "&" + query : string.Empty;
+    public bool IsShowFiltered => Ledger.Show != AccountLedgerShow.All;
+    public string ShowLabel => AccountLedgerShow.Options.FirstOrDefault(option => option.Value == Ledger.Show).Label ?? "All activity";
+
+    /// <summary>The account page URL keeping the row filter; <paramref name="query"/> adds more parameters.</summary>
+    public string AccountUrl(string? query = null)
+    {
+        var parts = new List<string>();
+        var show = AccountLedgerShow.Normalize(Show);
+        if (show.Length > 0) parts.Add($"show={Uri.EscapeDataString(show)}");
+        if (!string.IsNullOrEmpty(query)) parts.Add(query);
+        return parts.Count == 0 ? $"/journal/{JournalId:D}/account" : $"/journal/{JournalId:D}/account?{string.Join("&", parts)}";
+    }
+
+    public string PageUrl(int page) => AccountUrl($"page={page}{FilterSuffix}") + "#account-ledger";
     public AccountTransaction? EditingTransaction { get; private set; }
     public string? FlashMessage { get; private set; }
     public string? FlashKind { get; private set; }
@@ -82,7 +98,7 @@ public sealed class AccountModel : PageModel
         });
         TempData["FlashMessage"] = "Account entry added.";
         TempData["FlashKind"] = "success";
-        return Redirect($"/journal/{JournalId:D}/account");
+        return Redirect(AccountUrl());
     }
 
     public IActionResult OnPostUpdate(Guid transactionId, int expectedRevision)
@@ -116,12 +132,12 @@ public sealed class AccountModel : PageModel
         {
             TempData["FlashMessage"] = "That account entry no longer exists.";
             TempData["FlashKind"] = "error";
-            return Redirect($"/journal/{JournalId:D}/account");
+            return Redirect(AccountUrl());
         }
 
         TempData["FlashMessage"] = "Account entry updated.";
         TempData["FlashKind"] = "success";
-        return Redirect($"/journal/{JournalId:D}/account");
+        return Redirect(AccountUrl());
     }
 
     public IActionResult OnPostDelete(Guid transactionId, int expectedRevision)
@@ -140,12 +156,12 @@ public sealed class AccountModel : PageModel
         {
             TempData["FlashMessage"] = "That account entry no longer exists.";
             TempData["FlashKind"] = "error";
-            return Redirect($"/journal/{JournalId:D}/account");
+            return Redirect(AccountUrl());
         }
 
         TempData["FlashMessage"] = "Account entry deleted.";
         TempData["FlashKind"] = "success";
-        return Redirect($"/journal/{JournalId:D}/account");
+        return Redirect(AccountUrl());
     }
 
     private bool ValidateInput()
@@ -172,7 +188,7 @@ public sealed class AccountModel : PageModel
         if (Journal is null) return;
 
         Filter = JournalFilterRequest.Resolve(HttpContext, Journal, datesOnly: true);
-        Ledger = _accounts.GetLedger(JournalId, PageNumber, AccountLedgerService.DefaultPageSize, Filter.StartUtc, Filter.EndUtcExclusive);
+        Ledger = _accounts.GetLedger(JournalId, PageNumber, AccountLedgerService.DefaultPageSize, Filter.StartUtc, Filter.EndUtcExclusive, Show);
         EditingTransaction = EditId.HasValue
             ? _database.GetAccountTransaction(JournalId, EditId.Value)
             : null;

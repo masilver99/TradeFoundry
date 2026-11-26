@@ -375,6 +375,50 @@ public sealed class AccountLedgerTests
         }
     }
 
+    [Fact]
+    public void ShowFilterNarrowsRowsButKeepsFullHistoryBalances()
+    {
+        var journalId = Guid.NewGuid();
+        var start = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
+        var journal = Journal(journalId, 1_000m, start);
+        var deposit = Transaction(journalId, AccountTransactionType.Deposit, 500m, start.AddDays(1), 1);
+        var withdrawal = Transaction(journalId, AccountTransactionType.Withdrawal, 100m, start.AddDays(3), 1);
+        var correction = Transaction(journalId, AccountTransactionType.Correction, -25m, start.AddDays(4), 1);
+        var trade = Trade(journalId, 200m, start.AddDays(2), 1);
+        var snapshot = Snapshot(journalId, 1_700m, start.AddDays(2).AddHours(1), 1);
+
+        AccountLedgerPage Show(string? show) => AccountLedgerService.Build(journal, [deposit, withdrawal, correction], [trade], [snapshot], show: show);
+
+        var manual = Show(AccountLedgerShow.Manual);
+        Assert.Equal(AccountLedgerShow.Manual, manual.Show);
+        Assert.Equal(["correction", "withdrawal", "deposit"], manual.Entries.Select(entry => entry.Kind));
+        Assert.All(manual.Entries, entry => Assert.False(entry.IsReadOnly));
+        Assert.Equal(1_575m, manual.Entries[0].CalculatedBalance);
+        Assert.Equal(1_575m, manual.Summary.CurrentBalance);
+
+        Assert.Equal(["withdrawal"], Show(AccountLedgerShow.Withdrawals).Entries.Select(entry => entry.Kind));
+        Assert.Equal(["realized_trade_pnl"], Show(AccountLedgerShow.Trades).Entries.Select(entry => entry.Kind));
+        Assert.Equal(["imported_balance", "opening_balance"], Show(AccountLedgerShow.Balances).Entries.Select(entry => entry.Kind));
+        Assert.Equal(6, Show(null).TotalCount);
+        Assert.Equal(AccountLedgerShow.All, Show("bogus").Show);
+        Assert.Equal(6, Show("bogus").TotalCount);
+    }
+
+    [Fact]
+    public void PagePastTheEndShowsTheLastPage()
+    {
+        var journalId = Guid.NewGuid();
+        var start = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
+        var journal = Journal(journalId, 1_000m, start);
+        var deposits = Enumerable.Range(1, 5).Select(day => Transaction(journalId, AccountTransactionType.Deposit, 10m, start.AddDays(day), 1)).ToArray();
+
+        var ledger = AccountLedgerService.Build(journal, deposits, [], [], page: 9, pageSize: 2, show: AccountLedgerShow.Manual);
+
+        Assert.Equal(3, ledger.Page);
+        Assert.Equal(3, ledger.PageCount);
+        Assert.Single(ledger.Entries);
+    }
+
     private static Journal Journal(Guid id, decimal? startingEquity, DateTimeOffset createdUtc) => new()
     {
         Id = id, Name = "Test", TimeZone = "UTC", Currency = "USD", StartingEquity = startingEquity, CreatedUtc = createdUtc

@@ -678,12 +678,53 @@ public sealed class AccountPeriodSummary
     public int RowCount { get; init; }
 }
 
+/// <summary>Which account-ledger rows to list. Balances always come from the full history; this only narrows the rows shown.</summary>
+public static class AccountLedgerShow
+{
+    public const string All = "";
+    public const string Manual = "manual";
+    public const string Deposits = "deposit";
+    public const string Withdrawals = "withdrawal";
+    public const string Corrections = "correction";
+    public const string Trades = "trades";
+    public const string Balances = "balances";
+
+    public static readonly IReadOnlyList<(string Value, string Label)> Options =
+    [
+        (All, "All activity"),
+        (Manual, "Manual entries"),
+        (Deposits, "Deposits"),
+        (Withdrawals, "Withdrawals"),
+        (Corrections, "Corrections"),
+        (Trades, "Realized trades"),
+        (Balances, "Balances & opening")
+    ];
+
+    /// <summary>A known filter value, or <see cref="All"/> for anything else.</summary>
+    public static string Normalize(string? value)
+    {
+        var trimmed = value?.Trim().ToLowerInvariant() ?? string.Empty;
+        return Options.Any(option => option.Value == trimmed) ? trimmed : All;
+    }
+
+    public static bool Matches(string show, AccountLedgerEntry entry) => show switch
+    {
+        Manual => entry.TransactionId.HasValue,
+        Deposits or Withdrawals or Corrections => entry.TransactionId.HasValue && entry.Kind == show,
+        Trades => entry.TradeId.HasValue,
+        Balances => !entry.TransactionId.HasValue && !entry.TradeId.HasValue,
+        _ => true
+    };
+}
+
 public sealed class AccountLedgerPage
 {
     public AccountSummary Summary { get; init; } = new();
     /// <summary>Set when the ledger is limited to a date range.</summary>
     public AccountPeriodSummary? Period { get; init; }
     public IReadOnlyList<AccountLedgerEntry> Entries { get; init; } = Array.Empty<AccountLedgerEntry>();
+    /// <summary>The <see cref="AccountLedgerShow"/> filter applied to <see cref="Entries"/>.</summary>
+    public string Show { get; init; } = AccountLedgerShow.All;
     public int Page { get; init; }
     public int PageSize { get; init; }
     public int TotalCount { get; init; }

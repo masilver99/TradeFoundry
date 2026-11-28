@@ -151,6 +151,8 @@ WebApplication BuildApplication(bool firstStart)
         services.GetRequiredService<TradeFoundryDb>(),
         services.GetRequiredService<MarketDayFeatureCacheService>()));
     builder.Services.AddSingleton<TradingSetupService>();
+    builder.Services.AddSingleton<PatternDiscoveryWorker>();
+    builder.Services.AddHostedService(services => services.GetRequiredService<PatternDiscoveryWorker>());
     builder.Services.AddSingleton<McpTokenService>();
     builder.Services.AddSingleton<JournalAnalysisService>();
     builder.Services.AddSingleton<OrderExecutionSummaryService>();

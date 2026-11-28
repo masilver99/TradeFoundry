@@ -1,0 +1,201 @@
+@page "/journal/{journalId:guid}/patterns"
+@model TradeFoundry.Pages.PatternsModel
+@using System.Globalization
+@using TradeFoundry.Core
+@{
+    ViewData["Title"] = "Pattern Discovery";
+    ViewData["PageKicker"] = "TRADEFOUNDRY / ANALYZE";
+    ViewData["ActiveNav"] = "patterns";
+
+    string Signed(decimal? value) => value?.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture) ?? "—";
+    string Points(decimal? value) => value?.ToString("0.00", CultureInfo.CurrentCulture) ?? "—";
+    string Tone(decimal? value) => value > 0 ? "text-success" : value < 0 ? "text-danger" : "text-secondary";
+    var report = Model.Report;
+}
+
+<div class="tf-page-intro d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+    <div>
+        <p class="text-secondary mb-1">Find entry conditions that repeatedly helped or hurt your Sierra Chart trades.</p>
+        @if (Model.Snapshot is { } snapshot)
+        {
+            <p class="text-secondary small mb-0">
+                <time datetime="@snapshot.ScannedUtc.ToString("O")">Last scan @snapshot.ScannedUtc.ToString("MMM d, yyyy HH:mm 'UTC'")</time>
+                <span class="ms-2">· @(Model.IsCurrent ? "Up to date" : "Update pending")</span>
+            </p>
+        }
+    </div>
+    <form method="post" asp-page-handler="Check" asp-route-instrument="@report?.Instrument">
+        <button class="btn btn-outline-secondary" type="submit">Check for new data</button>
+    </form>
+</div>
+
+@if (Model.Message is { } message)
+{
+    <div class="alert alert-warning" role="status">@message</div>
+}
+
+@if (Model.Snapshot is null)
+{
+    <div class="card tf-card"><div class="card-body">
+        <p>The first scan is queued. TradeFoundry will recheck automatically when new evidence is imported.</p>
+        <a asp-page="/Patterns" asp-route-journalId="@Model.JournalId">Reload results</a>
+    </div></div>
+}
+else if (report is null)
+{
+    <div class="card tf-card"><div class="card-body">
+        Import Sierra Chart ES or MES fills and matching one-minute bars to start discovering patterns.
+        <a asp-page="/Imports" asp-route-journalId="@Model.JournalId">Open Imports</a>
+    </div></div>
+}
+else
+{
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <nav class="btn-list" aria-label="Instrument">
+            @foreach (var instrument in Model.Snapshot.Instruments)
+            {
+                <a class="btn @(instrument.Instrument == report.Instrument ? "btn-primary" : "btn-outline-secondary")"
+                   asp-page="/Patterns" asp-route-journalId="@Model.JournalId" asp-route-instrument="@instrument.Instrument"
+                   aria-current="@(instrument.Instrument == report.Instrument ? "page" : null)">@instrument.Instrument</a>
+            }
+        </nav>
+        @if (report.TradeCount > 0)
+        {
+            <span class="text-secondary small">@report.FirstDate.ToString("MMM d, yyyy") – @report.LastDate.ToString("MMM d, yyyy") · ET</span>
+        }
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3"><div class="card tf-card h-100"><div class="card-body">
+            <div class="text-secondary small">Closed Sierra trades</div>
+            <div class="h2 mb-0">@report.TradeCount.ToString("N0")</div>
+        </div></div></div>
+        <div class="col-6 col-lg-3"><div class="card tf-card h-100"><div class="card-body">
+            <div class="text-secondary small">With a pre-entry candle</div>
+            <div class="h2 mb-0">@report.BarCount.ToString("N0")</div>
+        </div></div></div>
+        <div class="col-6 col-lg-3"><div class="card tf-card h-100"><div class="card-body">
+            <div class="text-secondary small">Median entry ATR</div>
+            <div class="h2 mb-0">@Points(report.MedianAtrPoints) <small>pts</small></div>
+            <small class="text-secondary">@report.AtrCount.ToString("N0") trades</small>
+        </div></div></div>
+        <div class="col-6 col-lg-3"><div class="card tf-card h-100"><div class="card-body">
+            <div class="text-secondary small">Median favorable excursion</div>
+            <div class="h2 mb-0">@Points(report.MedianMfeAtr) <small>× ATR</small></div>
+            <small class="text-secondary">@report.MfeCount.ToString("N0") trades with ATR and MFE</small>
+        </div></div></div>
+    </div>
+
+    <details class="mb-4">
+        <summary class="link-secondary">How candidates are evaluated</summary>
+        <div class="text-secondary small mt-2">
+            @if (report.ValidationStart is { } start)
+            {
+                <p>Rules were screened before @start.ToString("MMM d, yyyy"), then checked from that date onward. The recent column uses the latter half of that validation period.</p>
+            }
+            <p>Discovery and validation each need at least 20 matching trades across 10 trading days and 20 comparable trades. Lift is the after-fee difference in points per contract versus comparable trades, with trading days weighted equally. The lift must point in the same direction after dropping the day that supports it most. Entry comparisons use account, side, time of day and first-fill size where applicable.</p>
+            <p class="mb-0">ATR is a 14-period average true range of completed one-minute candles. Favorable excursion is the move observed while a position was open. The results describe historical trades you took. They do not measure skipped opportunities or simulate alternative orders.</p>
+        </div>
+    </details>
+
+    var sections = new[] {
+        (Name: "Candidate setups", Id: "candidate-setups", Items: report.Findings.Where(item => !item.Management && !item.Weakened && item.Direction > 0).ToArray(),
+            Copy: "No entry pattern has qualified as a setup yet."),
+        (Name: "Conditions to avoid", Id: "avoid-conditions", Items: report.Findings.Where(item => !item.Management && !item.Weakened && item.Direction < 0).ToArray(),
+            Copy: "No entry condition has qualified for an avoid flag yet."),
+        (Name: "Trade management", Id: "trade-management", Items: report.Findings.Where(item => item.Management && !item.Weakened).ToArray(),
+            Copy: "No stop or target pattern has enough repeatable evidence yet."),
+        (Name: "Weakened findings", Id: "weakened-findings", Items: report.Findings.Where(item => item.Weakened).ToArray(), Copy: "")
+    };
+
+    @foreach (var group in sections.Where(item => item.Copy.Length > 0 || item.Items.Length > 0))
+    {
+        <section class="mb-4" aria-labelledby="@group.Id">
+            <h2 class="h3 mb-2" id="@group.Id">@group.Name</h2>
+            @if (group.Id == "trade-management")
+            {
+                <p class="text-secondary small">
+                    @report.StopCount.ToString("N0") trades had both ATR and a linked, full-size working protective stop near entry.
+                    @report.Management.Targets.ToString("N0") also had a linked profit target.
+                    Break-even uses the entry price before fees. Its comparison includes trades still open at 3 minutes.
+                    Trailing comparisons include trades still open at 5 minutes. Both account for the price move already observed by that time.
+                </p>
+                <ul class="list-inline small">
+                    <li class="list-inline-item me-3"><strong>@report.Management.BreakEvenReached / @report.Management.BreakEvenEligible</strong> reached break-even by 3 minutes</li>
+                    <li class="list-inline-item me-3"><strong>@report.Management.TrailingAdjusted / @report.Management.TrailingEligible</strong> had two favorable adjustments by 5 minutes</li>
+                    <li class="list-inline-item"><strong>@report.Management.NativeTrailing / @report.Management.TrailingEligible</strong> had a Sierra trailing order at 5 minutes</li>
+                </ul>
+            }
+            @if (group.Items.Length == 0)
+            {
+                <p class="text-secondary mb-0">@group.Copy</p>
+            }
+            <div class="row g-3">
+                @foreach (var finding in group.Items)
+                {
+                    <div class="col-12 col-xl-6">
+                        <article class="card tf-card h-100">
+                            <div class="card-body">
+                                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                                    <h3 class="h4 mb-0">@string.Join(" + ", finding.Criteria)</h3>
+                                    @if (finding.Weakened)
+                                    {
+                                        <span class="badge bg-yellow-lt">Weakened</span>
+                                    }
+                                    else if (finding.Management)
+                                    {
+                                        <span class="badge @(finding.Direction > 0 ? "bg-green-lt" : "bg-red-lt")">@(finding.Direction > 0 ? "Favorable association" : "Unfavorable association")</span>
+                                    }
+                                </div>
+                                <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
+                                    <span class="h2 mb-0 @Tone(finding.Validation.MatchedLift)">@Signed(finding.Validation.MatchedLift)</span>
+                                    <span class="text-secondary small">pts/contract vs. peers in validation</span>
+                                </div>
+                                <p class="text-secondary small mb-2">
+                                    @finding.Validation.Trades trades · @finding.Validation.Days days · @finding.Validation.ComparisonTrades comparable trades
+                                </p>
+                                <details>
+                                    <summary>View evidence</summary>
+                                    <div class="table-responsive mt-2">
+                                        <table class="table table-sm table-vcenter mb-2">
+                                            <thead><tr><th scope="col">Window</th><th scope="col">Trades / days</th><th scope="col">Net pts / contract</th><th scope="col">Lift</th><th scope="col">Net P&amp;L (@Model.Journal?.Currency)</th></tr></thead>
+                                            <tbody>
+                                                @foreach (var cohort in new[] { (Label: "Discovery", Value: finding.Discovery), (Label: "Validation", Value: finding.Validation), (Label: "Recent", Value: finding.Recent) })
+                                                {
+                                                    <tr><th scope="row">@cohort.Label</th><td>@cohort.Value.Trades / @cohort.Value.Days</td>
+                                                        <td class="@Tone(cohort.Value.NetPointsPerContract)">@Signed(cohort.Value.NetPointsPerContract)</td>
+                                                        <td class="@Tone(cohort.Value.MatchedLift)">@Signed(cohort.Value.MatchedLift)</td>
+                                                        <td class="@Tone(cohort.Value.NetPnl)">@Signed(cohort.Value.NetPnl)</td></tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    @if (finding.Examples.Count > 0)
+                                    {
+                                        <ul class="list-unstyled small mb-2" aria-label="Example trades">
+                                            @foreach (var example in finding.Examples)
+                                            {
+                                                <li><a asp-page="/Review" asp-route-journalId="@Model.JournalId" asp-route-date="@example.ReviewDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" asp-route-focus="@example.ReviewKey">@example.ReviewDate.ToString("MMM d, yyyy")</a>
+                                                    <span class="@Tone(example.NetPnl) ms-1">@Signed(example.NetPnl) @Model.Journal?.Currency</span></li>
+                                            }
+                                        </ul>
+                                    }
+                                    @if (Model.IsCurrent && !finding.Weakened && !finding.Management && finding.Direction > 0)
+                                    {
+                                        <form method="post" asp-page-handler="SaveSetup" asp-route-instrument="@report.Instrument" class="mt-3">
+                                            <input type="hidden" name="findingKey" value="@finding.Key" />
+                                            <label class="form-label">Playbook setup name
+                                                <input class="form-control mt-1" name="setupName" maxlength="120" required />
+                                            </label>
+                                            <button class="btn btn-sm btn-outline-primary" type="submit">Save to Setups</button>
+                                        </form>
+                                    }
+                                </details>
+                            </div>
+                        </article>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+}

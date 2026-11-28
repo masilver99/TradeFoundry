@@ -188,6 +188,7 @@ public sealed partial class TradeFoundryDb
         InitializeAiPrompts(connection);
         InitializeBackup(connection);
         InitializeBrokerStatements(connection);
+        InitializePatternDiscovery(connection);
 
         // The application started without migrations, so keep schema upgrades
         // additive and idempotent for existing local SQLite files.
@@ -3794,7 +3795,7 @@ public sealed partial class TradeFoundryDb
         command.Parameters.AddWithValue("$journal", journalId.ToString("D"));
         command.Parameters.AddWithValue("$batch", state.ImportBatchId?.ToString("D") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$source", DerivedFillSource);
-        command.Parameters.AddWithValue("$key", $"{state.EntrySourceKey}:{sequence}");
+        command.Parameters.AddWithValue("$key", DerivedTradeSourceKey(state, sequence));
         command.Parameters.AddWithValue("$grouping", groupingPolicy);
         command.Parameters.AddWithValue("$sequence", sequence);
         command.Parameters.AddWithValue("$symbol", state.Symbol);
@@ -3849,6 +3850,8 @@ public sealed partial class TradeFoundryDb
             allocationCommand.ExecuteNonQuery();
         }
     }
+
+    private static string DerivedTradeSourceKey(PositionState state, int sequence) => $"{state.EntrySourceKey}:{sequence}";
 
     private static List<Fill> ReadFills(SqliteConnection connection, SqliteTransaction transaction, Guid journalId)
     {
@@ -4974,6 +4977,7 @@ public sealed partial class TradeFoundryDb
     {
         private PositionState(Fill fill, int direction, int quantity)
         {
+            FirstOpeningFill = fill;
             Symbol = fill.Symbol; Instrument = string.IsNullOrWhiteSpace(fill.Instrument) ? InstrumentCatalog.ExtractRoot(fill.Symbol) : fill.Instrument; Account = fill.Account; Direction = direction > 0 ? "Long" : "Short"; PointValue = fill.PointValue > 0m ? fill.PointValue : InstrumentCatalog.Resolve(Instrument).PointValue; TickSize = fill.TickSize > 0m ? fill.TickSize : InstrumentCatalog.Resolve(Instrument).TickSize; ExchangeFeePerContract = fill.ExchangeFeePerContract; NfaFeePerContract = fill.NfaFeePerContract; ClearingFeePerContract = fill.ClearingFeePerContract; HasFeeBreakdown = fill.ExchangeFeePerContract.HasValue || fill.NfaFeePerContract.HasValue || fill.ClearingFeePerContract.HasValue; SignedQuantity = direction * quantity; OpenQuantity = quantity; MaxOpenQuantity = quantity; EntryCost = fill.Price * quantity; EntryUtc = fill.EventUtc; EntrySourceKey = fill.SourceKey; ImportBatchId = fill.ImportBatchId; SourceTimeframe = fill.SourceTimeframe; if (HasFeeBreakdown) AddBreakdownFees(fill, quantity); else Fees = fill.Fees; EntryReferences.Add(OrderReference.From(fill, quantity)); OpeningKeys.Add(fill.SourceKey.Trim()); Notes.Add(fill.Note); AddExcursion(fill, fill.Price, direction);
         }
 
@@ -5004,6 +5008,8 @@ public sealed partial class TradeFoundryDb
         public decimal? MaePoints { get; private set; }
         public decimal? MfePoints { get; private set; }
         public DateTimeOffset EntryUtc { get; }
+        public Fill FirstOpeningFill { get; }
+        public DateTimeOffset? FirstExitUtc { get; private set; }
         public DateTimeOffset? LastExitUtc { get; private set; }
         public string LastExitType { get; private set; } = string.Empty;
         public string EntrySourceKey { get; }
@@ -5047,6 +5053,7 @@ public sealed partial class TradeFoundryDb
             EntryCost -= entryAverage * quantity;
             OpenQuantity -= quantity;
             SignedQuantity = direction * OpenQuantity;
+            FirstExitUtc ??= fill.EventUtc;
             LastExitUtc = fill.EventUtc;
             LastExitType = ClassifyExitType(fill.OrderType);
             Notes.Add(fill.Note);

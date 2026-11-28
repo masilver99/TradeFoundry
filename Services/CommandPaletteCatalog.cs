@@ -56,6 +56,7 @@ public static class CommandPaletteCatalog
         Page("Tax Liability", "/tax-liability", "Taxes", "Tax estimates");
         Page("Expenses", "/expenses", "Receipts", "Trading expenses", "Software costs");
         Page("Analytics", "/analytics", "Analysis", "Reports");
+        Page("Pattern Discovery", "/patterns", "Setups", "Avoid", "ATR", "Break-even", "Trailing stop");
         Page("Indicators", "/indicators", "Metrics", "Statistics");
         Page("Broker Costs", "/broker-comparison", "Commissions", "Fees", "Broker comparison");
         Page("Trade Review", "/review", "Daybook", "Daily review", "Daybook review", "Review");

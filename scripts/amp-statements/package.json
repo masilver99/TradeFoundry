@@ -1,0 +1,13 @@
+{
+  "name": "amp-statements",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Download AMP Client Portal account statement PDFs with Playwright",
+  "type": "module",
+  "scripts": {
+    "download": "node download.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.65.1"
+  }
+}
